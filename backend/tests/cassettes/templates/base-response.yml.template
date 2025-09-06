@@ -1,0 +1,81 @@
+request:
+  method: POST
+  uri: https://wirelesstag.net/ethClient.asmx/GetTagList
+  body:
+    encoding: UTF-8
+    string: '{"id":"{{DEVICE_ID}}"}'
+  headers:
+    Content-Type:
+      - application/json; charset=utf-8
+    Authorization:
+      - Bearer ***MASKED***
+    User-Agent:
+      - HotTubController/1.0
+    Accept:
+      - application/json
+response:
+  status:
+    code: 200
+    message: OK
+  headers:
+    Cache-Control:
+      - private, max-age=0
+    Content-Type:
+      - application/json; charset=utf-8
+    Date:
+      - Thu, 05 Sep 2024 21:00:00 GMT
+    Server:
+      - Microsoft-IIS/10.0
+    Content-Length:
+      - '512'
+  body:
+    encoding: UTF-8
+    string: |
+      {
+        "d": [
+          {
+            "__type": "MyTagList.tag",
+            "managerName": "WirelessTag Manager",
+            "mac": "001122334455",
+            "uuid": "{{DEVICE_ID}}",
+            "name": "Hot tub temperature",
+            "comment": "",
+            "slaveId": 1,
+            "tagType": 13,
+            "lastComm": {{TIMESTAMP}},
+            "alive": true,
+            "signaldBm": {{SIGNAL_STRENGTH}},
+            "batteryVolt": {{BATTERY_VOLTAGE}},
+            "beeping": false,
+            "lit": false,
+            "migrationPending": false,
+            "beepDurationDefault": 5,
+            "eventState": 0,
+            "tempSpuriousCount": 0,
+            "capSpuriousCount": 0,
+            "lux": 0,
+            "temperature": {{WATER_TEMP_C}},
+            "cap": {{AMBIENT_TEMP_C}},
+            "capRaw": 0.5,
+            "az": 0,
+            "ax": 0,
+            "ay": 1,
+            "tempEventState": 0,
+            "capEventState": 0,
+            "lightEventState": 0,
+            "magState": 0,
+            "version1": 2,
+            "freqOffset": 12,
+            "freqCalApplied": 16777230,
+            "reviveEvery": 43200,
+            "oorGrace": 43200,
+            "LBTh": 2.6,
+            "enLBN": true,
+            "txpwr": 16,
+            "postBackInterval": 600,
+            "postBackIntervalHibernated": 43200,
+            "beepOnPostBack": false
+          }
+        ]
+      }
+recorded_at: Thu, 05 Sep 2024 21:00:00 GMT
