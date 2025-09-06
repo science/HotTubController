@@ -21,6 +21,12 @@ storage/test_tokens.json
 # Logs
 storage/logs/*.log
 
+# Composer PHAR
+composer.phar
+
+# Generated VCR cassettes (test artifacts)
+tests/cassettes/generated/
+
 # OS files
 .DS_Store
 Thumbs.db
