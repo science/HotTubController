@@ -2,7 +2,7 @@
     "name": "hot-tub-controller/proxy",
     "description": "Hot Tub Controller PHP CORS Proxy API",
     "type": "project",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "require": {
         "php": ">=8.1",
         "slim/slim": "^4.13",
