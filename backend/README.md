@@ -308,26 +308,25 @@ RUN chmod -R 755 storage/
 EXPOSE 80
 ```
 
-## 🔮 What's Next (Planned Features)
+## 🔮 What's Next
 
-### Cron Management System
-- Dynamic cron job creation and removal
-- `HOT_TUB_START` and `HOT_TUB_MONITOR` event types
-- Secure API key authentication for cron-triggered endpoints
-- Orphaned cron cleanup utilities
+With the storage system and API infrastructure complete, we're ready for **Phase 1: Heating Control APIs**.
 
-### Heating Control APIs  
-- `/api/start-heating`: Begin new heating cycle with temperature monitoring
-- `/api/monitor-temp`: Temperature checking with intelligent rescheduling  
-- `/api/stop-heating`: Emergency stop with complete cron cleanup
-- Time-to-heat estimation algorithms based on historical data
+### **🎯 NEXT STEP: CronManager Implementation** 
+The immediate next development task is implementing the CronManager system to handle:
+- Dynamic cron job creation/removal with security
+- `HOT_TUB_START` and `HOT_TUB_MONITOR` event scheduling
+- Orphaned cron cleanup and maintenance utilities
 
-### Advanced Features
-- Web dashboard for real-time monitoring
-- Historical heating performance analytics
-- Mobile-responsive interface
-- Email/SMS notifications for heating events
-- Machine learning temperature prediction
+### **📋 Complete Development Roadmap**
+See [**ROADMAP.md**](./ROADMAP.md) for detailed implementation phases:
+
+- **Phase 1**: Core heating control APIs (2-3 weeks) ← **WE ARE HERE**
+- **Phase 2**: Web interface foundation (3-4 weeks)  
+- **Phase 3**: Advanced features (4-6 weeks)
+- **Phase 4**: Production deployment (2-3 weeks)
+
+The roadmap includes specific implementation order, success criteria, and technical details for each component.
 
 ## 🤝 Contributing
 
