@@ -44,8 +44,9 @@ src/
 ## 🚀 What's Implemented
 
 ### ✅ External API Integration
-- **WirelessTag API Client** with OAuth 2.0 authentication
+- **WirelessTag API Client** with OAuth 2.0 authentication and test mode support
 - **IFTTT Webhook Client** with comprehensive safety features
+- **Factory Pattern**: Environment-aware client creation with automatic test mode detection
 - VCR (Video Cassette Recorder) testing for reliable API mocking
 - Retry logic with exponential backoff for network resilience
 
@@ -58,9 +59,10 @@ src/
 - **File Management**: Automatic rotation, compression, and cleanup of old data files
 
 ### ✅ Safety & Testing Infrastructure
-- **Environment Detection**: Automatic test mode when IFTTT API key is missing
+- **Environment Detection**: Automatic test mode when API keys are missing/invalid
 - **Dual Environment Strategy**: Separate `.env` and `.env.testing` configurations
-- **Comprehensive Test Suite**: 140+ unit tests with 502+ assertions
+- **Comprehensive Test Suite**: 346+ unit and integration tests (all passing)
+- **Test Mode Support**: Both WirelessTag and IFTTT clients support deterministic testing
 - **VCR Temperature Simulation**: Realistic heating cycle testing without live APIs
 - **Audit Logging**: Complete operation tracking for safety and debugging
 
