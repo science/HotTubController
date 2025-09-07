@@ -1,0 +1,33 @@
+---
+http_interactions:
+  - request:
+      method: GET
+      uri: https://maker.ifttt.com/trigger/turn-on-hot-tub-ionizer/with/key/test-api-key-for-vcr
+      body:
+        encoding: US-ASCII
+        string: ""
+      headers:
+        User-Agent:
+          - HotTubController/1.0
+        Accept:
+          - "*/*"
+    response:
+      status:
+        code: 200
+        message: OK
+      headers:
+        Date:
+          - "Fri, 06 Sep 2024 18:29:49 GMT"
+        Content-Type:
+          - text/plain
+        Content-Length:
+          - "52"
+        Connection:
+          - keep-alive
+        Server:
+          - nginx/1.18.0
+      body:
+        encoding: UTF-8
+        string: "Congratulations! You've fired the turn-on-hot-tub-ionizer event"
+    recorded_at: Fri, 06 Sep 2024 18:29:49 GMT
+recorded_with: VCR 1.8.0

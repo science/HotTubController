@@ -5,8 +5,17 @@ declare(strict_types=1);
 use Monolog\Logger;
 
 // Load environment variables
-if (file_exists(__DIR__ . '/../.env')) {
-    $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
+// Use .env.testing if APP_ENV is set to testing, otherwise use .env
+$envFile = '.env';
+if (isset($_ENV['APP_ENV']) && $_ENV['APP_ENV'] === 'testing' && file_exists(__DIR__ . '/../.env.testing')) {
+    $envFile = '.env.testing';
+} elseif (file_exists(__DIR__ . '/../.env.testing') && !file_exists(__DIR__ . '/../.env')) {
+    // Fallback to .env.testing if .env doesn't exist (useful for CI/testing environments)
+    $envFile = '.env.testing';
+}
+
+if (file_exists(__DIR__ . '/../' . $envFile)) {
+    $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../', $envFile);
     $dotenv->load();
 }
 

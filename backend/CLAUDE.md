@@ -37,7 +37,69 @@ make serve-test       # Start test server at localhost:8081
 php test-external-apis.php              # Test WirelessTag & IFTTT API connectivity
 php test-wirelesstag-client.php         # Test WirelessTag API client with VCR
 php demo-vcr-temperature-simulation.php # Demo VCR temperature simulation system
+php record-ifttt-webhooks.php          # Record IFTTT webhook responses (TRIGGERS HARDWARE!)
 ```
+
+### IFTTT Testing and Safety
+
+**CRITICAL: IFTTT webhooks control real hardware!** The system has multiple safety layers:
+
+#### Environment Safety Strategy
+- **Production** (`.env`): Contains `IFTTT_WEBHOOK_KEY` for real hardware control
+- **Testing** (`.env.testing`): INTENTIONALLY omits `IFTTT_WEBHOOK_KEY` to prevent hardware triggers
+- **Automatic detection**: Test environment forces safe mode regardless of configuration
+
+#### Safe Testing Commands
+```bash
+# All tests run in safe mode automatically
+make test                    # Runs all tests safely (no hardware access)
+make test-unit              # Unit tests with simulated responses
+make test-integration       # Integration tests using VCR cassettes
+
+# Manual testing with safety modes
+php -d APP_ENV=testing test-external-apis.php  # Force test mode
+```
+
+#### Recording VCR Cassettes (DANGER: Hardware Control)
+```bash
+# This WILL trigger real hardware - use with extreme caution!
+php record-ifttt-webhooks.php
+
+# Safety features in recording script:
+# - Uses production .env with real API key
+# - Requires explicit confirmation for each webhook
+# - 5-second countdown with abort option
+# - Logs all operations for audit trail
+# - Prompts to observe hardware behavior
+```
+
+#### IFTTT Client Safety Features
+- **Test Mode**: Automatically activated when API key is missing
+- **Dry Run Mode**: Logs operations but makes no HTTP calls
+- **Audit Logging**: All operations logged to `storage/logs/ifttt-audit.log`
+- **Environment Detection**: Refuses production operations in test environment
+- **Simulation**: Realistic response timing and behavior for testing
+
+#### Factory Pattern Usage
+```php
+use HotTubController\Services\IftttWebhookClientFactory;
+
+// Safe: Auto-detects environment, uses test mode when appropriate
+$client = IftttWebhookClientFactory::create();
+
+// Safe: Always operates in safe mode regardless of environment
+$client = IftttWebhookClientFactory::createSafe();
+
+// Dangerous: Requires explicit API key, refuses to run in test env
+$client = IftttWebhookClientFactory::createProduction('real-api-key');
+```
+
+#### Hardware Event Mapping
+Based on Tasker XML analysis, these events control physical equipment:
+- `hot-tub-heat-on`: Starts pump → waits for circulation → activates heater
+- `hot-tub-heat-off`: Stops heater → continues pump for cooling → stops pump
+- `turn-on-hot-tub-ionizer`: Activates ionizer system
+- `turn-off-hot-tub-ionizer`: Deactivates ionizer system
 
 ## Architecture Overview
 
