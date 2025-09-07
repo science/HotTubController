@@ -6,14 +6,24 @@ use DI\ContainerBuilder;
 use HotTubController\Application\Actions\Admin\CreateUserAction;
 use HotTubController\Application\Actions\Admin\ListUsersAction;
 use HotTubController\Application\Actions\Auth\AuthenticateAction;
+use HotTubController\Application\Actions\Heating\MonitorTempAction;
+use HotTubController\Application\Actions\Heating\StartHeatingAction;
+use HotTubController\Application\Actions\Heating\StopHeatingAction;
 use HotTubController\Application\Actions\Proxy\ProxyRequestAction;
 use HotTubController\Application\Actions\StatusAction;
 use HotTubController\Application\Middleware\CorsMiddleware;
+use HotTubController\Domain\Heating\CronJobBuilder;
+use HotTubController\Domain\Heating\Repositories\HeatingCycleRepository;
+use HotTubController\Domain\Heating\Repositories\HeatingEventRepository;
 use HotTubController\Domain\Token\TokenService;
 use HotTubController\Domain\Token\TokenRepositoryInterface;
 use HotTubController\Infrastructure\Http\CurlHttpClient;
 use HotTubController\Infrastructure\Http\HttpClientInterface;
 use HotTubController\Infrastructure\Persistence\JsonTokenRepository;
+use HotTubController\Services\CronManager;
+use HotTubController\Services\CronSecurityManager;
+use HotTubController\Services\IftttWebhookClientFactory;
+use HotTubController\Services\WirelessTagClientFactory;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
@@ -128,6 +138,74 @@ return function (ContainerBuilder $containerBuilder) {
                 $c->get(LoggerInterface::class),
                 $c->get(TokenService::class),
                 $settings['auth']['master_password_hash']
+            );
+        },
+
+        // Cron Management Services
+        CronSecurityManager::class => function (ContainerInterface $c): CronSecurityManager {
+            return new CronSecurityManager();
+        },
+
+        CronManager::class => function (ContainerInterface $c): CronManager {
+            return new CronManager();
+        },
+
+        CronJobBuilder::class => function (ContainerInterface $c): CronJobBuilder {
+            return new CronJobBuilder();
+        },
+
+        // External API Clients
+        'WirelessTagClient' => function (ContainerInterface $c) {
+            return WirelessTagClientFactory::create();
+        },
+
+        'IftttWebhookClient' => function (ContainerInterface $c) {
+            return IftttWebhookClientFactory::create();
+        },
+
+        // Heating Repositories
+        HeatingCycleRepository::class => function (ContainerInterface $c): HeatingCycleRepository {
+            return new HeatingCycleRepository();
+        },
+
+        HeatingEventRepository::class => function (ContainerInterface $c): HeatingEventRepository {
+            return new HeatingEventRepository();
+        },
+
+        // Heating Control Actions
+        StartHeatingAction::class => function (ContainerInterface $c): StartHeatingAction {
+            return new StartHeatingAction(
+                $c->get(LoggerInterface::class),
+                $c->get('WirelessTagClient'),
+                $c->get('IftttWebhookClient'),
+                $c->get(CronManager::class),
+                $c->get(CronSecurityManager::class),
+                $c->get(CronJobBuilder::class),
+                $c->get(HeatingCycleRepository::class),
+                $c->get(HeatingEventRepository::class)
+            );
+        },
+
+        MonitorTempAction::class => function (ContainerInterface $c): MonitorTempAction {
+            return new MonitorTempAction(
+                $c->get(LoggerInterface::class),
+                $c->get('WirelessTagClient'),
+                $c->get('IftttWebhookClient'),
+                $c->get(CronManager::class),
+                $c->get(CronSecurityManager::class),
+                $c->get(CronJobBuilder::class),
+                $c->get(HeatingCycleRepository::class)
+            );
+        },
+
+        StopHeatingAction::class => function (ContainerInterface $c): StopHeatingAction {
+            return new StopHeatingAction(
+                $c->get(LoggerInterface::class),
+                $c->get('WirelessTagClient'),
+                $c->get('IftttWebhookClient'),
+                $c->get(CronManager::class),
+                $c->get(TokenService::class),
+                $c->get(HeatingCycleRepository::class)
             );
         },
     ]);
