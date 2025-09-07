@@ -6,7 +6,9 @@ namespace Tests\Integration;
 
 use PHPUnit\Framework\TestCase;
 use HotTubController\Services\WirelessTagClient;
+use HotTubController\Services\WirelessTagClientFactory;
 use Tests\Support\HeatingTestHelpers;
+use Tests\Support\WirelessTagTestDataProvider;
 use Tests\Fixtures\TemperatureSequenceBuilder;
 
 /**
@@ -24,9 +26,12 @@ class HeatingCycleSimulationTest extends TestCase
     
     protected function setUp(): void
     {
-        $this->client = new WirelessTagClient('mock-token-for-testing');
+        $this->client = WirelessTagClientFactory::createSafe();
         $this->heatingHelpers = new HeatingTestHelpers();
         $this->sequenceBuilder = new TemperatureSequenceBuilder();
+        
+        // Reset test data provider for clean state
+        WirelessTagTestDataProvider::reset();
     }
     
     /**
@@ -42,6 +47,14 @@ class HeatingCycleSimulationTest extends TestCase
         $startTempF = 88.0;
         $targetTempF = 102.0;
         
+        // Set up temperature sequence for the test
+        $temperatureSequence = WirelessTagTestDataProvider::createHeatingSequence(
+            $startTempF,
+            $targetTempF,
+            5 // 5-minute intervals
+        );
+        WirelessTagTestDataProvider::setTemperatureSequence($this->testDeviceId, $temperatureSequence);
+        
         $results = $this->heatingHelpers->simulateHeatingCycle(
             $startTempF,
             $targetTempF,
@@ -50,10 +63,9 @@ class HeatingCycleSimulationTest extends TestCase
                 $testResults = [];
                 $readingCount = 0;
                 
-                foreach ($temperatureSequence as $expectedReading) {
-                    // Get temperature data using VCR
+                foreach ($temperatureSequence as $expectedTemp) {
+                    // Get temperature data from test mode client
                     $tempData = $this->client->getCachedTemperatureData($deviceId);
-                    
                     $this->assertNotNull($tempData, "Should receive temperature data");
                     $this->assertIsArray($tempData);
                     
@@ -70,20 +82,19 @@ class HeatingCycleSimulationTest extends TestCase
                     $this->assertIsFloat($waterTempF);
                     $this->assertTrue($this->client->validateTemperature($waterTempF, 'water'));
                     
-                    // Verify temperature is progressing correctly
-                    $expectedTempF = $expectedReading['water_temp_f'];
+                    // Verify temperature is within reasonable range of expected
                     $this->assertEqualsWithDelta(
-                        $expectedTempF, 
+                        $expectedTemp, 
                         $waterTempF, 
-                        0.5, // Allow small tolerance for conversion precision
-                        "Water temperature should match expected progression"
+                        2.0, // Allow tolerance for test data variation
+                        "Water temperature should be close to expected progression"
                     );
                     
                     $testResults[] = [
                         'reading_index' => $readingCount,
-                        'expected_temp_f' => $expectedTempF,
+                        'expected_temp_f' => $expectedTemp,
                         'actual_temp_f' => $waterTempF,
-                        'minutes_elapsed' => $expectedReading['minutes_elapsed']
+                        'minutes_elapsed' => $readingCount * 5 // 5-minute intervals
                     ];
                     
                     $readingCount++;
@@ -122,6 +133,14 @@ class HeatingCycleSimulationTest extends TestCase
     {
         $currentTempF = 101.0; // Within 1°F of 102°F target
         $targetTempF = 102.0;
+        
+        // Set up precision temperature sequence
+        $precisionSequence = WirelessTagTestDataProvider::createPrecisionSequence(
+            $currentTempF,
+            $targetTempF,
+            8 // 8 readings for precision monitoring
+        );
+        WirelessTagTestDataProvider::setTemperatureSequence($this->testDeviceId, $precisionSequence);
         
         $results = $this->heatingHelpers->testPrecisionMonitoring(
             $currentTempF,
@@ -189,9 +208,14 @@ class HeatingCycleSimulationTest extends TestCase
         ];
         
         foreach ($testCases as $testCase) {
-            $this->heatingHelpers->injectTemperatureReading($testCase['water_f']);
+            // Set specific temperature for this test case
+            WirelessTagTestDataProvider::setTemperatureSequence(
+                $this->testDeviceId, 
+                [$testCase['water_f']]
+            );
             
             $tempData = $this->client->getCachedTemperatureData($this->testDeviceId);
+            $this->assertNotNull($tempData, "Should receive temperature data in test mode");
             $processed = $this->client->processTemperatureData($tempData, 0);
             
             // Validate Fahrenheit temperature

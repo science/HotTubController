@@ -6,6 +6,7 @@ namespace Tests\Unit\Services;
 
 use PHPUnit\Framework\TestCase;
 use HotTubController\Services\WirelessTagClient;
+use HotTubController\Services\WirelessTagClientFactory;
 use RuntimeException;
 
 /**
@@ -34,14 +35,33 @@ class WirelessTagClientTest extends TestCase
     }
     
     /**
-     * Test client initialization throws exception for empty token
+     * Test client initialization with empty token creates test mode client
      */
-    public function testClientInitializationWithEmptyTokenThrowsException(): void
+    public function testClientInitializationWithEmptyTokenCreatesTestMode(): void
     {
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('WirelessTag OAuth token cannot be empty');
-        
-        new WirelessTagClient('');
+        $client = new WirelessTagClient('');
+        $this->assertInstanceOf(WirelessTagClient::class, $client);
+        $this->assertTrue($client->isTestMode());
+    }
+    
+    /**
+     * Test client initialization with null token creates test mode client
+     */
+    public function testClientInitializationWithNullTokenCreatesTestMode(): void
+    {
+        $client = new WirelessTagClient(null);
+        $this->assertInstanceOf(WirelessTagClient::class, $client);
+        $this->assertTrue($client->isTestMode());
+    }
+    
+    /**
+     * Test client initialization with production token creates production mode client
+     */
+    public function testClientInitializationWithValidTokenCreatesProductionMode(): void
+    {
+        $client = new WirelessTagClient('valid-production-token');
+        $this->assertInstanceOf(WirelessTagClient::class, $client);
+        $this->assertFalse($client->isTestMode());
     }
     
     /**

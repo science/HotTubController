@@ -21,6 +21,10 @@ storage/test_tokens.json
 # Logs
 storage/logs/*.log
 
+# Storage data files (generated during testing and runtime)
+storage/data/
+!storage/data/.gitkeep
+
 # Composer PHAR
 composer.phar
 

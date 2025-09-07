@@ -38,6 +38,7 @@ php test-external-apis.php              # Test WirelessTag & IFTTT API connectiv
 php test-wirelesstag-client.php         # Test WirelessTag API client with VCR
 php demo-vcr-temperature-simulation.php # Demo VCR temperature simulation system
 php record-ifttt-webhooks.php          # Record IFTTT webhook responses (TRIGGERS HARDWARE!)
+php demo-storage-system.php            # Demonstrate storage system functionality
 ```
 
 ### IFTTT Testing and Safety
@@ -118,10 +119,13 @@ src/
 │   └── Middleware/       # HTTP middleware
 ├── Domain/               # Core business logic
 │   ├── Token/           # Authentication token management
-│   └── Proxy/           # HTTP proxying domain logic
+│   ├── Proxy/           # HTTP proxying domain logic
+│   ├── Storage/         # Model-persistence framework
+│   └── Heating/         # Heating cycle and event models
 ├── Infrastructure/       # External integrations
 │   ├── Http/            # HTTP client implementations
-│   └── Persistence/     # File-based storage (tokens, config)
+│   ├── Persistence/     # File-based storage (tokens, config)
+│   └── Storage/         # JSON storage management
 └── Services/            # Application services
 ```
 
@@ -137,6 +141,14 @@ src/
 - IFTTT webhook client for equipment control
 - Comprehensive retry logic with exponential backoff
 - VCR-based testing for API reliability
+
+**Model-Persistence Infrastructure**:
+- Custom JSON-based storage system with file rotation and cleanup
+- Repository pattern with CRUD operations and advanced querying
+- HeatingCycle and HeatingEvent models with validation
+- QueryBuilder with filtering, sorting, pagination, and nested field access
+- Automatic file management: daily/size-based rotation, compression, cleanup
+- Thread-safe file locking and atomic operations
 
 **Heating Control Architecture** (planned):
 - Dynamic cron scheduling for future heating start times (`HOT_TUB_START`)
