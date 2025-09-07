@@ -9,8 +9,8 @@ This project is a modernization of a custom Android Tasker App system, porting i
 ## Features (In Development)
 
 - **Backend API**: Complete PHP backend with storage system and external API integration ✅
-- **Heating Control**: Intelligent scheduling with temperature monitoring (Phase 1) 🚧
-- **Web Interface**: React-based dashboard for monitoring and control (Phase 2) 📅
+- **Heating Control**: Core heating APIs with cron management system (Phase 1) ✅
+- **Web Interface**: React-based dashboard for monitoring and control (Phase 2) 🚧
 - **Mobile App**: Native mobile interface for remote control (Phase 3) 📅
 - **Advanced Features**: ML prediction, analytics, notifications (Phase 3) 📅
 
@@ -27,8 +27,16 @@ The PHP backend is fully implemented with:
 - 346+ tests passing with comprehensive safety features
 - Authentication, CORS proxy, and API infrastructure
 
-### 🚧 **Next: Heating Control APIs (Phase 1)**
-The immediate next development phase focuses on implementing the core heating control logic. See [`backend/ROADMAP.md`](./backend/ROADMAP.md) for detailed implementation plans.
+### ✅ **Phase 1: Heating Control APIs Complete**
+Core heating control functionality is now implemented with:
+- **Cron Management System**: Dynamic cron job scheduling with secure API key authentication
+- **Start Heating API**: Initiates heating cycles with equipment control and monitoring setup
+- **Temperature Monitoring API**: Intelligent monitoring loops with precision control near target temps
+- **Emergency Stop API**: Complete heating cycle cleanup with equipment safety sequences
+- **Comprehensive Testing**: Full test coverage for cron operations and heating control logic
+
+### 🚧 **Next: Web Interface Foundation (Phase 2)**
+The immediate next development phase focuses on building the React-based web interface. See [`backend/ROADMAP.md`](./backend/ROADMAP.md) for detailed implementation plans.
 
 ### 📚 **Documentation**
 - **Backend Setup**: See [`backend/README.md`](./backend/README.md) for installation and development

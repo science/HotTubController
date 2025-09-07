@@ -102,18 +102,23 @@ class HeatingCycleTest extends TestCase
 
     public function testElapsedTime(): void
     {
-        // Set a start time slightly in the past to ensure elapsed time > 0
-        $pastTime = new DateTime('-1 second');
+        // Set a start time further in the past to ensure measurable elapsed time
+        $pastTime = new DateTime('-2 seconds');
         $this->cycle->setStartedAt($pastTime);
         
         $elapsed = $this->cycle->getElapsedTime();
         $this->assertIsInt($elapsed);
-        $this->assertGreaterThan(0, $elapsed);
+        $this->assertGreaterThanOrEqual(1, $elapsed); // Should be at least 1 second
         
         // Sleep for a moment and check again
         sleep(1); // 1 second to ensure difference
         $newElapsed = $this->cycle->getElapsedTime();
         $this->assertGreaterThan($elapsed, $newElapsed);
+        
+        // Verify the difference is reasonable (should be ~1 second, allowing for timing variance)
+        $timeDifference = $newElapsed - $elapsed;
+        $this->assertGreaterThanOrEqual(1, $timeDifference);
+        $this->assertLessThanOrEqual(2, $timeDifference); // Allow up to 2 seconds for system variance
     }
 
     public function testMetadata(): void
