@@ -301,7 +301,7 @@ class MonitorTempAction extends Action
         $cycle->setStatus(HeatingCycle::STATUS_COMPLETED);
         $cycle->setCompletedAt(new DateTime());
         $cycle->setFinalTemp($currentTemp);
-        $cycle->save();
+        $this->cycleRepository->save($cycle);
         
         // Clean up any remaining monitoring crons for this cycle
         $this->cronManager->removeMonitoringEvents($cycle->getId());
@@ -352,7 +352,7 @@ class MonitorTempAction extends Action
         );
         
         // Update cycle record
-        $cycle->save();
+        $this->cycleRepository->save($cycle);
         
         // Estimate time remaining
         $timeRemainingMinutes = $this->cronJobBuilder->calculateHeatingTime(
@@ -394,7 +394,7 @@ class MonitorTempAction extends Action
         $cycle->setFinalTemp($currentTemp);
         $cycle->addMetadata('error_reason', $decision['reason']);
         $cycle->addMetadata('error_message', $decision['message']);
-        $cycle->save();
+        $this->cycleRepository->save($cycle);
         
         // Clean up all monitoring crons
         $this->cronManager->removeMonitoringEvents($cycle->getId());

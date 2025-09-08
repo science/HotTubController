@@ -187,7 +187,7 @@ class StartHeatingAction extends Action
             $event = $this->eventRepository->findById($eventId);
             if ($event && $event->isScheduled()) {
                 $event->trigger();
-                $event->save();
+                $this->eventRepository->save($event);
                 return $event;
             }
         } catch (Exception $e) {
@@ -264,7 +264,7 @@ class StartHeatingAction extends Action
         $cycle->addMetadata('triggered_by_event', $eventId);
         $cycle->addMetadata('started_via_cron', true);
         
-        $cycle->save();
+        $this->cycleRepository->save($cycle);
         
         $this->logger->info('Created heating cycle record', [
             'cycle_id' => $cycle->getId(),

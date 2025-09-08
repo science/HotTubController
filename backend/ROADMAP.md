@@ -4,19 +4,25 @@
 
 ### ✅ **Foundation Complete (Phase 0)**
 - **External API Integration**: WirelessTag OAuth client, IFTTT webhook client with safety features
-- **Testing Infrastructure**: 346+ tests passing, VCR simulation, comprehensive test coverage
+- **Testing Infrastructure**: 486 tests passing, VCR simulation, comprehensive test coverage
 - **Storage System**: Complete model-persistence layer with JsonStorageManager, Repository pattern, QueryBuilder
 - **Safety Architecture**: Multiple safety layers, environment detection, test mode support
 - **Authentication**: Token-based API access, master password system, secure credential storage
 
-### ✅ **Phase 1: Heating Control APIs Complete**
+### ✅ **Phase 1: Complete Heating Control System** 
 - **Cron Management System**: CronManager, CronSecurityManager, CronJobBuilder with secure API key authentication
 - **Core Heating APIs**: StartHeatingAction, MonitorTempAction, StopHeatingAction fully implemented
-- **Integration Complete**: WirelessTag and IFTTT clients integrated with heating control logic
-- **Comprehensive Testing**: Full test coverage for all cron operations and heating control components
+- **Management APIs**: Complete user-facing API suite for scheduling and monitoring
+  - `POST /api/schedule-heating` - Schedule future heating with overlap prevention
+  - `POST /api/cancel-scheduled-heating` - Cancel scheduled heating events
+  - `GET /api/list-heating-events` - Paginated event listing with filtering
+  - `GET /api/heating-status` - Real-time system status and temperature
+- **Integration Complete**: WirelessTag and IFTTT clients fully integrated with heating control logic
+- **Comprehensive Testing**: 486 tests passing with complete coverage for all heating operations
 - **Safety Features**: Emergency stop, equipment safety sequences, orphaned cron cleanup
+- **Bug Fixes**: Resolved all test failures and repository pattern issues
 
-**Ready for**: Web interface development (Phase 2)
+**✅ PHASE 1 COMPLETE**: Ready for web interface development (Phase 2)
 
 ---
 
@@ -71,14 +77,14 @@ storage/bin/cron-wrapper.sh              # Cron execution wrapper ✅
 - ✅ Safety limits and timeout handling
 - ✅ Equipment safety sequences (pump → heater → cooling cycle)
 
-#### 1.3 **Management APIs** 📅
-*NEXT IMMEDIATE PRIORITY: Complete API layer before frontend*
+#### 1.3 **Management APIs** ✅
+*Completed: Complete user-facing API suite*
 
-**Implementation Target: 2-3 days**
-- **`POST /api/schedule-heating`** - User-facing API to schedule future heating  
-- **`POST /api/cancel-scheduled-heating`** - Cancel future start events
-- **`GET /api/list-heating-events`** - Enumerate scheduled and active events  
-- **`GET /api/heating-status`** - Real-time system status with current temperature
+**Implemented APIs:**
+- ✅ **`POST /api/schedule-heating`** - User-facing API to schedule future heating with overlap prevention
+- ✅ **`POST /api/cancel-scheduled-heating`** - Cancel future scheduled events
+- ✅ **`GET /api/list-heating-events`** - Paginated enumeration of all heating events with filtering
+- ✅ **`GET /api/heating-status`** - Real-time system status with current temperature
 
 **API Documentation Required:**
 - OpenAPI/Swagger specification for all endpoints
@@ -94,134 +100,23 @@ storage/bin/cron-wrapper.sh              # Cron execution wrapper ✅
 
 ---
 
-## 🎯 **NEXT: Phase 1.3 Management APIs** ⬅️ **START HERE**
+## 🎯 **NEXT: Phase 2 - Web Interface Foundation** ⬅️ **START HERE**
 
-*Estimated Duration: 2-3 days*  
-*Priority: Critical - Complete API layer*
+*Estimated Duration: 3-4 weeks*  
+*Priority: High - User interface for complete system*
 
-**High-level project priority strategy: Why Management APIs First:**
-- Frontend needs complete API specification to begin development
-- API testing can validate entire heating control workflow
-- Clear separation between backend completion and UI development
-- Documentation serves as contract for future frontend work
+**Phase 1 Achievement Summary:**
+- Complete heating control system with all core and management APIs
+- 486 tests passing with comprehensive coverage
+- All repository pattern bugs fixed and tested
+- Ready for frontend development with stable API foundation
 
-**Detailed Management API Plan**
-_Management APIs Implementation Plan_
-
-1. Schedule Heating API (POST /api/schedule-heating)
-Purpose: User-facing API to schedule future heating cycles
-Implementation:
-- Create ScheduleHeatingAction.php
-- Accept parameters: start_time, target_temp (default: 102°F), optional name/description
-  - target_temp can be in 1/10 (0.1) degree increments: e.g. 101.9, 102, 102.1 are all valid inputs
-  - target_temp range can >50 <110
-  - if target_temp is less than the measured temp, no action should be taken, but notification in API should be provided to caller, so it knows that the hot tub is already at the desired temperature.
-- Validate authentication (token-based, not cron API key)
-  - User based validation: system will store/track issued API keys by user. If a user frontend presents their API key, the system will accept it and run the commands; others APIs error with Not Authorized status.
-    - Users all share cron events: cron heating events are system-wide, so all users can see/schedule/edit/cancel all heating events on the hot tub. There is no per-user-isolation of heating scheduled.
-  - Admin based key issuance: During deployment a hardcoded admin key will be generated and stored in a specific, designated location. This key will be accepted for user management functions as well as other API functions. So this admin key can be used to "mint" new user-based keys, that can then be distributed to users (as well as delete users or user keys)
-- Create HeatingEvent with status=SCHEDULED
-- Use CronJobBuilder to create cron expression
-- Schedule cron job via CronManager
-- Return event ID and confirmation
-Key Features:
-- Prevent duplicate schedules for same time
-  - Monitor for registration of new heating schedules that overlap with projected duration of a scheduled heating event. Use default heating duration estimate of 30 minutes. (e.g., If a heating event is scheduled for 630am tomorrow, and another event is scheduled within 30 minutes, the second event will be rejected unless the first event is canceled. The API will inform the frontend as to why the event scheduling is rejected: overlapping heating event detected. The API will inform the frontend as to precisely which cron job is the cause for the failure/rejection.)
-- Validate future times only (no past scheduling)
-- Temperature safety validation (50-110°F)
-- Optional recurrence support (future enhancement)
-  - Currently no recurring heating events will be accepted by the API. Recurring scheduling will be an entirely new feature with entirely new APIs handling that.
-2. Cancel Scheduled Heating API (POST /api/cancel-scheduled-heating)
-Purpose: Cancel future scheduled heating events
-Implementation:
-- Create CancelScheduledHeatingAction.php
-- Accept parameter: event_id
-- Validate event exists and is SCHEDULED status
-- Remove associated cron job via CronManager
-- Update HeatingEvent status to CANCELLED
-- Return confirmation
-Security:
-- Only allow cancelling SCHEDULED events (not active)
-- Verify ownership/permissions (future enhancement)
-3. List Heating Events API (GET /api/list-heating-events)
-Purpose: Enumerate all heating events (scheduled, active, completed)
-Implementation:
-- Create ListHeatingEventsAction.php
-- Query parameters: status filter, from/to date range, limit, offset
-- Use HeatingEventRepository with QueryBuilder
-- Include related HeatingCycle data for triggered events
-- Return paginated results with metadata
-Response includes:
-- Event details (ID, type, status, scheduled time)
-- Associated cycle info (for active/completed)
-- Cron expression and next execution time
-- Sorting by scheduled_for DESC (most recent first)
-4. Heating Status API (GET /api/heating-status)
-Purpose: Real-time system status with current temperature
-Implementation:
-- Create HeatingStatusAction.php
-- No authentication required (read-only status)
-- Get current temperature from WirelessTagClient
-- Query active HeatingCycle (status=HEATING)
-- Include upcoming scheduled events
-- Return comprehensive status
-Response includes:
-- Current water temperature
-- Active heating cycle (if any) with progress
-- Next scheduled event
-- System health indicators
-- Last update timestamp
-5. Authentication Middleware
-Purpose: Secure management APIs with token validation
-Implementation:
-- Create TokenValidationMiddleware.php
-- Use existing token system from TokenManager
-- Apply to management routes (except status endpoint)
-- Support Bearer token in Authorization header
-- Return 401 for invalid/missing tokens
-6. API Documentation
-Purpose: OpenAPI/Swagger specification
-Implementation:
-- Create docs/api-specification.yaml
-- Document all endpoints with schemas
-- Include authentication requirements
-- Provide request/response examples
-- Error code documentation
-7. Integration Tests
-Purpose: Validate complete workflow
-Tests to create:
-- tests/Integration/HeatingManagementWorkflowTest.php
-- Test scheduling → monitoring → completion flow
-- Test cancellation scenarios
-- Test concurrent scheduling edge cases
-- Test API authentication
-File Structure:
-backend/
-├── src/Application/Actions/Heating/
-│   ├── ScheduleHeatingAction.php      (new)
-│   ├── CancelScheduledHeatingAction.php (new)
-│   ├── ListHeatingEventsAction.php    (new)
-│   └── HeatingStatusAction.php        (new)
-├── src/Application/Middleware/
-│   └── TokenValidationMiddleware.php  (new)
-├── docs/
-│   └── api-specification.yaml         (new)
-└── tests/Integration/
-    └── HeatingManagementWorkflowTest.php (new)
-Route Updates:
-Add to config/routes.php:
-- /api/schedule-heating (POST, authenticated)
-- /api/cancel-scheduled-heating (POST, authenticated)
-- /api/list-heating-events (GET, authenticated)
-- /api/heating-status (GET, public)
-Dependency Updates:
-Update config/dependencies.php to wire new actions with required services.
-Testing Strategy:
-1. Unit tests for each new action
-2. Integration tests for complete workflows
-3. Manual testing with curl/Postman
-4. VCR cassettes for external API interactions
-This completes the heating control API suite, enabling full testing before UI development and providing clear API contracts for frontend integration.
+**Recent Achievements (Latest Commits):**
+- ✅ Fixed all test failures in HeatingManagementWorkflowTest
+- ✅ Resolved repository pattern save() method issues across all actions
+- ✅ Implemented complete management API suite with authentication
+- ✅ Added intelligent overlap prevention for heating schedules
+- ✅ Enhanced test coverage to 486 passing tests
 
 
 

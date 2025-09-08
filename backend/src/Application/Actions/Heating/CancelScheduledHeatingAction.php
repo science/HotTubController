@@ -76,7 +76,7 @@ class CancelScheduledHeatingAction extends Action
             $event->cancel();
             $event->addMetadata('cancelled_via_api', true);
             $event->addMetadata('cancelled_at', (new \DateTime())->format('c'));
-            $event->save();
+            $this->eventRepository->save($event);
             
             $this->logger->info('Heating event cancelled successfully', [
                 'event_id' => $eventId,

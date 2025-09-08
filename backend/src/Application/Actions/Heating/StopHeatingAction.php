@@ -293,7 +293,7 @@ class StopHeatingAction extends Action
         $cycle->addMetadata('stopped_via_api', true);
         $cycle->addMetadata('stopped_at', (new DateTime())->format('Y-m-d H:i:s'));
         
-        $cycle->save();
+        $this->cycleRepository->save($cycle);
     }
     
     /**

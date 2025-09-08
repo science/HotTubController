@@ -288,7 +288,7 @@ class HeatingManagementWorkflowTest extends TestCase
         $overlappingData = json_decode((string) $overlappingResponse->getBody(), true);
 
         $this->assertEquals(400, $overlappingResponse->getStatusCode());
-        $this->assertStringContainsString('Overlapping heating event detected', $overlappingData['message']);
+        $this->assertStringContainsString('Overlapping heating event detected', $overlappingData['error']);
     }
 
     public function testListEventsWithPagination(): void
@@ -357,7 +357,7 @@ class HeatingManagementWorkflowTest extends TestCase
         );
 
         foreach ($files as $file) {
-            $file->isDir() ? rmdir($file) : unlink($file);
+            $file->isDir() ? rmdir((string)$file) : unlink((string)$file);
         }
 
         rmdir($dir);
