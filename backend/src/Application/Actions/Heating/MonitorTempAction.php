@@ -12,7 +12,8 @@ use HotTubController\Services\CronManager;
 use HotTubController\Services\CronSecurityManager;
 use HotTubController\Services\IftttWebhookClient;
 use HotTubController\Services\WirelessTagClient;
-use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 use DateTime;
 use Exception;
@@ -57,12 +58,13 @@ class MonitorTempAction extends Action
         $this->cycleRepository = $cycleRepository;
     }
     
-    protected function action(): Response
+    protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         // Parse request parameters
-        $cycleId = $this->getFormData('cycle_id');
-        $monitorId = $this->getFormData('monitor_id');
-        $checkTime = $this->getFormData('check_time');
+        $input = $this->getJsonInput($request);
+        $cycleId = $input['cycle_id'] ?? null;
+        $monitorId = $input['monitor_id'] ?? null;
+        $checkTime = $input['check_time'] ?? null;
         
         $this->logger->info('Monitoring temperature for heating cycle', [
             'cycle_id' => $cycleId,
@@ -72,7 +74,7 @@ class MonitorTempAction extends Action
         
         try {
             // Authenticate cron API key
-            $this->authenticateCronRequest();
+            $this->authenticateCronRequest($request);
             
             // Validate parameters
             $this->validateMonitorParameters($cycleId, $monitorId);
@@ -115,16 +117,17 @@ class MonitorTempAction extends Action
                 'trace' => $e->getTraceAsString(),
             ]);
             
-            return $this->respondWithError('Temperature monitoring failed: ' . $e->getMessage(), 500);
+            return $this->errorResponse('Temperature monitoring failed: ' . $e->getMessage(), 500);
         }
     }
     
     /**
      * Authenticate the cron API request
      */
-    private function authenticateCronRequest(): void
+    private function authenticateCronRequest(ServerRequestInterface $request): void
     {
-        $providedAuth = $this->getFormData('auth');
+        $input = $this->getJsonInput($request);
+        $providedAuth = $input['auth'] ?? null;
         
         if (empty($providedAuth)) {
             throw new RuntimeException('Missing authentication parameter');
@@ -308,7 +311,7 @@ class MonitorTempAction extends Action
             'duration_minutes' => $this->calculateCycleDuration($cycle),
         ]);
         
-        return $this->respondWithData([
+        return $this->jsonResponse([
             'status' => 'heating_completed',
             'cycle_id' => $cycle->getId(),
             'current_temp' => $currentTemp,
@@ -357,7 +360,7 @@ class MonitorTempAction extends Action
             $cycle->getTargetTemp()
         );
         
-        return $this->respondWithData([
+        return $this->jsonResponse([
             'status' => 'heating_continuing',
             'cycle_id' => $cycle->getId(),
             'current_temp' => $currentTemp,
@@ -396,7 +399,7 @@ class MonitorTempAction extends Action
         // Clean up all monitoring crons
         $this->cronManager->removeMonitoringEvents($cycle->getId());
         
-        return $this->respondWithData([
+        return $this->jsonResponse([
             'status' => 'emergency_stopped',
             'cycle_id' => $cycle->getId(),
             'current_temp' => $currentTemp,

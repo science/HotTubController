@@ -14,7 +14,8 @@ use HotTubController\Services\CronManager;
 use HotTubController\Services\CronSecurityManager;
 use HotTubController\Services\IftttWebhookClient;
 use HotTubController\Services\WirelessTagClient;
-use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 use DateTime;
 use Exception;
@@ -58,12 +59,13 @@ class StartHeatingAction extends Action
         $this->eventRepository = $eventRepository;
     }
     
-    protected function action(): Response
+    protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         // Parse request parameters
-        $eventId = $this->getFormData('id');
-        $targetTemp = (float) ($this->getFormData('target_temp') ?? 104.0);
-        $scheduledTime = $this->getFormData('scheduled_time');
+        $input = $this->getJsonInput($request);
+        $eventId = $input['id'] ?? null;
+        $targetTemp = (float) ($input['target_temp'] ?? 104.0);
+        $scheduledTime = $input['scheduled_time'] ?? null;
         
         $this->logger->info('Starting heating cycle', [
             'event_id' => $eventId,
@@ -73,7 +75,7 @@ class StartHeatingAction extends Action
         
         try {
             // Authenticate cron API key
-            $this->authenticateCronRequest();
+            $this->authenticateCronRequest($request);
             
             // Validate parameters
             $this->validateStartHeatingParameters($eventId, $targetTemp);
@@ -86,7 +88,7 @@ class StartHeatingAction extends Action
             
             // Validate temperature differential
             if ($currentTemp >= $targetTemp) {
-                return $this->respondWithData([
+                return $this->jsonResponse([
                     'status' => 'already_at_target',
                     'current_temp' => $currentTemp,
                     'target_temp' => $targetTemp,
@@ -114,7 +116,7 @@ class StartHeatingAction extends Action
                 'estimated_completion' => $firstCheckTime->format('Y-m-d H:i:s'),
             ]);
             
-            return $this->respondWithData([
+            return $this->jsonResponse([
                 'status' => 'heating_started',
                 'cycle_id' => $cycle->getId(),
                 'current_temp' => $currentTemp,
@@ -134,16 +136,17 @@ class StartHeatingAction extends Action
             // Try to clean up any partial state
             $this->emergencyCleanup($eventId);
             
-            return $this->respondWithError('Failed to start heating: ' . $e->getMessage(), 500);
+            return $this->errorResponse('Failed to start heating: ' . $e->getMessage(), 500);
         }
     }
     
     /**
      * Authenticate the cron API request
      */
-    private function authenticateCronRequest(): void
+    private function authenticateCronRequest(ServerRequestInterface $request): void
     {
-        $providedAuth = $this->getFormData('auth');
+        $input = $this->getJsonInput($request);
+        $providedAuth = $input['auth'] ?? null;
         
         if (empty($providedAuth)) {
             throw new RuntimeException('Missing authentication parameter');

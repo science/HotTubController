@@ -9,9 +9,14 @@ use HotTubController\Application\Actions\Auth\AuthenticateAction;
 use HotTubController\Application\Actions\Heating\MonitorTempAction;
 use HotTubController\Application\Actions\Heating\StartHeatingAction;
 use HotTubController\Application\Actions\Heating\StopHeatingAction;
+use HotTubController\Application\Actions\Heating\ScheduleHeatingAction;
+use HotTubController\Application\Actions\Heating\CancelScheduledHeatingAction;
+use HotTubController\Application\Actions\Heating\ListHeatingEventsAction;
+use HotTubController\Application\Actions\Heating\HeatingStatusAction;
 use HotTubController\Application\Actions\Proxy\ProxyRequestAction;
 use HotTubController\Application\Actions\StatusAction;
 use HotTubController\Application\Middleware\CorsMiddleware;
+use HotTubController\Application\Middleware\TokenValidationMiddleware;
 use HotTubController\Domain\Heating\CronJobBuilder;
 use HotTubController\Domain\Heating\Repositories\HeatingCycleRepository;
 use HotTubController\Domain\Heating\Repositories\HeatingEventRepository;
@@ -20,6 +25,7 @@ use HotTubController\Domain\Token\TokenRepositoryInterface;
 use HotTubController\Infrastructure\Http\CurlHttpClient;
 use HotTubController\Infrastructure\Http\HttpClientInterface;
 use HotTubController\Infrastructure\Persistence\JsonTokenRepository;
+use HotTubController\Infrastructure\Storage\JsonStorageManager;
 use HotTubController\Services\CronManager;
 use HotTubController\Services\CronSecurityManager;
 use HotTubController\Services\IftttWebhookClientFactory;
@@ -163,13 +169,19 @@ return function (ContainerBuilder $containerBuilder) {
             return IftttWebhookClientFactory::create();
         },
 
+        // Storage Manager
+        JsonStorageManager::class => function (ContainerInterface $c): JsonStorageManager {
+            $settings = $c->get('settings');
+            return new JsonStorageManager(__DIR__ . '/../storage');
+        },
+
         // Heating Repositories
         HeatingCycleRepository::class => function (ContainerInterface $c): HeatingCycleRepository {
-            return new HeatingCycleRepository();
+            return new HeatingCycleRepository($c->get(JsonStorageManager::class));
         },
 
         HeatingEventRepository::class => function (ContainerInterface $c): HeatingEventRepository {
-            return new HeatingEventRepository();
+            return new HeatingEventRepository($c->get(JsonStorageManager::class));
         },
 
         // Heating Control Actions
@@ -206,6 +218,53 @@ return function (ContainerBuilder $containerBuilder) {
                 $c->get(CronManager::class),
                 $c->get(TokenService::class),
                 $c->get(HeatingCycleRepository::class)
+            );
+        },
+
+        // Management API Actions
+        ScheduleHeatingAction::class => function (ContainerInterface $c): ScheduleHeatingAction {
+            return new ScheduleHeatingAction(
+                $c->get(LoggerInterface::class),
+                $c->get(TokenService::class),
+                $c->get(HeatingEventRepository::class),
+                $c->get(CronManager::class),
+                $c->get(CronJobBuilder::class),
+                $c->get('WirelessTagClient')
+            );
+        },
+
+        CancelScheduledHeatingAction::class => function (ContainerInterface $c): CancelScheduledHeatingAction {
+            return new CancelScheduledHeatingAction(
+                $c->get(LoggerInterface::class),
+                $c->get(TokenService::class),
+                $c->get(HeatingEventRepository::class),
+                $c->get(CronManager::class)
+            );
+        },
+
+        ListHeatingEventsAction::class => function (ContainerInterface $c): ListHeatingEventsAction {
+            return new ListHeatingEventsAction(
+                $c->get(LoggerInterface::class),
+                $c->get(TokenService::class),
+                $c->get(HeatingEventRepository::class),
+                $c->get(HeatingCycleRepository::class)
+            );
+        },
+
+        HeatingStatusAction::class => function (ContainerInterface $c): HeatingStatusAction {
+            return new HeatingStatusAction(
+                $c->get(LoggerInterface::class),
+                $c->get('WirelessTagClient'),
+                $c->get(HeatingEventRepository::class),
+                $c->get(HeatingCycleRepository::class)
+            );
+        },
+
+        // Middleware
+        TokenValidationMiddleware::class => function (ContainerInterface $c): TokenValidationMiddleware {
+            return new TokenValidationMiddleware(
+                $c->get(TokenService::class),
+                $c->get(LoggerInterface::class)
             );
         },
     ]);

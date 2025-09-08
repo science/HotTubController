@@ -11,7 +11,8 @@ use HotTubController\Services\CronManager;
 use HotTubController\Services\IftttWebhookClient;
 use HotTubController\Services\WirelessTagClient;
 use HotTubController\Domain\Token\TokenService;
-use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 use DateTime;
 use Exception;
@@ -49,12 +50,13 @@ class StopHeatingAction extends Action
         $this->cycleRepository = $cycleRepository;
     }
     
-    protected function action(): Response
+    protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         // Parse request parameters
-        $cycleId = $this->getFormData('cycle_id');
-        $reason = $this->getFormData('reason') ?? 'manual_stop';
-        $authMethod = $this->getFormData('auth_method') ?? 'token';
+        $input = $this->getJsonInput($request);
+        $cycleId = $input['cycle_id'] ?? null;
+        $reason = $input['reason'] ?? 'manual_stop';
+        $authMethod = $input['auth_method'] ?? 'token';
         
         $this->logger->info('Emergency stop heating requested', [
             'cycle_id' => $cycleId,
@@ -64,7 +66,7 @@ class StopHeatingAction extends Action
         
         try {
             // Authenticate request (web token or cron API key)
-            $this->authenticateStopRequest($authMethod);
+            $this->authenticateStopRequest($request, $authMethod);
             
             // Validate parameters
             $this->validateStopParameters($cycleId, $reason);
@@ -91,7 +93,7 @@ class StopHeatingAction extends Action
                 'reason' => $reason,
             ]);
             
-            return $this->respondWithData([
+            return $this->jsonResponse([
                 'status' => 'stopped',
                 'stopped_cycles' => $stoppedCycles,
                 'removed_monitoring_crons' => $removedCrons,
@@ -109,21 +111,21 @@ class StopHeatingAction extends Action
                 'trace' => $e->getTraceAsString(),
             ]);
             
-            return $this->respondWithError('Failed to stop heating: ' . $e->getMessage(), 500);
+            return $this->errorResponse('Failed to stop heating: ' . $e->getMessage(), 500);
         }
     }
     
     /**
      * Authenticate stop request (supports both web tokens and cron API keys)
      */
-    private function authenticateStopRequest(string $authMethod): void
+    private function authenticateStopRequest(ServerRequestInterface $request, string $authMethod): void
     {
         if ($authMethod === 'token') {
             // Standard web token authentication
-            $this->authenticateWithToken();
+            $this->authenticateWithToken($request);
         } elseif ($authMethod === 'cron') {
             // Cron API key authentication (for programmatic stops)
-            $this->authenticateWithCronKey();
+            $this->authenticateWithCronKey($request);
         } else {
             throw new RuntimeException('Invalid authentication method: ' . $authMethod);
         }
@@ -132,9 +134,9 @@ class StopHeatingAction extends Action
     /**
      * Authenticate using web API token
      */
-    private function authenticateWithToken(): void
+    private function authenticateWithToken(ServerRequestInterface $request): void
     {
-        $authHeader = $this->request->getHeaderLine('Authorization');
+        $authHeader = $request->getHeaderLine('Authorization');
         
         if (empty($authHeader)) {
             throw new RuntimeException('Missing Authorization header');
@@ -154,9 +156,10 @@ class StopHeatingAction extends Action
     /**
      * Authenticate using cron API key
      */
-    private function authenticateWithCronKey(): void
+    private function authenticateWithCronKey(ServerRequestInterface $request): void
     {
-        $providedAuth = $this->getFormData('auth');
+        $input = $this->getJsonInput($request);
+        $providedAuth = $input['auth'] ?? null;
         
         if (empty($providedAuth)) {
             throw new RuntimeException('Missing auth parameter for cron authentication');

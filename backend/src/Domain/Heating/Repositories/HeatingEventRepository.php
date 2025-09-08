@@ -95,6 +95,27 @@ class HeatingEventRepository extends Repository
             ->get();
     }
 
+    public function findByTimeRange(DateTime $start, DateTime $end, ?string $status = null, ?string $eventType = null): array
+    {
+        $query = $this->query()
+            ->whereBetween('scheduled_for', [
+                $start->format('Y-m-d H:i:s'),
+                $end->format('Y-m-d H:i:s')
+            ]);
+            
+        if ($status !== null) {
+            $query->where('status', $status);
+        }
+        
+        if ($eventType !== null) {
+            $query->where('event_type', $eventType);
+        }
+        
+        return $query
+            ->orderBy('scheduled_for', 'asc')
+            ->get();
+    }
+
     public function cancelAllStartEvents(): int
     {
         $startEvents = $this->findStartEvents();
@@ -141,6 +162,11 @@ class HeatingEventRepository extends Repository
         }
         
         return $cancelled;
+    }
+
+    public function findById(string $id): ?HeatingEvent
+    {
+        return $this->find($id);
     }
 
     public function getNextScheduledEvent(?string $eventType = null): ?HeatingEvent

@@ -15,6 +15,11 @@ class HeatingCycleRepository extends Repository
         parent::__construct($storageManager);
     }
 
+    public function findById(string $id): ?HeatingCycle
+    {
+        return $this->find($id);
+    }
+
     public function findActiveCycles(): array
     {
         return $this->query()

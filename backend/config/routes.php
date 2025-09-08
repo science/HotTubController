@@ -8,8 +8,13 @@ use HotTubController\Application\Actions\Auth\AuthenticateAction;
 use HotTubController\Application\Actions\Heating\MonitorTempAction;
 use HotTubController\Application\Actions\Heating\StartHeatingAction;
 use HotTubController\Application\Actions\Heating\StopHeatingAction;
+use HotTubController\Application\Actions\Heating\ScheduleHeatingAction;
+use HotTubController\Application\Actions\Heating\CancelScheduledHeatingAction;
+use HotTubController\Application\Actions\Heating\ListHeatingEventsAction;
+use HotTubController\Application\Actions\Heating\HeatingStatusAction;
 use HotTubController\Application\Actions\Proxy\ProxyRequestAction;
 use HotTubController\Application\Actions\StatusAction;
+use HotTubController\Application\Middleware\TokenValidationMiddleware;
 use Slim\App;
 
 return function (App $app) {
@@ -42,6 +47,14 @@ return function (App $app) {
         
         // Emergency stop (web-accessible)
         $group->post('/stop-heating', StopHeatingAction::class);
+        
+        // Management APIs (user-authenticated)
+        $group->post('/schedule-heating', ScheduleHeatingAction::class)->add(TokenValidationMiddleware::class);
+        $group->post('/cancel-scheduled-heating', CancelScheduledHeatingAction::class)->add(TokenValidationMiddleware::class);
+        $group->get('/list-heating-events', ListHeatingEventsAction::class)->add(TokenValidationMiddleware::class);
+        
+        // Status API (public read-only)
+        $group->get('/heating-status', HeatingStatusAction::class);
         
     });
     
