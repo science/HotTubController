@@ -1,47 +1,143 @@
 # Hot Tub Controller
 
-A web-based controller system for custom hot tub automation and monitoring.
+A comprehensive web-based automation system for intelligent hot tub temperature management and equipment control.
 
 ## Overview
 
-This project is a modernization of a custom Android Tasker App system, porting it to web standards to create a more accessible and reusable hot tub control system. The goal is to provide a robust, web-based interface for hot tub automation that others can easily adapt and extend.
+This project provides a complete solution for automated hot tub heating with temperature monitoring, intelligent scheduling, and equipment safety controls. Originally developed as a custom Android Tasker application, it has been modernized into a web-based system with a robust PHP backend, planned React frontend, and comprehensive safety features.
 
-## Features (In Development)
+## System Architecture
 
-- **Backend API**: Complete PHP backend with storage system and external API integration ✅
-- **Heating Control**: Core heating APIs with cron management system (Phase 1) ✅
-- **Web Interface**: React-based dashboard for monitoring and control (Phase 2) 🚧
-- **Mobile App**: Native mobile interface for remote control (Phase 3) 📅
-- **Advanced Features**: ML prediction, analytics, notifications (Phase 3) 📅
+### Backend Foundation
+- **PHP API Backend**: Complete REST API with authentication, CORS proxy, and comprehensive testing (486+ tests)
+- **Model-Persistence Layer**: Custom JSON-based storage with file rotation and advanced querying
+- **External API Integration**: WirelessTag temperature monitoring and IFTTT equipment control
+- **Safety-First Design**: Multiple protection layers against accidental hardware activation
+- **Cron-Based Automation**: Secure scheduling system with dynamic temperature monitoring
 
-## Background
+### Key Features
+- **Intelligent Heating Control**: Automated heating cycles with temperature-based monitoring intervals
+- **Equipment Safety**: Emergency stop capabilities with proper equipment shutdown sequences
+- **Temperature Monitoring**: Real-time water and ambient temperature tracking
+- **Scheduling System**: Cron-based heating automation with overlap prevention
+- **Comprehensive Logging**: Full audit trail for all operations and equipment interactions
 
-Originally built as a custom Android Tasker application, this project represents a transition to web-based technologies to improve maintainability, accessibility, and community adoption.
+## Development Status
 
-## Current Status & Next Steps
+### ✅ **Phase 1: Core Heating Control - COMPLETE**
+- Complete heating control API suite with management endpoints
+- Cron-based scheduling system with secure API key authentication  
+- WirelessTag sensor integration for temperature monitoring
+- IFTTT webhook integration for equipment control (pump, heater, ionizer)
+- Comprehensive test coverage with safety features and error handling
 
-### ✅ **Backend Foundation Complete** 
-The PHP backend is fully implemented with:
-- External API integration (WirelessTag temperature monitoring, IFTTT equipment control)
-- Complete storage system with model-persistence layer
-- 346+ tests passing with comprehensive safety features
-- Authentication, CORS proxy, and API infrastructure
+### 🚧 **Phase 2: Web Interface Foundation - IN PROGRESS**
+- React-based dashboard for real-time monitoring and control
+- Mobile-responsive interface with PWA capabilities
+- Historical data visualization and analytics
+- User authentication and secure API communication
 
-### ✅ **Phase 1: Heating Control APIs Complete**
-Core heating control functionality is now implemented with:
-- **Cron Management System**: Dynamic cron job scheduling with secure API key authentication
-- **Start Heating API**: Initiates heating cycles with equipment control and monitoring setup
-- **Temperature Monitoring API**: Intelligent monitoring loops with precision control near target temps
-- **Emergency Stop API**: Complete heating cycle cleanup with equipment safety sequences
-- **Comprehensive Testing**: Full test coverage for cron operations and heating control logic
+### 📅 **Phase 3: Advanced Features - PLANNED** 
+- Machine learning temperature prediction and optimization
+- Push notifications and email alerts
+- Native mobile application
+- Weather integration and seasonal usage analysis
 
-### 🚧 **Next: Web Interface Foundation (Phase 2)**
-The immediate next development phase focuses on building the React-based web interface. See [`backend/ROADMAP.md`](./backend/ROADMAP.md) for detailed implementation plans.
+## Hardware Requirements
 
-### 📚 **Documentation**
-- **Backend Setup**: See [`backend/README.md`](./backend/README.md) for installation and development
-- **API Documentation**: Available in [`backend/docs/`](./backend/docs/) directory
-- **Development Roadmap**: Detailed phases in [`backend/ROADMAP.md`](./backend/ROADMAP.md)
+### Temperature Monitoring
+- **WirelessTag Outdoor Probe**: DS18B20 sensor for accurate water temperature measurement
+  - Product: [WirelessTag Outdoor Probe Basic](https://store.wirelesstag.net/products/outdoor-probe-basic)
+- **WirelessTag Ethernet Manager**: Bridge device connecting sensors to internet
+  - Product: [Ethernet Tag Manager](https://store.wirelesstag.net/products/ethernet-tag-manager)
+- **WirelessTag OAuth API Key**: Account authentication for temperature data access
+
+### Equipment Control
+- **Smart Relay Controller**: IFTTT-compatible device for pump and heater control
+  - Compatible devices: SmartLife or Tuya-based smart switches/relays
+  - Example: 4-channel WiFi relay modules with smartphone app integration
+- **IFTTT Webhook Integration**: Service connection for remote equipment operation
+
+#### Required IFTTT Webhooks
+The system requires four specific IFTTT webhook events to be configured:
+
+1. **`hot-tub-heat-on`** (Required)
+   - Triggers heating sequence via SmartLife/Tuya scene
+   - Scene should: Turn on pump → wait ~1 minute → turn on heater
+   
+2. **`hot-tub-heat-off`** (Required) 
+   - Triggers heating shutdown via SmartLife/Tuya scene
+   - Scene should: Turn off heater → wait ~1.5 minutes → turn off pump
+
+3. **`turn-on-hot-tub-ionizer`** (Optional)
+   - Activates water ionization system
+   - Can be stubbed to do nothing if ionizer not installed
+
+4. **`turn-off-hot-tub-ionizer`** (Optional)
+   - Deactivates water ionization system
+   - Can be stubbed to do nothing if ionizer not installed
+
+#### SmartLife/Tuya Scene Configuration
+Since IFTTT cannot directly control individual SmartLife/Tuya switches via API, you must create "scenes" in the SmartLife app that IFTTT can trigger:
+
+**Heat On Scene (`hot-tub-heat-on`):**
+```
+1. Turn ON hot tub water pump
+2. Wait 60 seconds (allows water flow to reach full circulation)  
+3. Turn ON hot tub heater
+```
+
+**Heat Off Scene (`hot-tub-heat-off`):**
+```
+1. Turn OFF hot tub heater
+2. Wait 90 seconds (cooling circulation for heating elements)
+3. Turn OFF hot tub water pump  
+```
+
+This sequencing protects heating elements by ensuring proper water flow during operation and cooling circulation after shutdown.
+
+### System Integration
+The controller manages equipment through carefully sequenced operations:
+1. **Heating Start**: Activates pump → waits for circulation → enables heater
+2. **Temperature Monitoring**: Continuous sensor readings with intelligent scheduling
+3. **Heating Stop**: Disables heater → cooling pump cycle → stops pump
+4. **Safety Controls**: Emergency stop capability with complete equipment shutdown
+
+## Quick Start
+
+### Backend Setup
+```bash
+cd backend
+make install     # Install dependencies and create .env
+make dev-setup   # Create directories and config files
+make test        # Verify installation with full test suite
+make serve       # Start development server (localhost:8080)
+```
+
+### Environment Configuration
+1. Configure WirelessTag OAuth token in `.env`
+2. Set IFTTT webhook key for equipment control  
+3. Configure CORS origins for frontend domains
+4. Review safety settings and test mode configuration
+
+See [`backend/README.md`](./backend/README.md) for detailed installation instructions.
+
+## Documentation
+- **Backend Setup & API**: [`backend/README.md`](./backend/README.md)
+- **Development Roadmap**: [`backend/ROADMAP.md`](./backend/ROADMAP.md) 
+- **API Documentation**: [`backend/docs/`](./backend/docs/) directory
+
+## Safety Considerations
+
+This system controls real hot tub hardware including pumps, heaters, and electrical equipment. Multiple safety layers are implemented:
+
+- **Test Mode Detection**: Automatic safe mode when API keys are missing or invalid
+- **Environment Separation**: Dedicated test configuration prevents accidental hardware activation  
+- **Emergency Controls**: Immediate stop capability with proper equipment shutdown sequences
+- **Comprehensive Logging**: Full audit trail for all equipment operations
+- **Hardware Safety**: Proper sequencing prevents unsafe equipment states
+
+Always use test mode during development and ensure proper safety measures before deployment.
 
 ## License
 
