@@ -4,44 +4,34 @@ declare(strict_types=1);
 
 namespace HotTubController\Application\Actions\Proxy;
 
-use HotTubController\Application\Actions\Action;
+use HotTubController\Application\Actions\AuthenticatedAction;
 use HotTubController\Domain\Token\TokenService;
 use HotTubController\Infrastructure\Http\HttpClientInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 
-class ProxyRequestAction extends Action
+class ProxyRequestAction extends AuthenticatedAction
 {
     public function __construct(
         LoggerInterface $logger,
-        private TokenService $tokenService,
+        TokenService $tokenService,
         private HttpClientInterface $httpClient
     ) {
-        parent::__construct($logger);
+        parent::__construct($logger, $tokenService);
     }
 
     protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         $input = $this->getJsonInput($request);
         
-        // Validate required fields
-        $missing = $this->validateRequired($input, ['token', 'endpoint', 'method']);
+        // Validate required fields (token no longer required since we use header auth)
+        $missing = $this->validateRequired($input, ['endpoint', 'method']);
         if (!empty($missing)) {
             return $this->errorResponse('Missing required fields: ' . implode(', ', $missing), 400);
         }
 
-        // Validate token
-        if (!$this->tokenService->validateToken($input['token'])) {
-            $this->logger->warning('Invalid token used in proxy request', [
-                'token_preview' => substr($input['token'], 0, 6) . '...',
-                'endpoint' => $input['endpoint']
-            ]);
-            return $this->errorResponse('Invalid or missing token', 401);
-        }
-
-        // Update token last used timestamp
-        $this->tokenService->updateTokenLastUsed($input['token']);
+        // Authentication is handled by parent class AuthenticatedAction
 
         // Validate URL
         if (!filter_var($input['endpoint'], FILTER_VALIDATE_URL)) {
@@ -58,7 +48,7 @@ class ProxyRequestAction extends Action
         $this->logger->info('Proxying request', [
             'endpoint' => $input['endpoint'],
             'method' => $method,
-            'token_preview' => substr($input['token'], 0, 6) . '...'
+            'token_name' => $this->getAuthenticatedToken()->getName()
         ]);
 
         // Prepare request options

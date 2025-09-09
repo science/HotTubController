@@ -9,13 +9,17 @@ use DateTimeInterface;
 
 class Token
 {
+    public const ROLE_USER = 'user';
+    public const ROLE_ADMIN = 'admin';
+
     public function __construct(
         private string $id,
         private string $token,
         private string $name,
         private DateTimeImmutable $created,
         private bool $active = true,
-        private ?DateTimeImmutable $lastUsed = null
+        private ?DateTimeImmutable $lastUsed = null,
+        private string $role = self::ROLE_USER
     ) {}
 
     public function getId(): string
@@ -48,6 +52,21 @@ class Token
         return $this->lastUsed;
     }
 
+    public function getRole(): string
+    {
+        return $this->role;
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === self::ROLE_ADMIN;
+    }
+
+    public function isUser(): bool
+    {
+        return $this->role === self::ROLE_USER;
+    }
+
     public function deactivate(): self
     {
         return new self(
@@ -56,7 +75,8 @@ class Token
             $this->name,
             $this->created,
             false,
-            $this->lastUsed
+            $this->lastUsed,
+            $this->role
         );
     }
 
@@ -68,7 +88,8 @@ class Token
             $this->name,
             $this->created,
             $this->active,
-            new DateTimeImmutable()
+            new DateTimeImmutable(),
+            $this->role
         );
     }
 
@@ -81,6 +102,7 @@ class Token
             'created' => $this->created->format(DateTimeInterface::ATOM),
             'active' => $this->active,
             'last_used' => $this->lastUsed?->format(DateTimeInterface::ATOM),
+            'role' => $this->role,
         ];
     }
 
@@ -92,7 +114,8 @@ class Token
             $data['name'],
             new DateTimeImmutable($data['created']),
             $data['active'] ?? true,
-            $data['last_used'] ? new DateTimeImmutable($data['last_used']) : null
+            $data['last_used'] ? new DateTimeImmutable($data['last_used']) : null,
+            $data['role'] ?? self::ROLE_USER
         );
     }
 

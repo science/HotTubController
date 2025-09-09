@@ -12,11 +12,9 @@ class StatusAction extends Action
     protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->jsonResponse([
-            'service' => 'Hot Tub Controller PHP Proxy',
-            'version' => '1.0.0',
+            'service' => 'Hot Tub Controller',
             'status' => 'running',
-            'timestamp' => date('c'),
-            'environment' => $_ENV['APP_ENV'] ?? 'production'
+            'timestamp' => date('c')
         ]);
     }
 }

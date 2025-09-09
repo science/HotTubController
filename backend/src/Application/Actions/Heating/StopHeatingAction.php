@@ -8,6 +8,7 @@ use HotTubController\Application\Actions\Action;
 use HotTubController\Domain\Heating\Models\HeatingCycle;
 use HotTubController\Domain\Heating\Repositories\HeatingCycleRepository;
 use HotTubController\Services\CronManager;
+use HotTubController\Services\CronSecurityManager;
 use HotTubController\Services\IftttWebhookClient;
 use HotTubController\Services\WirelessTagClient;
 use HotTubController\Domain\Token\TokenService;
@@ -32,6 +33,7 @@ class StopHeatingAction extends Action
     private IftttWebhookClient $iftttClient;
     private CronManager $cronManager;
     private TokenService $tokenService;
+    private CronSecurityManager $cronSecurityManager;
     private HeatingCycleRepository $cycleRepository;
     
     public function __construct(
@@ -40,6 +42,7 @@ class StopHeatingAction extends Action
         IftttWebhookClient $iftttClient,
         CronManager $cronManager,
         TokenService $tokenService,
+        CronSecurityManager $cronSecurityManager,
         HeatingCycleRepository $cycleRepository
     ) {
         parent::__construct($logger);
@@ -47,6 +50,7 @@ class StopHeatingAction extends Action
         $this->iftttClient = $iftttClient;
         $this->cronManager = $cronManager;
         $this->tokenService = $tokenService;
+        $this->cronSecurityManager = $cronSecurityManager;
         $this->cycleRepository = $cycleRepository;
     }
     
@@ -116,13 +120,13 @@ class StopHeatingAction extends Action
     }
     
     /**
-     * Authenticate stop request (supports both web tokens and cron API keys)
+     * Authenticate stop request (supports both admin tokens and cron API keys)
      */
     private function authenticateStopRequest(ServerRequestInterface $request, string $authMethod): void
     {
         if ($authMethod === 'token') {
-            // Standard web token authentication
-            $this->authenticateWithToken($request);
+            // Admin token authentication (header-based)
+            $this->authenticateWithAdminToken($request);
         } elseif ($authMethod === 'cron') {
             // Cron API key authentication (for programmatic stops)
             $this->authenticateWithCronKey($request);
@@ -132,9 +136,9 @@ class StopHeatingAction extends Action
     }
     
     /**
-     * Authenticate using web API token
+     * Authenticate using admin token (header-based)
      */
-    private function authenticateWithToken(ServerRequestInterface $request): void
+    private function authenticateWithAdminToken(ServerRequestInterface $request): void
     {
         $authHeader = $request->getHeaderLine('Authorization');
         
@@ -142,15 +146,29 @@ class StopHeatingAction extends Action
             throw new RuntimeException('Missing Authorization header');
         }
         
-        if (!str_starts_with($authHeader, 'Bearer ')) {
-            throw new RuntimeException('Invalid Authorization header format');
+        if (!preg_match('/^Bearer\s+(.+)$/i', $authHeader, $matches)) {
+            throw new RuntimeException('Invalid Authorization header format. Expected: Bearer <token>');
         }
         
-        $token = substr($authHeader, 7); // Remove "Bearer " prefix
+        $token = $matches[1];
         
         if (!$this->tokenService->validateToken($token)) {
             throw new RuntimeException('Invalid or expired token');
         }
+
+        // Get token object to check admin role
+        $tokenObj = $this->tokenService->getTokenByValue($token);
+        if (!$tokenObj || !$tokenObj->isAdmin()) {
+            throw new RuntimeException('Admin access required for emergency stop');
+        }
+
+        // Update token last used timestamp
+        $this->tokenService->updateTokenLastUsed($token);
+
+        $this->logger->info('Admin token authentication successful for emergency stop', [
+            'token_name' => $tokenObj->getName(),
+            'request_uri' => (string) $request->getUri(),
+        ]);
     }
     
     /**
@@ -165,9 +183,17 @@ class StopHeatingAction extends Action
             throw new RuntimeException('Missing auth parameter for cron authentication');
         }
         
-        // Note: We'd need to inject CronSecurityManager for this
-        // For now, we'll skip this validation in emergency scenarios
-        $this->logger->info('Cron API key authentication bypassed for emergency stop');
+        if (!$this->cronSecurityManager->verifyApiKey($providedAuth)) {
+            $this->logger->warning('Invalid cron API key provided for emergency stop', [
+                'provided_key_preview' => substr($providedAuth, 0, 10) . '...',
+                'request_uri' => (string) $request->getUri(),
+            ]);
+            throw new RuntimeException('Invalid cron authentication key');
+        }
+
+        $this->logger->info('Cron API key authentication successful for emergency stop', [
+            'request_uri' => (string) $request->getUri(),
+        ]);
     }
     
     /**

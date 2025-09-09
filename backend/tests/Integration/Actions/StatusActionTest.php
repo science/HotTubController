@@ -27,16 +27,18 @@ class StatusActionTest extends ApiTestCase
         
         $data = $this->getResponseData($response);
         
+        // Updated to match new minimal response format
         $this->assertArrayHasKey('service', $data);
-        $this->assertArrayHasKey('version', $data);
         $this->assertArrayHasKey('status', $data);
         $this->assertArrayHasKey('timestamp', $data);
-        $this->assertArrayHasKey('environment', $data);
         
-        $this->assertSame('Hot Tub Controller PHP Proxy', $data['service']);
-        $this->assertSame('1.0.0', $data['version']);
+        // These fields were removed for security
+        $this->assertArrayNotHasKey('version', $data);
+        $this->assertArrayNotHasKey('environment', $data);
+        
+        $this->assertSame('Hot Tub Controller', $data['service']);
         $this->assertSame('running', $data['status']);
-        $this->assertSame('testing', $data['environment']);
+        $this->assertNotEmpty($data['timestamp']);
     }
 
     public function testStatusEndpointAlsoWorksOnIndexPhp(): void

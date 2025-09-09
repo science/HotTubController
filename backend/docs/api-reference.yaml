@@ -1,0 +1,1091 @@
+openapi: 3.0.3
+info:
+  title: Hot Tub Controller API
+  description: |
+    A PHP-based backend API for intelligent hot tub temperature management and equipment control.
+    
+    This RESTful API provides CORS proxy functionality, external API integration, and complete heating cycle management with safety features.
+    
+    **⚠️ SAFETY WARNING**: This API controls real hot tub hardware including heater, pump, and ionizer systems.
+  version: 1.0.0
+  contact:
+    name: Hot Tub Controller API Support
+  license:
+    name: Private License
+
+servers:
+  - url: http://localhost:8080
+    description: Development server
+  - url: https://api.your-domain.com
+    description: Production server
+
+security:
+  - BearerAuth: []
+  - MasterPassword: []
+  - {} # Some endpoints are public
+
+paths:
+  # System Status
+  /api/heating-status:
+    get:
+      summary: Get real-time system status
+      description: |
+        Public endpoint that returns current temperature, active heating cycles, 
+        next scheduled events, and system health information.
+      tags:
+        - System Status
+      security: []
+      responses:
+        '200':
+          description: Current system status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+        '500':
+          description: System error with partial status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartialSystemStatus'
+
+  # Heating Control
+  /api/schedule-heating:
+    post:
+      summary: Schedule a future heating cycle
+      description: |
+        Schedule a heating cycle to start at a specified time with a target temperature.
+        Includes overlap detection and current temperature checking.
+      tags:
+        - Heating Control
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleHeatingRequest'
+            examples:
+              basic:
+                summary: Basic scheduling
+                value:
+                  start_time: "2025-09-09T18:00:00"
+                  target_temp: 104.0
+                  name: "Evening Session"
+              with_description:
+                summary: With description
+                value:
+                  start_time: "2025-09-09T20:00:00"
+                  target_temp: 102.0
+                  name: "Nighttime Soak"
+                  description: "Relaxing evening session before bed"
+      responses:
+        '200':
+          description: Heating successfully scheduled
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ScheduleHeatingSuccess'
+                  - $ref: '#/components/schemas/AlreadyAtTargetResponse'
+              examples:
+                scheduled:
+                  summary: Successfully scheduled
+                  value:
+                    status: "scheduled"
+                    event_id: "event_abc123"
+                    start_time: "2025-09-09T18:00:00+00:00"
+                    target_temp: 104.0
+                    current_temp: 88.5
+                    name: "Evening Session"
+                    cron_id: "cron_xyz789"
+                already_at_target:
+                  summary: Already at target temperature
+                  value:
+                    status: "already_at_target"
+                    current_temp: 104.2
+                    target_temp: 104.0
+                    message: "Hot tub is already at the desired temperature"
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_time:
+                  summary: Invalid start time
+                  value:
+                    error: "Validation failed"
+                    message: "start_time must be in the future"
+                temp_out_of_range:
+                  summary: Temperature out of range
+                  value:
+                    error: "Validation failed"
+                    message: "Target temperature out of safe range (50-110°F): 120"
+                overlapping_event:
+                  summary: Overlapping heating event
+                  value:
+                    error: "Scheduling conflict"
+                    message: "Overlapping heating event detected. Conflicting event ID: event_xyz789 scheduled for 2025-09-09 17:45:00"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/cancel-scheduled-heating:
+    post:
+      summary: Cancel a scheduled heating event
+      description: Cancel a scheduled heating event that hasn't started yet.
+      tags:
+        - Heating Control
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelHeatingRequest'
+            example:
+              event_id: "event_abc123"
+      responses:
+        '200':
+          description: Event successfully cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelHeatingSuccess'
+        '400':
+          description: Cannot cancel event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  summary: Event not found
+                  value:
+                    error: "Not found"
+                    message: "Event not found"
+                cannot_cancel:
+                  summary: Cannot cancel
+                  value:
+                    error: "Invalid operation"
+                    message: "Cannot cancel event with status 'triggered'. Only scheduled events can be cancelled."
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/stop-heating:
+    post:
+      summary: Emergency stop for active heating cycles
+      description: |
+        Immediately stop heating equipment and active cycles. 
+        Can be used for emergency stops or user-requested stops.
+      tags:
+        - Heating Control
+        - Emergency
+      security:
+        - BearerAuth: []
+        - {} # Emergency scenarios may not require auth
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StopHeatingRequest'
+            examples:
+              stop_specific:
+                summary: Stop specific cycle
+                value:
+                  cycle_id: "cycle_abc123"
+                  reason: "user_request"
+              stop_all:
+                summary: Emergency stop all
+                value:
+                  reason: "emergency"
+      responses:
+        '200':
+          description: Heating stopped successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StopHeatingSuccess'
+        '500':
+          description: Failed to stop heating
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Event Management
+  /api/list-heating-events:
+    get:
+      summary: List heating events with filtering and pagination
+      description: |
+        Retrieve a paginated list of heating events with optional filtering by status, 
+        date range, and event type.
+      tags:
+        - Event Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: Filter by event status
+          schema:
+            type: string
+            enum: [scheduled, triggered, cancelled, error]
+          example: scheduled
+        - name: event_type
+          in: query
+          description: Filter by event type
+          schema:
+            type: string
+            enum: [start, monitor]
+          example: start
+        - name: from_date
+          in: query
+          description: Start date filter (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+          example: "2025-09-01T00:00:00"
+        - name: to_date
+          in: query
+          description: End date filter (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+          example: "2025-09-30T23:59:59"
+        - name: limit
+          in: query
+          description: Number of results (1-100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          description: Pagination offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of heating events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeatingEventsList'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # Authentication
+  /api/v1/auth:
+    post:
+      summary: Master password authentication
+      description: Authenticate using the master password for administrative operations.
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccess'
+        '401':
+          description: Invalid password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Admin Operations
+  /api/v1/admin/user:
+    post:
+      summary: Create a new API token
+      description: Create a new API token for frontend applications.
+      tags:
+        - Admin
+      security:
+        - MasterPassword: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '200':
+          description: Token created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateUserSuccess'
+        '401':
+          description: Invalid master password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/users:
+    get:
+      summary: List all API tokens
+      description: Retrieve a list of all created API tokens with their status.
+      tags:
+        - Admin
+      security:
+        - MasterPassword: []
+      parameters:
+        - name: master_password
+          in: query
+          required: true
+          description: Master password for authentication
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of users/tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersList'
+        '401':
+          description: Invalid master password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # CORS Proxy
+  /api/v1/proxy:
+    post:
+      summary: Proxy requests to external APIs
+      description: |
+        CORS-enabled proxy for making requests to external APIs like WirelessTag.
+        Useful for frontend applications that need to access external services.
+      tags:
+        - Proxy
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProxyRequest'
+      responses:
+        '200':
+          description: Proxied response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProxyResponse'
+        '400':
+          description: Invalid proxy request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          description: Proxy request failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # System Health
+  /:
+    get:
+      summary: Basic service status
+      description: Simple health check endpoint.
+      tags:
+        - System Status
+      security: []
+      responses:
+        '200':
+          description: Service is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicStatus'
+
+  # Internal/Cron APIs (mentioned for completeness)
+  /api/start-heating:
+    post:
+      summary: Start heating cycle (cron-triggered)
+      description: |
+        **Internal API**: This endpoint is triggered by cron jobs to start heating cycles.
+        Not intended for direct frontend use.
+      tags:
+        - Internal/Cron
+      security:
+        - CronAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  description: Event ID
+                target_temp:
+                  type: number
+                  description: Target temperature
+                auth:
+                  type: string
+                  description: Cron API key
+      responses:
+        '200':
+          description: Heating started or status update
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [heating_started, already_at_target]
+
+  /api/monitor-temp:
+    get:
+      summary: Monitor temperature during heating (cron-triggered)
+      description: |
+        **Internal API**: This endpoint is triggered by monitoring cron jobs during active heating cycles.
+        Not intended for direct frontend use.
+      tags:
+        - Internal/Cron
+      security:
+        - CronAuth: []
+      responses:
+        '200':
+          description: Monitoring result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [heating_continuing, heating_completed, emergency_stopped]
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: API token obtained from admin endpoint
+    
+    MasterPassword:
+      type: apiKey
+      in: header
+      name: X-Master-Password
+      description: Master password for admin operations
+    
+    CronAuth:
+      type: apiKey
+      in: header
+      name: X-Cron-Auth
+      description: Cron API key for internal operations
+
+  responses:
+    UnauthorizedError:
+      description: Authentication required or token invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Unauthorized"
+            message: "Invalid or expired token"
+            timestamp: "2025-09-09T15:30:00+00:00"
+
+  schemas:
+    # System Status Schemas
+    SystemStatus:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Current timestamp
+        temperature:
+          $ref: '#/components/schemas/TemperatureReading'
+        active_cycle:
+          $ref: '#/components/schemas/ActiveCycle'
+        next_scheduled_event:
+          $ref: '#/components/schemas/NextScheduledEvent'
+        system_health:
+          $ref: '#/components/schemas/SystemHealth'
+      example:
+        timestamp: "2025-09-09T15:30:00+00:00"
+        temperature:
+          value: 88.5
+          unit: "fahrenheit"
+          sensor_name: "Hot Tub Sensor"
+          last_updated: "2025-09-09T15:29:30+00:00"
+          battery_level: 85
+          signal_strength: -45
+        active_cycle:
+          id: "cycle_abc123"
+          status: "heating"
+          started_at: "2025-09-09T14:00:00+00:00"
+          target_temp: 104.0
+          current_temp: 88.5
+          elapsed_time_seconds: 5400
+          temperature_difference: 15.5
+          progress: 0.45
+        next_scheduled_event:
+          id: "event_xyz789"
+          scheduled_for: "2025-09-09T18:00:00+00:00"
+          target_temp: 102.0
+          name: "Evening Heat"
+          time_until_execution: 9000
+        system_health:
+          status: "healthy"
+          issues: []
+
+    PartialSystemStatus:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        temperature:
+          nullable: true
+        active_cycle:
+          nullable: true
+        next_scheduled_event:
+          nullable: true
+        system_health:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [error]
+            error:
+              type: string
+
+    TemperatureReading:
+      type: object
+      nullable: true
+      properties:
+        value:
+          type: number
+          format: float
+          description: Temperature in Fahrenheit
+        unit:
+          type: string
+          enum: [fahrenheit]
+        sensor_name:
+          type: string
+        last_updated:
+          type: string
+          format: date-time
+        battery_level:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+        signal_strength:
+          type: integer
+          nullable: true
+
+    ActiveCycle:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [heating]
+        started_at:
+          type: string
+          format: date-time
+        target_temp:
+          type: number
+          format: float
+        current_temp:
+          type: number
+          format: float
+        elapsed_time_seconds:
+          type: integer
+        temperature_difference:
+          type: number
+          format: float
+        progress:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          nullable: true
+        estimated_time_remaining_seconds:
+          type: integer
+          nullable: true
+
+    NextScheduledEvent:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: string
+        scheduled_for:
+          type: string
+          format: date-time
+        target_temp:
+          type: number
+          format: float
+        name:
+          type: string
+        time_until_execution:
+          type: integer
+          description: Seconds until execution
+
+    SystemHealth:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, warning, error]
+        issues:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              message:
+                type: string
+              count:
+                type: integer
+        statistics:
+          type: object
+          properties:
+            scheduled_events:
+              type: integer
+            active_cycles:
+              type: integer
+            past_due_events:
+              type: integer
+
+    BasicStatus:
+      type: object
+      properties:
+        service:
+          type: string
+          example: "Hot Tub Controller PHP Proxy"
+        version:
+          type: string
+          example: "1.0.0"
+        status:
+          type: string
+          example: "running"
+        timestamp:
+          type: string
+          format: date-time
+        environment:
+          type: string
+          example: "production"
+
+    # Heating Control Schemas
+    ScheduleHeatingRequest:
+      type: object
+      required:
+        - start_time
+      properties:
+        start_time:
+          type: string
+          format: date-time
+          description: When to start heating (must be in the future)
+          example: "2025-09-09T18:00:00"
+        target_temp:
+          type: number
+          format: float
+          minimum: 50
+          maximum: 110
+          default: 102
+          description: Target temperature in Fahrenheit
+          example: 104.0
+        name:
+          type: string
+          maxLength: 100
+          description: Display name for the heating event
+          example: "Evening Session"
+        description:
+          type: string
+          maxLength: 500
+          description: Additional description
+          example: "Pre-dinner heating cycle"
+
+    ScheduleHeatingSuccess:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [scheduled]
+        event_id:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        target_temp:
+          type: number
+          format: float
+        current_temp:
+          type: number
+          format: float
+        name:
+          type: string
+        description:
+          type: string
+        cron_id:
+          type: string
+
+    AlreadyAtTargetResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [already_at_target]
+        current_temp:
+          type: number
+          format: float
+        target_temp:
+          type: number
+          format: float
+        message:
+          type: string
+
+    CancelHeatingRequest:
+      type: object
+      required:
+        - event_id
+      properties:
+        event_id:
+          type: string
+          description: ID of the event to cancel
+
+    CancelHeatingSuccess:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [cancelled]
+        event_id:
+          type: string
+        message:
+          type: string
+        was_scheduled_for:
+          type: string
+          format: date-time
+        target_temp:
+          type: number
+          format: float
+        name:
+          type: string
+
+    StopHeatingRequest:
+      type: object
+      properties:
+        cycle_id:
+          type: string
+          description: Specific cycle to stop (omit to stop all)
+          nullable: true
+        reason:
+          type: string
+          enum: [manual_stop, emergency, safety_limit, sensor_failure, equipment_failure, timeout, user_request, system_shutdown]
+          default: manual_stop
+        auth_method:
+          type: string
+          enum: [token, cron]
+          default: token
+
+    StopHeatingSuccess:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [stopped]
+        stopped_cycles:
+          type: array
+          items:
+            type: object
+            properties:
+              cycle_id:
+                type: string
+              started_at:
+                type: string
+                format: date-time
+              target_temp:
+                type: number
+                format: float
+              final_temp:
+                type: number
+                format: float
+                nullable: true
+        removed_monitoring_crons:
+          type: integer
+        current_temp:
+          type: number
+          format: float
+          nullable: true
+        stop_reason:
+          type: string
+        stopped_at:
+          type: string
+          format: date-time
+        message:
+          type: string
+
+    # Event Management Schemas
+    HeatingEventsList:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/HeatingEvent'
+        pagination:
+          type: object
+          properties:
+            total:
+              type: integer
+            limit:
+              type: integer
+            offset:
+              type: integer
+            has_more:
+              type: boolean
+        filters:
+          type: object
+          description: Applied filters
+
+    HeatingEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        event_type:
+          type: string
+          enum: [start, monitor]
+        status:
+          type: string
+          enum: [scheduled, triggered, cancelled, error]
+        scheduled_for:
+          type: string
+          format: date-time
+        target_temp:
+          type: number
+          format: float
+        name:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        next_execution:
+          type: string
+          format: date-time
+          description: Only for scheduled events
+        time_until_execution:
+          type: integer
+          description: Seconds until execution (for scheduled events)
+        cycle:
+          $ref: '#/components/schemas/HeatingCycleInfo'
+        metadata:
+          type: object
+          description: Additional event metadata
+
+    HeatingCycleInfo:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [heating, completed, stopped, error]
+        started_at:
+          type: string
+          format: date-time
+        target_temp:
+          type: number
+          format: float
+        current_temp:
+          type: number
+          format: float
+        elapsed_time_seconds:
+          type: integer
+        temperature_difference:
+          type: number
+          format: float
+
+    # Authentication Schemas
+    AuthRequest:
+      type: object
+      required:
+        - password
+      properties:
+        password:
+          type: string
+          description: Master password
+
+    AuthSuccess:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+        message:
+          type: string
+
+    CreateUserRequest:
+      type: object
+      required:
+        - master_password
+        - name
+      properties:
+        master_password:
+          type: string
+          description: Master password for authentication
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: Name for the new token/user
+
+    CreateUserSuccess:
+      type: object
+      properties:
+        token:
+          type: string
+          description: The generated API token
+        user_id:
+          type: string
+        created:
+          type: string
+          format: date-time
+
+    UsersList:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              created:
+                type: string
+                format: date-time
+              active:
+                type: boolean
+              last_used:
+                type: string
+                format: date-time
+                nullable: true
+              token_preview:
+                type: string
+                description: First 6 characters of token + ...
+
+    # Proxy Schemas
+    ProxyRequest:
+      type: object
+      required:
+        - endpoint
+        - method
+      properties:
+        endpoint:
+          type: string
+          format: url
+          description: The URL to proxy the request to
+        method:
+          type: string
+          enum: [GET, POST, PUT, DELETE, PATCH]
+          description: HTTP method
+        headers:
+          type: object
+          description: Headers to include in the proxied request
+        body:
+          type: string
+          description: Request body for POST/PUT requests
+
+    ProxyResponse:
+      type: object
+      properties:
+        status_code:
+          type: integer
+        success:
+          type: boolean
+        headers:
+          type: object
+        body:
+          type: string
+        response_time_ms:
+          type: integer
+
+    # Error Schema
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error type or category
+        message:
+          type: string
+          description: Human-readable error message
+        timestamp:
+          type: string
+          format: date-time
+      example:
+        error: "Validation failed"
+        message: "Target temperature out of safe range (50-110°F): 120"
+        timestamp: "2025-09-09T15:30:00+00:00"
+
+tags:
+  - name: System Status
+    description: System health, temperature, and status monitoring
+  - name: Heating Control
+    description: Schedule, control, and manage heating cycles
+  - name: Event Management
+    description: List and manage heating events
+  - name: Authentication
+    description: Authentication and token management
+  - name: Admin
+    description: Administrative operations
+  - name: Proxy
+    description: CORS proxy for external APIs
+  - name: Emergency
+    description: Emergency stop and safety functions
+  - name: Internal/Cron
+    description: Internal endpoints triggered by cron jobs

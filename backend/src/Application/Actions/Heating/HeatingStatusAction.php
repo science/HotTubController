@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace HotTubController\Application\Actions\Heating;
 
-use HotTubController\Application\Actions\Action;
+use HotTubController\Application\Actions\AuthenticatedAction;
 use HotTubController\Domain\Heating\Models\HeatingEvent;
 use HotTubController\Domain\Heating\Models\HeatingCycle;
 use HotTubController\Domain\Heating\Repositories\HeatingEventRepository;
 use HotTubController\Domain\Heating\Repositories\HeatingCycleRepository;
+use HotTubController\Domain\Token\TokenService;
 use HotTubController\Services\WirelessTagClient;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -16,7 +17,7 @@ use Psr\Log\LoggerInterface;
 use DateTime;
 use Exception;
 
-class HeatingStatusAction extends Action
+class HeatingStatusAction extends AuthenticatedAction
 {
     private WirelessTagClient $wirelessTagClient;
     private HeatingEventRepository $eventRepository;
@@ -24,11 +25,12 @@ class HeatingStatusAction extends Action
     
     public function __construct(
         LoggerInterface $logger,
+        TokenService $tokenService,
         WirelessTagClient $wirelessTagClient,
         HeatingEventRepository $eventRepository,
         HeatingCycleRepository $cycleRepository
     ) {
-        parent::__construct($logger);
+        parent::__construct($logger, $tokenService);
         $this->wirelessTagClient = $wirelessTagClient;
         $this->eventRepository = $eventRepository;
         $this->cycleRepository = $cycleRepository;

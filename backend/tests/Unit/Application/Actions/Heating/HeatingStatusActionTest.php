@@ -10,17 +10,22 @@ use HotTubController\Domain\Heating\Models\HeatingCycle;
 use HotTubController\Domain\Heating\Repositories\HeatingEventRepository;
 use HotTubController\Domain\Heating\Repositories\HeatingCycleRepository;
 use HotTubController\Domain\Storage\QueryBuilder;
+use HotTubController\Domain\Token\TokenService;
 use HotTubController\Services\WirelessTagClient;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
+use Slim\Psr7\Factory\ResponseFactory;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use DateTime;
+use ReflectionClass;
 
 class HeatingStatusActionTest extends TestCase
 {
     private HeatingStatusAction $action;
     private LoggerInterface $logger;
+    private TokenService $tokenService;
     private WirelessTagClient $wirelessTagClient;
     private HeatingEventRepository $eventRepository;
     private HeatingCycleRepository $cycleRepository;
@@ -28,12 +33,14 @@ class HeatingStatusActionTest extends TestCase
     protected function setUp(): void
     {
         $this->logger = $this->createMock(LoggerInterface::class);
+        $this->tokenService = $this->createMock(TokenService::class);
         $this->wirelessTagClient = $this->createMock(WirelessTagClient::class);
         $this->eventRepository = $this->createMock(HeatingEventRepository::class);
         $this->cycleRepository = $this->createMock(HeatingCycleRepository::class);
 
         $this->action = new HeatingStatusAction(
             $this->logger,
+            $this->tokenService,
             $this->wirelessTagClient,
             $this->eventRepository,
             $this->cycleRepository
@@ -43,6 +50,7 @@ class HeatingStatusActionTest extends TestCase
     public function testFullSystemStatus(): void
     {
         $request = $this->createRequest('GET', '/api/heating-status');
+        $response = $this->createResponse();
 
         // Mock temperature reading
         $this->wirelessTagClient->expects($this->once())
@@ -121,7 +129,8 @@ class HeatingStatusActionTest extends TestCase
             ->willReturn(3);
 
 
-        $response = $this->action->__invoke($request, $this->createMock(\Psr\Http\Message\ResponseInterface::class), []);
+        // Test the action method directly (bypassing authentication)
+        $response = $this->invokeProtectedAction($request);
 
         $this->assertEquals(200, $response->getStatusCode());
         $responseBody = json_decode((string) $response->getBody(), true);
@@ -193,7 +202,8 @@ class HeatingStatusActionTest extends TestCase
         $this->eventRepository->method('countScheduledEvents')->willReturn(0);
 
 
-        $response = $this->action->__invoke($request, $this->createMock(\Psr\Http\Message\ResponseInterface::class), []);
+        // Test the action method directly (bypassing authentication)
+        $response = $this->invokeProtectedAction($request);
 
         $responseBody = json_decode((string) $response->getBody(), true);
 
@@ -224,7 +234,8 @@ class HeatingStatusActionTest extends TestCase
         $this->eventRepository->method('countScheduledEvents')->willReturn(0);
 
 
-        $response = $this->action->__invoke($request, $this->createMock(\Psr\Http\Message\ResponseInterface::class), []);
+        // Test the action method directly (bypassing authentication)
+        $response = $this->invokeProtectedAction($request);
 
         $responseBody = json_decode((string) $response->getBody(), true);
 
@@ -265,7 +276,8 @@ class HeatingStatusActionTest extends TestCase
         $this->eventRepository->method('countScheduledEvents')->willReturn(1);
 
 
-        $response = $this->action->__invoke($request, $this->createMock(\Psr\Http\Message\ResponseInterface::class), []);
+        // Test the action method directly (bypassing authentication)
+        $response = $this->invokeProtectedAction($request);
 
         $responseBody = json_decode((string) $response->getBody(), true);
 
@@ -291,7 +303,8 @@ class HeatingStatusActionTest extends TestCase
             ->with('Failed to get current temperature', $this->isType('array'));
 
 
-        $response = $this->action->__invoke($request, $this->createMock(\Psr\Http\Message\ResponseInterface::class), []);
+        // Test the action method directly (bypassing authentication)
+        $response = $this->invokeProtectedAction($request);
 
         $this->assertEquals(200, $response->getStatusCode()); // Still returns 200 with partial data
         $responseBody = json_decode((string) $response->getBody(), true);
@@ -305,6 +318,23 @@ class HeatingStatusActionTest extends TestCase
     private function createRequest(string $method, string $uri): ServerRequestInterface
     {
         return (new ServerRequestFactory())->createServerRequest($method, $uri);
+    }
+
+    private function createResponse(): ResponseInterface
+    {
+        return (new ResponseFactory())->createResponse();
+    }
+    
+    /**
+     * Helper method to invoke the protected action method directly for unit testing
+     */
+    private function invokeProtectedAction(ServerRequestInterface $request): ResponseInterface
+    {
+        $reflection = new ReflectionClass($this->action);
+        $method = $reflection->getMethod('action');
+        $method->setAccessible(true);
+        
+        return $method->invoke($this->action, $request, $this->createResponse(), []);
     }
 
 }

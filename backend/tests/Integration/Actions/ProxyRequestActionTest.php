@@ -6,9 +6,11 @@ namespace HotTubController\Tests\Integration\Actions;
 
 use HotTubController\Domain\Proxy\HttpResponse;
 use HotTubController\Tests\TestCase\ApiTestCase;
+use HotTubController\Tests\TestCase\AuthenticatedTestTrait;
 
 class ProxyRequestActionTest extends ApiTestCase
 {
+    use AuthenticatedTestTrait;
     protected function configureApp(): void
     {
         // Configure routes
@@ -20,21 +22,32 @@ class ProxyRequestActionTest extends ApiTestCase
         $middleware($this->app);
     }
 
-    public function testProxyRequestRequiresToken(): void
+    public function testProxyRequestRequiresAuthentication(): void
     {
         $response = $this->request('POST', '/api/v1/proxy', [
             'endpoint' => 'https://httpbin.org/get',
             'method' => 'GET'
         ]);
 
-        $this->assertSame(400, $response->getStatusCode());
-        $this->assertJsonError('Missing required fields: token', 400, $response);
+        $this->assertAuthenticationRequired($response);
     }
 
     public function testProxyRequestRequiresEndpoint(): void
     {
-        $response = $this->request('POST', '/api/v1/proxy', [
-            'token' => 'tk_test123',
+        // Need to create a valid token first for proper authentication
+        $tokenRepo = $this->container->get(\HotTubController\Domain\Token\TokenRepositoryInterface::class);
+        $token = new \HotTubController\Domain\Token\Token(
+            'usr_test123',
+            'tk_test123',
+            'Test User',
+            new \DateTimeImmutable(),
+            true,
+            null,
+            'user'
+        );
+        $tokenRepo->save($token);
+
+        $response = $this->requestWithToken('POST', '/api/v1/proxy', 'tk_test123', [
             'method' => 'GET'
         ]);
 
@@ -44,8 +57,20 @@ class ProxyRequestActionTest extends ApiTestCase
 
     public function testProxyRequestRequiresMethod(): void
     {
-        $response = $this->request('POST', '/api/v1/proxy', [
-            'token' => 'tk_test123',
+        // Need to create a valid token first for proper authentication
+        $tokenRepo = $this->container->get(\HotTubController\Domain\Token\TokenRepositoryInterface::class);
+        $token = new \HotTubController\Domain\Token\Token(
+            'usr_test456',
+            'tk_test123',
+            'Test User',
+            new \DateTimeImmutable(),
+            true,
+            null,
+            'user'
+        );
+        $tokenRepo->save($token);
+
+        $response = $this->requestWithToken('POST', '/api/v1/proxy', 'tk_test123', [
             'endpoint' => 'https://httpbin.org/get'
         ]);
 
@@ -55,14 +80,12 @@ class ProxyRequestActionTest extends ApiTestCase
 
     public function testProxyRequestRejectsInvalidToken(): void
     {
-        $response = $this->request('POST', '/api/v1/proxy', [
-            'token' => 'tk_invalid123',
+        $response = $this->requestWithToken('POST', '/api/v1/proxy', 'tk_invalid123', [
             'endpoint' => 'https://httpbin.org/get',
             'method' => 'GET'
         ]);
 
-        $this->assertSame(401, $response->getStatusCode());
-        $this->assertJsonError('Invalid or missing token', 401, $response);
+        $this->assertAuthenticationRequired($response);
     }
 
     public function testProxyRequestValidatesUrl(): void
@@ -73,12 +96,14 @@ class ProxyRequestActionTest extends ApiTestCase
             'usr_test123',
             'tk_validtoken123',
             'Test User',
-            new \DateTimeImmutable()
+            new \DateTimeImmutable(),
+            true,
+            null,
+            'user'
         );
         $tokenRepo->save($token);
 
-        $response = $this->request('POST', '/api/v1/proxy', [
-            'token' => 'tk_validtoken123',
+        $response = $this->requestWithToken('POST', '/api/v1/proxy', 'tk_validtoken123', [
             'endpoint' => 'not-a-valid-url',
             'method' => 'GET'
         ]);
@@ -95,12 +120,14 @@ class ProxyRequestActionTest extends ApiTestCase
             'usr_test123',
             'tk_validtoken123',
             'Test User',
-            new \DateTimeImmutable()
+            new \DateTimeImmutable(),
+            true,
+            null,
+            'user'
         );
         $tokenRepo->save($token);
 
-        $response = $this->request('POST', '/api/v1/proxy', [
-            'token' => 'tk_validtoken123',
+        $response = $this->requestWithToken('POST', '/api/v1/proxy', 'tk_validtoken123', [
             'endpoint' => 'https://httpbin.org/get',
             'method' => 'INVALID'
         ]);
@@ -117,7 +144,10 @@ class ProxyRequestActionTest extends ApiTestCase
             'usr_test123',
             'tk_validtoken123',
             'Test User',
-            new \DateTimeImmutable()
+            new \DateTimeImmutable(),
+            true,
+            null,
+            'user'
         );
         $tokenRepo->save($token);
 
@@ -135,8 +165,7 @@ class ProxyRequestActionTest extends ApiTestCase
             $expectedResponse
         );
 
-        $response = $this->request('POST', '/api/v1/proxy', [
-            'token' => 'tk_validtoken123',
+        $response = $this->requestWithToken('POST', '/api/v1/proxy', 'tk_validtoken123', [
             'endpoint' => 'https://api.example.com/test',
             'method' => 'GET',
             'headers' => [
@@ -162,7 +191,10 @@ class ProxyRequestActionTest extends ApiTestCase
             'usr_test123',
             'tk_validtoken123',
             'Test User',
-            new \DateTimeImmutable()
+            new \DateTimeImmutable(),
+            true,
+            null,
+            'user'
         );
         $tokenRepo->save($token);
 
@@ -179,8 +211,7 @@ class ProxyRequestActionTest extends ApiTestCase
             $expectedResponse
         );
 
-        $response = $this->request('POST', '/api/v1/proxy', [
-            'token' => 'tk_validtoken123',
+        $response = $this->requestWithToken('POST', '/api/v1/proxy', 'tk_validtoken123', [
             'endpoint' => 'https://api.example.com/create',
             'method' => 'POST',
             'headers' => [

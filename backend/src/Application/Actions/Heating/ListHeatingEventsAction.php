@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace HotTubController\Application\Actions\Heating;
 
-use HotTubController\Application\Actions\Action;
+use HotTubController\Application\Actions\AuthenticatedAction;
 use HotTubController\Domain\Heating\Models\HeatingEvent;
 use HotTubController\Domain\Heating\Models\HeatingCycle;
 use HotTubController\Domain\Heating\Repositories\HeatingEventRepository;
@@ -17,9 +17,8 @@ use DateTime;
 use Exception;
 use RuntimeException;
 
-class ListHeatingEventsAction extends Action
+class ListHeatingEventsAction extends AuthenticatedAction
 {
-    private TokenService $tokenService;
     private HeatingEventRepository $eventRepository;
     private HeatingCycleRepository $cycleRepository;
     
@@ -29,8 +28,7 @@ class ListHeatingEventsAction extends Action
         HeatingEventRepository $eventRepository,
         HeatingCycleRepository $cycleRepository
     ) {
-        parent::__construct($logger);
-        $this->tokenService = $tokenService;
+        parent::__construct($logger, $tokenService);
         $this->eventRepository = $eventRepository;
         $this->cycleRepository = $cycleRepository;
     }

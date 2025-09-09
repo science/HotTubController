@@ -29,31 +29,31 @@ return function (App $app) {
         // Authentication
         $group->post('/auth', AuthenticateAction::class);
         
-        // Main proxy endpoint
+        // Main proxy endpoint (user-authenticated - handled by AuthenticatedAction)
         $group->post('/proxy', ProxyRequestAction::class);
         
-        // Admin endpoints
+        // Admin endpoints (use master password auth for now - TODO: convert to AdminAuthenticatedAction)
         $group->post('/admin/user', CreateUserAction::class);
         $group->get('/admin/users', ListUsersAction::class);
         
     });
     
-    // Heating Control API (cron-triggered and web-accessible)
+    // Heating Control API
     $app->group('/api', function ($group) {
         
-        // Core heating control (triggered by cron jobs)
+        // Core heating control (cron-authenticated - handled by CronAuthenticatedAction)
         $group->post('/start-heating', StartHeatingAction::class);
         $group->get('/monitor-temp', MonitorTempAction::class);
         
-        // Emergency stop (web-accessible)
+        // Emergency stop (admin or cron authenticated - handled internally)
         $group->post('/stop-heating', StopHeatingAction::class);
         
-        // Management APIs (user-authenticated)
-        $group->post('/schedule-heating', ScheduleHeatingAction::class)->add(TokenValidationMiddleware::class);
-        $group->post('/cancel-scheduled-heating', CancelScheduledHeatingAction::class)->add(TokenValidationMiddleware::class);
-        $group->get('/list-heating-events', ListHeatingEventsAction::class)->add(TokenValidationMiddleware::class);
+        // Management APIs (user-authenticated - handled by AuthenticatedAction base classes)
+        $group->post('/schedule-heating', ScheduleHeatingAction::class);
+        $group->post('/cancel-scheduled-heating', CancelScheduledHeatingAction::class);
+        $group->get('/list-heating-events', ListHeatingEventsAction::class);
         
-        // Status API (public read-only)
+        // Status API (user-authenticated - no longer public)
         $group->get('/heating-status', HeatingStatusAction::class);
         
     });

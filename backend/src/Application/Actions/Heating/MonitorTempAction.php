@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace HotTubController\Application\Actions\Heating;
 
-use HotTubController\Application\Actions\Action;
+use HotTubController\Application\Actions\CronAuthenticatedAction;
 use HotTubController\Domain\Heating\CronJobBuilder;
 use HotTubController\Domain\Heating\Models\HeatingCycle;
 use HotTubController\Domain\Heating\Repositories\HeatingCycleRepository;
@@ -26,7 +26,7 @@ use RuntimeException;
  * the current temperature and decide whether to continue heating, schedule
  * the next check, or complete the heating cycle when target is reached.
  */
-class MonitorTempAction extends Action
+class MonitorTempAction extends CronAuthenticatedAction
 {
     private WirelessTagClient $wirelessTagClient;
     private IftttWebhookClient $iftttClient;
@@ -42,14 +42,14 @@ class MonitorTempAction extends Action
     
     public function __construct(
         LoggerInterface $logger,
+        CronSecurityManager $securityManager,
         WirelessTagClient $wirelessTagClient,
         IftttWebhookClient $iftttClient,
         CronManager $cronManager,
-        CronSecurityManager $securityManager,
         CronJobBuilder $cronJobBuilder,
         HeatingCycleRepository $cycleRepository
     ) {
-        parent::__construct($logger);
+        parent::__construct($logger, $securityManager);
         $this->wirelessTagClient = $wirelessTagClient;
         $this->iftttClient = $iftttClient;
         $this->cronManager = $cronManager;

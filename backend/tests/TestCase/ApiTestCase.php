@@ -101,7 +101,32 @@ abstract class ApiTestCase extends TestCase
         array $data = [],
         array $headers = []
     ): ResponseInterface {
+        $headers['Authorization'] = 'Bearer ' . $token;
+        return $this->request($method, $uri, $data, $headers);
+    }
+
+    /**
+     * @deprecated Use requestWithToken() instead - tokens now go in Authorization header
+     */
+    protected function requestWithTokenInBody(
+        string $method,
+        string $uri,
+        string $token,
+        array $data = [],
+        array $headers = []
+    ): ResponseInterface {
         $data['token'] = $token;
+        return $this->request($method, $uri, $data, $headers);
+    }
+
+    protected function requestWithCronAuth(
+        string $method,
+        string $uri,
+        string $cronApiKey = 'cron_api_test_key_123',
+        array $data = [],
+        array $headers = []
+    ): ResponseInterface {
+        $data['auth'] = $cronApiKey;
         return $this->request($method, $uri, $data, $headers);
     }
 
@@ -130,12 +155,26 @@ abstract class ApiTestCase extends TestCase
         $this->assertJsonResponse(['error' => $expectedError], $response);
     }
 
-    protected function createTestToken(): array
+    protected function createTestToken(string $role = 'user'): array
     {
         return [
             'id' => 'usr_test123',
             'token' => 'tk_testtoken1234',
             'name' => 'Test User',
+            'role' => $role,
+            'created' => '2025-01-15T10:30:00+00:00',
+            'active' => true,
+            'last_used' => null,
+        ];
+    }
+
+    protected function createTestAdminToken(): array
+    {
+        return [
+            'id' => 'usr_admin123',
+            'token' => 'tk_admintoken1234',
+            'name' => 'Test Admin',
+            'role' => 'admin',
             'created' => '2025-01-15T10:30:00+00:00',
             'active' => true,
             'last_used' => null,

@@ -12,8 +12,13 @@ class TokenService
         private TokenRepositoryInterface $tokenRepository
     ) {}
 
-    public function createToken(string $name): Token
+    public function createToken(string $name, string $role = Token::ROLE_USER): Token
     {
+        // Validate role
+        if (!in_array($role, [Token::ROLE_USER, Token::ROLE_ADMIN])) {
+            throw new \InvalidArgumentException("Invalid role: {$role}");
+        }
+
         $id = 'usr_' . bin2hex(random_bytes(3));
         $token = 'tk_' . bin2hex(random_bytes(8));
         
@@ -21,7 +26,10 @@ class TokenService
             $id,
             $token,
             $name,
-            new DateTimeImmutable()
+            new DateTimeImmutable(),
+            true,
+            null,
+            $role
         );
         
         $this->tokenRepository->save($tokenEntity);
@@ -68,5 +76,16 @@ class TokenService
     public function deleteToken(string $id): bool
     {
         return $this->tokenRepository->deleteById($id);
+    }
+
+    public function getTokenByValue(string $tokenValue): ?Token
+    {
+        $allTokens = $this->getAllTokens();
+        foreach ($allTokens as $token) {
+            if ($token->getToken() === $tokenValue && $token->isActive()) {
+                return $token;
+            }
+        }
+        return null;
     }
 }

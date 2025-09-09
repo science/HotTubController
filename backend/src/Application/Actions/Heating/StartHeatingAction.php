@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace HotTubController\Application\Actions\Heating;
 
-use HotTubController\Application\Actions\Action;
+use HotTubController\Application\Actions\CronAuthenticatedAction;
 use HotTubController\Domain\Heating\CronJobBuilder;
 use HotTubController\Domain\Heating\Models\HeatingCycle;
 use HotTubController\Domain\Heating\Models\HeatingEvent;
@@ -29,7 +29,7 @@ use RuntimeException;
  * creates the heating cycle record, and schedules the first temperature
  * monitoring check.
  */
-class StartHeatingAction extends Action
+class StartHeatingAction extends CronAuthenticatedAction
 {
     private WirelessTagClient $wirelessTagClient;
     private IftttWebhookClient $iftttClient;
@@ -41,15 +41,15 @@ class StartHeatingAction extends Action
     
     public function __construct(
         LoggerInterface $logger,
+        CronSecurityManager $securityManager,
         WirelessTagClient $wirelessTagClient,
         IftttWebhookClient $iftttClient,
         CronManager $cronManager,
-        CronSecurityManager $securityManager,
         CronJobBuilder $cronJobBuilder,
         HeatingCycleRepository $cycleRepository,
         HeatingEventRepository $eventRepository
     ) {
-        parent::__construct($logger);
+        parent::__construct($logger, $securityManager);
         $this->wirelessTagClient = $wirelessTagClient;
         $this->iftttClient = $iftttClient;
         $this->cronManager = $cronManager;
@@ -74,8 +74,7 @@ class StartHeatingAction extends Action
         ]);
         
         try {
-            // Authenticate cron API key
-            $this->authenticateCronRequest($request);
+            // Authentication handled by parent CronAuthenticatedAction
             
             // Validate parameters
             $this->validateStartHeatingParameters($eventId, $targetTemp);
@@ -140,25 +139,6 @@ class StartHeatingAction extends Action
         }
     }
     
-    /**
-     * Authenticate the cron API request
-     */
-    private function authenticateCronRequest(ServerRequestInterface $request): void
-    {
-        $input = $this->getJsonInput($request);
-        $providedAuth = $input['auth'] ?? null;
-        
-        if (empty($providedAuth)) {
-            throw new RuntimeException('Missing authentication parameter');
-        }
-        
-        if (!$this->securityManager->verifyApiKey($providedAuth)) {
-            $this->logger->warning('Invalid cron API key provided', [
-                'provided_key_preview' => substr($providedAuth, 0, 10) . '...',
-            ]);
-            throw new RuntimeException('Invalid authentication key');
-        }
-    }
     
     /**
      * Validate start heating parameters

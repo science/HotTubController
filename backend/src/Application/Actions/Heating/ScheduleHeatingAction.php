@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace HotTubController\Application\Actions\Heating;
 
-use HotTubController\Application\Actions\Action;
+use HotTubController\Application\Actions\AuthenticatedAction;
 use HotTubController\Domain\Heating\CronJobBuilder;
 use HotTubController\Domain\Heating\Models\HeatingEvent;
 use HotTubController\Domain\Heating\Repositories\HeatingEventRepository;
@@ -18,9 +18,8 @@ use DateTime;
 use Exception;
 use RuntimeException;
 
-class ScheduleHeatingAction extends Action
+class ScheduleHeatingAction extends AuthenticatedAction
 {
-    private TokenService $tokenService;
     private HeatingEventRepository $eventRepository;
     private CronManager $cronManager;
     private CronJobBuilder $cronJobBuilder;
@@ -34,8 +33,7 @@ class ScheduleHeatingAction extends Action
         CronJobBuilder $cronJobBuilder,
         WirelessTagClient $wirelessTagClient
     ) {
-        parent::__construct($logger);
-        $this->tokenService = $tokenService;
+        parent::__construct($logger, $tokenService);
         $this->eventRepository = $eventRepository;
         $this->cronManager = $cronManager;
         $this->cronJobBuilder = $cronJobBuilder;
@@ -45,8 +43,7 @@ class ScheduleHeatingAction extends Action
     protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         try {
-            // Authenticate user token
-            $this->authenticateUserToken($request);
+            // Authentication handled by parent AuthenticatedAction
             
             // Parse and validate parameters
             $startTime = $this->parseStartTime($request);
@@ -109,27 +106,6 @@ class ScheduleHeatingAction extends Action
         }
     }
     
-    private function authenticateUserToken(ServerRequestInterface $request): void
-    {
-        $authHeader = $request->getHeaderLine('Authorization');
-        
-        if (empty($authHeader)) {
-            throw new RuntimeException('Missing Authorization header');
-        }
-        
-        if (!preg_match('/^Bearer\s+(.+)$/i', $authHeader, $matches)) {
-            throw new RuntimeException('Invalid Authorization header format');
-        }
-        
-        $token = $matches[1];
-        
-        if (!$this->tokenService->validateToken($token)) {
-            throw new RuntimeException('Invalid or expired token');
-        }
-        
-        // Update token last used timestamp
-        $this->tokenService->updateTokenLastUsed($token);
-    }
     
     private function parseStartTime(ServerRequestInterface $request): DateTime
     {

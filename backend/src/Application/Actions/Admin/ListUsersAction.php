@@ -44,6 +44,7 @@ class ListUsersAction extends Action
                 return [
                     'id' => $token->getId(),
                     'name' => $token->getName(),
+                    'role' => $token->getRole(),
                     'created' => $token->getCreated()->format('c'),
                     'active' => $token->isActive(),
                     'last_used' => $token->getLastUsed()?->format('c'),
