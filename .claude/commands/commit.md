@@ -1,0 +1,1 @@
+Stage and commit the changes made to the work above into the local git repo with an appropriate message reflecting the work done. Note in your response any files that you do not commit (due to them being unrelated to the recent work) and why you think they are unrelated.
