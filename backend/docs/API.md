@@ -63,7 +63,7 @@ Used for system-to-system communication (heating control endpoints triggered by 
 ### Authentication Summary by Endpoint Type
 
 - **Public Status**: `/` (minimal service info, no sensitive data)
-- **User Authenticated**: Most heating APIs, proxy (`/api/heating-status`, `/api/schedule-heating`, `/api/v1/proxy`)
+- **User Authenticated**: Most heating APIs (`/api/heating-status`, `/api/schedule-heating`)
 - **Admin Authenticated**: Emergency stop manual triggers (`/api/stop-heating` with Bearer token)
 - **Master Password**: Admin token management (`/api/v1/admin/*`)
 - **Cron API Key**: System heating control (`/api/start-heating`, `/api/monitor-temp`)
@@ -306,27 +306,6 @@ List all API tokens.
 curl "http://localhost:8080/api/v1/admin/users?master_password=your_master_password"
 ```
 
-### CORS Proxy
-
-#### POST `/api/v1/proxy`
-Proxy requests to external APIs (WirelessTag, etc.).
-
-**Authentication**: Required (Bearer token)
-
-**Note**: Token is now passed via Authorization header instead of request body.
-
-```bash
-curl -X POST http://localhost:8080/api/v1/proxy \
-  -H "Authorization: Bearer htc_1a2b3c4d5e6f..." \
-  -H "Content-Type: application/json" \
-  -d '{
-    "endpoint": "https://api.wirelesstag.net/some-endpoint",
-    "method": "GET",
-    "headers": {
-      "Authorization": "Bearer external_api_token"
-    }
-  }'
-```
 
 ## Real-Time Updates
 

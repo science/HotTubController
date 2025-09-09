@@ -13,7 +13,6 @@ use HotTubController\Application\Actions\Heating\ScheduleHeatingAction;
 use HotTubController\Application\Actions\Heating\CancelScheduledHeatingAction;
 use HotTubController\Application\Actions\Heating\ListHeatingEventsAction;
 use HotTubController\Application\Actions\Heating\HeatingStatusAction;
-use HotTubController\Application\Actions\Proxy\ProxyRequestAction;
 use HotTubController\Application\Actions\StatusAction;
 use HotTubController\Application\Middleware\CorsMiddleware;
 use HotTubController\Application\Middleware\TokenValidationMiddleware;
@@ -22,8 +21,6 @@ use HotTubController\Domain\Heating\Repositories\HeatingCycleRepository;
 use HotTubController\Domain\Heating\Repositories\HeatingEventRepository;
 use HotTubController\Domain\Token\TokenService;
 use HotTubController\Domain\Token\TokenRepositoryInterface;
-use HotTubController\Infrastructure\Http\CurlHttpClient;
-use HotTubController\Infrastructure\Http\HttpClientInterface;
 use HotTubController\Infrastructure\Persistence\JsonTokenRepository;
 use HotTubController\Infrastructure\Storage\JsonStorageManager;
 use HotTubController\Services\CronManager;
@@ -69,15 +66,6 @@ return function (ContainerBuilder $containerBuilder) {
             return $logger;
         },
         
-        // HTTP Client
-        HttpClientInterface::class => function (ContainerInterface $c): HttpClientInterface {
-            $settings = $c->get('settings')['http_client'];
-            return new CurlHttpClient(
-                $settings['timeout'],
-                $settings['user_agent'],
-                $settings['verify_ssl']
-            );
-        },
         
         // Token Repository
         TokenRepositoryInterface::class => function (ContainerInterface $c): TokenRepositoryInterface {
@@ -118,14 +106,6 @@ return function (ContainerBuilder $containerBuilder) {
             return new AuthenticateAction(
                 $c->get(LoggerInterface::class),
                 $settings['auth']['master_password_hash']
-            );
-        },
-
-        ProxyRequestAction::class => function (ContainerInterface $c): ProxyRequestAction {
-            return new ProxyRequestAction(
-                $c->get(LoggerInterface::class),
-                $c->get(TokenService::class),
-                $c->get(HttpClientInterface::class)
             );
         },
 

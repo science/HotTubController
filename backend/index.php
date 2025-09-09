@@ -1,7 +1,7 @@
 <?php
 /**
- * Hot Tub Controller - PHP CORS Proxy
- * Simple proxy for forwarding API requests with authentication
+ * Hot Tub Controller - Legacy PHP API
+ * Basic API endpoints for authentication and admin functions
  */
 
 // Load configuration
@@ -37,9 +37,6 @@ try {
             handleAuth($input, $config);
             break;
             
-        case '/api/v1/proxy':
-            handleProxy($input, $tokens, $config);
-            break;
             
         case '/api/v1/admin/user':
             handleAdminUserCreate($input, $config, $tokens);
@@ -100,33 +97,6 @@ function handleAuth($input, $config) {
     }
 }
 
-/**
- * Main proxy endpoint - forwards requests to external APIs
- */
-function handleProxy($input, $tokens, $config) {
-    // Validate token
-    if (!isset($input['token']) || !isValidToken($input['token'], $tokens)) {
-        http_response_code(401);
-        echo json_encode(['error' => 'Invalid or missing token']);
-        return;
-    }
-    
-    // Validate required fields
-    if (!isset($input['endpoint']) || !isset($input['method'])) {
-        http_response_code(400);
-        echo json_encode(['error' => 'endpoint and method required']);
-        return;
-    }
-    
-    // Update last_used timestamp
-    updateTokenLastUsed($input['token']);
-    
-    // Make the proxied request
-    $response = makeProxiedRequest($input, $config);
-    
-    // Return response
-    echo json_encode($response);
-}
 
 /**
  * Admin endpoint - create new user token
@@ -224,55 +194,3 @@ function updateTokenLastUsed($token) {
     file_put_contents(__DIR__ . '/tokens.json', json_encode($tokens, JSON_PRETTY_PRINT));
 }
 
-/**
- * Make the actual HTTP request to external API
- */
-function makeProxiedRequest($input, $config) {
-    $ch = curl_init();
-    
-    // Basic cURL options
-    curl_setopt_array($ch, [
-        CURLOPT_URL => $input['endpoint'],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30,
-        CURLOPT_CUSTOMREQUEST => strtoupper($input['method']),
-        CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_USERAGENT => 'HotTubController/1.0'
-    ]);
-    
-    // Add headers if provided
-    if (isset($input['headers']) && is_array($input['headers'])) {
-        $headers = [];
-        foreach ($input['headers'] as $key => $value) {
-            $headers[] = "$key: $value";
-        }
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    }
-    
-    // Add body for POST/PUT requests
-    if (isset($input['body']) && in_array(strtoupper($input['method']), ['POST', 'PUT', 'PATCH'])) {
-        $body = is_array($input['body']) ? json_encode($input['body']) : $input['body'];
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
-    }
-    
-    // Execute request
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $error = curl_error($ch);
-    curl_close($ch);
-    
-    if ($error) {
-        return [
-            'success' => false,
-            'error' => 'cURL error: ' . $error,
-            'http_code' => 0
-        ];
-    }
-    
-    return [
-        'success' => true,
-        'http_code' => $httpCode,
-        'data' => $response,
-        'parsed_data' => json_decode($response, true) // Try to parse as JSON
-    ];
-}

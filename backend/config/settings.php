@@ -65,12 +65,6 @@ return [
         'token_file' => $_ENV['TOKEN_STORAGE_PATH'] ?? __DIR__ . '/../storage/tokens.json',
     ],
     
-    // HTTP Client
-    'http_client' => [
-        'timeout' => 30,
-        'user_agent' => 'HotTubController/1.0',
-        'verify_ssl' => true,
-    ],
     
     // Server
     'server' => [

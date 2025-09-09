@@ -105,7 +105,7 @@ Based on Tasker XML analysis, these events control physical equipment:
 ## Architecture Overview
 
 ### Core Purpose
-PHP-based CORS proxy API for hot tub controller, designed for intelligent heating control through:
+PHP-based API for hot tub controller, designed for intelligent heating control through:
 - **WirelessTag API**: Temperature monitoring from wireless sensors  
 - **IFTTT Webhooks**: Equipment control (heater, pump, ionizer) via SmartLife automation
 - **Cron-based scheduling**: Dynamic heating cycles with temperature monitoring loops
@@ -114,16 +114,14 @@ PHP-based CORS proxy API for hot tub controller, designed for intelligent heatin
 ```
 src/
 ├── Application/           # Slim framework application layer
-│   ├── Actions/          # HTTP action handlers (Auth, Proxy, Admin)
+│   ├── Actions/          # HTTP action handlers (Auth, Admin, Heating)
 │   ├── Handlers/         # Error handlers
 │   └── Middleware/       # HTTP middleware
 ├── Domain/               # Core business logic
 │   ├── Token/           # Authentication token management
-│   ├── Proxy/           # HTTP proxying domain logic
 │   ├── Storage/         # Model-persistence framework
 │   └── Heating/         # Heating cycle and event models
 ├── Infrastructure/       # External integrations
-│   ├── Http/            # HTTP client implementations
 │   ├── Persistence/     # File-based storage (tokens, config)
 │   └── Storage/         # JSON storage management
 └── Services/            # Application services
@@ -180,7 +178,7 @@ Key Components:
 
 ### Configuration
 - **Environment**: `.env` file with secure permissions (600) for API tokens
-- **Application Config**: `config.json` for CORS settings and feature flags
+- **Application Config**: `config.json` for application settings and feature flags
 - **Storage**: File-based persistence in `storage/` directory for tokens and state
 
 ### Planned Features

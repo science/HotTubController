@@ -4,7 +4,7 @@ info:
   description: |
     A PHP-based backend API for intelligent hot tub temperature management and equipment control.
     
-    This RESTful API provides CORS proxy functionality, external API integration, and complete heating cycle management with safety features.
+    This RESTful API provides external API integration and complete heating cycle management with safety features.
     
     **⚠️ SAFETY WARNING**: This API controls real hot tub hardware including heater, pump, and ionizer systems.
   version: 1.0.0
@@ -365,44 +365,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  # CORS Proxy
-  /api/v1/proxy:
-    post:
-      summary: Proxy requests to external APIs
-      description: |
-        CORS-enabled proxy for making requests to external APIs like WirelessTag.
-        Useful for frontend applications that need to access external services.
-      tags:
-        - Proxy
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProxyRequest'
-      responses:
-        '200':
-          description: Proxied response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProxyResponse'
-        '400':
-          description: Invalid proxy request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '500':
-          description: Proxy request failed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 
   # System Health
   /:
@@ -994,41 +956,6 @@ components:
                 type: string
                 description: First 6 characters of token + ...
 
-    # Proxy Schemas
-    ProxyRequest:
-      type: object
-      required:
-        - endpoint
-        - method
-      properties:
-        endpoint:
-          type: string
-          format: url
-          description: The URL to proxy the request to
-        method:
-          type: string
-          enum: [GET, POST, PUT, DELETE, PATCH]
-          description: HTTP method
-        headers:
-          type: object
-          description: Headers to include in the proxied request
-        body:
-          type: string
-          description: Request body for POST/PUT requests
-
-    ProxyResponse:
-      type: object
-      properties:
-        status_code:
-          type: integer
-        success:
-          type: boolean
-        headers:
-          type: object
-        body:
-          type: string
-        response_time_ms:
-          type: integer
 
     # Error Schema
     ErrorResponse:
@@ -1059,8 +986,6 @@ tags:
     description: Authentication and token management
   - name: Admin
     description: Administrative operations
-  - name: Proxy
-    description: CORS proxy for external APIs
   - name: Emergency
     description: Emergency stop and safety functions
   - name: Internal/Cron

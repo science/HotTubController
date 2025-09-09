@@ -1,6 +1,6 @@
 # Hot Tub Controller - Backend API
 
-A PHP-based backend API for intelligent hot tub temperature management and equipment control. This system provides CORS proxy functionality, external API integration, and a complete storage infrastructure for heating cycle management.
+A PHP-based backend API for intelligent hot tub temperature management and equipment control. This system provides external API integration and a complete storage infrastructure for heating cycle management.
 
 ## 🎯 Project Overview
 
@@ -19,16 +19,14 @@ This backend serves as the core engine for automated hot tub heating control, fe
 ```
 src/
 ├── Application/           # Slim framework HTTP layer
-│   ├── Actions/          # API endpoints (Auth, Proxy, Admin)
+│   ├── Actions/          # API endpoints (Auth, Admin, Heating)
 │   ├── Handlers/         # Error handling
 │   └── Middleware/       # CORS and authentication middleware
 ├── Domain/               # Business logic and models
 │   ├── Token/           # Authentication token management
-│   ├── Proxy/           # HTTP proxy domain logic
 │   ├── Storage/         # Model-persistence framework
 │   └── Heating/         # Heating cycle and event models
 ├── Infrastructure/       # External integrations
-│   ├── Http/            # HTTP client implementations
 │   ├── Persistence/     # File-based storage
 │   └── Storage/         # JSON storage management
 └── Services/            # Application services (WirelessTag, IFTTT)
@@ -38,7 +36,6 @@ src/
 
 - **Repository Pattern**: Clean separation between domain models and data persistence
 - **Factory Pattern**: Environment-aware client creation with safety checks
-- **Proxy Pattern**: CORS-enabled access to external APIs from web frontends
 - **Strategy Pattern**: Flexible storage rotation and cleanup strategies
 
 ## 🚀 What's Implemented

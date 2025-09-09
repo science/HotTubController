@@ -12,7 +12,6 @@ use HotTubController\Application\Actions\Heating\ScheduleHeatingAction;
 use HotTubController\Application\Actions\Heating\CancelScheduledHeatingAction;
 use HotTubController\Application\Actions\Heating\ListHeatingEventsAction;
 use HotTubController\Application\Actions\Heating\HeatingStatusAction;
-use HotTubController\Application\Actions\Proxy\ProxyRequestAction;
 use HotTubController\Application\Actions\StatusAction;
 use HotTubController\Application\Middleware\TokenValidationMiddleware;
 use Slim\App;
@@ -29,8 +28,6 @@ return function (App $app) {
         // Authentication
         $group->post('/auth', AuthenticateAction::class);
         
-        // Main proxy endpoint (user-authenticated - handled by AuthenticatedAction)
-        $group->post('/proxy', ProxyRequestAction::class);
         
         // Admin endpoints (use master password auth for now - TODO: convert to AdminAuthenticatedAction)
         $group->post('/admin/user', CreateUserAction::class);

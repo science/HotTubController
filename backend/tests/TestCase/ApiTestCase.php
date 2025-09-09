@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace HotTubController\Tests\TestCase;
 
 use DI\ContainerBuilder;
-use HotTubController\Infrastructure\Http\HttpClientInterface;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -21,7 +20,6 @@ abstract class ApiTestCase extends TestCase
 {
     protected App $app;
     protected ContainerInterface $container;
-    protected MockHttpClient $mockHttpClient;
 
     protected function setUp(): void
     {
@@ -34,10 +32,9 @@ abstract class ApiTestCase extends TestCase
         $dependencies = require __DIR__ . '/../../config/dependencies.php';
         $dependencies($containerBuilder);
         
-        // Override with test-specific bindings
-        $this->mockHttpClient = new MockHttpClient();
+        // Override with test-specific bindings if needed
         $containerBuilder->addDefinitions([
-            HttpClientInterface::class => $this->mockHttpClient,
+            // Test-specific overrides can be added here
         ]);
         
         $this->container = $containerBuilder->build();
@@ -52,7 +49,6 @@ abstract class ApiTestCase extends TestCase
 
     protected function tearDown(): void
     {
-        $this->mockHttpClient->assertAllExpectationsMet();
         parent::tearDown();
     }
 
