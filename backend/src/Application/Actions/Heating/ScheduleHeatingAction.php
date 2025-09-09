@@ -10,7 +10,6 @@ use HotTubController\Domain\Heating\Models\HeatingEvent;
 use HotTubController\Domain\Heating\Repositories\HeatingEventRepository;
 use HotTubController\Domain\Token\TokenService;
 use HotTubController\Services\CronManager;
-use HotTubController\Services\WirelessTagClient;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
@@ -23,21 +22,18 @@ class ScheduleHeatingAction extends AuthenticatedAction
     private HeatingEventRepository $eventRepository;
     private CronManager $cronManager;
     private CronJobBuilder $cronJobBuilder;
-    private WirelessTagClient $wirelessTagClient;
     
     public function __construct(
         LoggerInterface $logger,
         TokenService $tokenService,
         HeatingEventRepository $eventRepository,
         CronManager $cronManager,
-        CronJobBuilder $cronJobBuilder,
-        WirelessTagClient $wirelessTagClient
+        CronJobBuilder $cronJobBuilder
     ) {
         parent::__construct($logger, $tokenService);
         $this->eventRepository = $eventRepository;
         $this->cronManager = $cronManager;
         $this->cronJobBuilder = $cronJobBuilder;
-        $this->wirelessTagClient = $wirelessTagClient;
     }
     
     protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
@@ -61,17 +57,6 @@ class ScheduleHeatingAction extends AuthenticatedAction
             // Check for overlapping heating events
             $this->checkForOverlappingEvents($startTime);
             
-            // Check if target temperature is already reached
-            $currentTemp = $this->getCurrentTemperature();
-            if ($currentTemp >= $targetTemp) {
-                return $this->jsonResponse([
-                    'status' => 'already_at_target',
-                    'current_temp' => $currentTemp,
-                    'target_temp' => $targetTemp,
-                    'message' => 'Hot tub is already at the desired temperature',
-                ]);
-            }
-            
             // Create heating event
             $event = $this->createHeatingEvent($startTime, $targetTemp, $name, $description);
             
@@ -90,7 +75,6 @@ class ScheduleHeatingAction extends AuthenticatedAction
                 'event_id' => $event->getId(),
                 'start_time' => $startTime->format('c'),
                 'target_temp' => $targetTemp,
-                'current_temp' => $currentTemp,
                 'name' => $name,
                 'description' => $description,
                 'cron_id' => $cronId,
@@ -172,34 +156,6 @@ class ScheduleHeatingAction extends AuthenticatedAction
                 "Conflicting event ID: {$conflictEvent->getId()} " .
                 "scheduled for {$conflictEvent->getScheduledFor()->format('Y-m-d H:i:s')}"
             );
-        }
-    }
-    
-    private function getCurrentTemperature(): float
-    {
-        try {
-            // Use a default device ID - this should be configurable in the future
-            $deviceId = '217af407-0165-462d-be07-809e82f6a865';
-            
-            // Get fresh temperature reading for scheduling accuracy
-            $temperatureData = $this->wirelessTagClient->getFreshTemperatureData($deviceId);
-            
-            if (empty($temperatureData)) {
-                throw new RuntimeException('No temperature data available from sensors');
-            }
-            
-            // Process the raw temperature data
-            $processed = $this->wirelessTagClient->processTemperatureData($temperatureData);
-            
-            return $processed['water_temperature']['fahrenheit'];
-            
-        } catch (Exception $e) {
-            $this->logger->warning('Failed to get current temperature', [
-                'error' => $e->getMessage(),
-            ]);
-            
-            // Return a reasonable default rather than failing the scheduling
-            return 85.0;
         }
     }
     

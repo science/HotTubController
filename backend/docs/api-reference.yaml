@@ -55,7 +55,7 @@ paths:
       summary: Schedule a future heating cycle
       description: |
         Schedule a heating cycle to start at a specified time with a target temperature.
-        Includes overlap detection and current temperature checking.
+        Includes overlap detection. Temperature checks are performed when heating actually starts.
       tags:
         - Heating Control
       security:
@@ -86,9 +86,7 @@ paths:
           content:
             application/json:
               schema:
-                oneOf:
-                  - $ref: '#/components/schemas/ScheduleHeatingSuccess'
-                  - $ref: '#/components/schemas/AlreadyAtTargetResponse'
+                $ref: '#/components/schemas/ScheduleHeatingSuccess'
               examples:
                 scheduled:
                   summary: Successfully scheduled
@@ -100,13 +98,6 @@ paths:
                     current_temp: 88.5
                     name: "Evening Session"
                     cron_id: "cron_xyz789"
-                already_at_target:
-                  summary: Already at target temperature
-                  value:
-                    status: "already_at_target"
-                    current_temp: 104.2
-                    target_temp: 104.0
-                    message: "Hot tub is already at the desired temperature"
         '400':
           description: Invalid request parameters
           content:
@@ -761,21 +752,6 @@ components:
         description:
           type: string
         cron_id:
-          type: string
-
-    AlreadyAtTargetResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          enum: [already_at_target]
-        current_temp:
-          type: number
-          format: float
-        target_temp:
-          type: number
-          format: float
-        message:
           type: string
 
     CancelHeatingRequest:

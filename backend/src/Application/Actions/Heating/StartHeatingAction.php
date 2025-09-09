@@ -87,6 +87,20 @@ class StartHeatingAction extends CronAuthenticatedAction
             
             // Validate temperature differential
             if ($currentTemp >= $targetTemp) {
+                // Update the triggering event to record that heating was skipped
+                if ($triggeringEvent) {
+                    $triggeringEvent->addMetadata('skipped_reason', 'already_at_target');
+                    $triggeringEvent->addMetadata('actual_temp', $currentTemp);
+                    $triggeringEvent->addMetadata('skipped_at', (new DateTime())->format('c'));
+                    $this->eventRepository->save($triggeringEvent);
+                }
+                
+                $this->logger->info('Heating skipped - already at target temperature', [
+                    'event_id' => $eventId,
+                    'current_temp' => $currentTemp,
+                    'target_temp' => $targetTemp,
+                ]);
+                
                 return $this->jsonResponse([
                     'status' => 'already_at_target',
                     'current_temp' => $currentTemp,

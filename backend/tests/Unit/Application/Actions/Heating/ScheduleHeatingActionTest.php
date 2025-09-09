@@ -10,7 +10,6 @@ use HotTubController\Domain\Heating\Models\HeatingEvent;
 use HotTubController\Domain\Heating\Repositories\HeatingEventRepository;
 use HotTubController\Domain\Token\TokenService;
 use HotTubController\Services\CronManager;
-use HotTubController\Services\WirelessTagClient;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -28,7 +27,6 @@ class ScheduleHeatingActionTest extends TestCase
     private HeatingEventRepository $eventRepository;
     private CronManager $cronManager;
     private CronJobBuilder $cronJobBuilder;
-    private WirelessTagClient $wirelessTagClient;
 
     protected function setUp(): void
     {
@@ -37,15 +35,13 @@ class ScheduleHeatingActionTest extends TestCase
         $this->eventRepository = $this->createMock(HeatingEventRepository::class);
         $this->cronManager = $this->createMock(CronManager::class);
         $this->cronJobBuilder = $this->createMock(CronJobBuilder::class);
-        $this->wirelessTagClient = $this->createMock(WirelessTagClient::class);
 
         $this->action = new ScheduleHeatingAction(
             $this->logger,
             $this->tokenService,
             $this->eventRepository,
             $this->cronManager,
-            $this->cronJobBuilder,
-            $this->wirelessTagClient
+            $this->cronJobBuilder
         );
     }
 
@@ -68,24 +64,6 @@ class ScheduleHeatingActionTest extends TestCase
         $this->eventRepository->expects($this->once())
             ->method('findByTimeRange')
             ->willReturn([]);
-
-        // Mock current temperature
-        $this->wirelessTagClient->expects($this->once())
-            ->method('getFreshTemperatureData')
-            ->willReturn([
-                [
-                    'temperature' => 88.5,
-                    'name' => 'Hot Tub Sensor',
-                    'timestamp' => (new DateTime())->format('c'),
-                ]
-            ]);
-        
-        $this->wirelessTagClient->expects($this->once())
-            ->method('processTemperatureData')
-            ->willReturn([
-                'water_temperature' => ['fahrenheit' => 88.5],
-                'sensor_info' => ['name' => 'Hot Tub Sensor']
-            ]);
 
         // Mock event creation - repository save is called twice (create + update with cron_id)
         $this->eventRepository->expects($this->exactly(2))
@@ -220,19 +198,6 @@ class ScheduleHeatingActionTest extends TestCase
         $this->eventRepository->expects($this->exactly(2))
             ->method('save')
             ->willReturn(true);
-
-        // Mock current temperature below target
-        $this->wirelessTagClient->expects($this->once())
-            ->method('getFreshTemperatureData')
-            ->willReturn([['temperature' => 85.0, 'name' => 'Sensor']]);
-            
-        $this->wirelessTagClient->expects($this->once())
-            ->method('processTemperatureData')
-            ->willReturn([
-                'water_temperature' => ['fahrenheit' => 85.0],
-                'sensor_info' => ['name' => 'Sensor']
-            ]);
-
 
         // Mock the other required methods
         $this->cronJobBuilder->method('buildStartHeatingCron')->willReturn(['config_file' => '/tmp/config', 'cron_id' => 'cron-123']);

@@ -127,7 +127,7 @@ curl -H "Authorization: Bearer htc_1a2b3c4d5e6f..." \
 ### Heating Control
 
 #### POST `/api/schedule-heating`
-Schedule a future heating cycle.
+Schedule a future heating cycle. Temperature checks are performed when the heating actually starts, not during scheduling.
 
 **Authentication**: Required (Bearer token)
 
@@ -161,16 +161,6 @@ curl -X POST http://localhost:8080/api/schedule-heating \
   "name": "Evening Session",
   "description": "Pre-dinner heating cycle",
   "cron_id": "cron_xyz789"
-}
-```
-
-**Error Response (already at target):**
-```json
-{
-  "status": "already_at_target",
-  "current_temp": 104.2,
-  "target_temp": 104.0,
-  "message": "Hot tub is already at the desired temperature"
 }
 ```
 
