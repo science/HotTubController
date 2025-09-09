@@ -340,6 +340,23 @@ See [**ROADMAP.md**](./ROADMAP.md) for detailed implementation phases:
 
 The roadmap includes specific implementation order, success criteria, and technical details for each component.
 
+## 📖 API Documentation
+
+Complete API documentation for frontend integration:
+
+- **[API Guide](docs/API.md)** - Comprehensive guide for frontend engineers with examples and best practices
+- **[OpenAPI Specification](docs/api-reference.yaml)** - Complete Swagger/OpenAPI 3.0 specification
+
+### Key API Endpoints for Frontend:
+- `GET /api/heating-status` - Real-time system status (public)
+- `POST /api/schedule-heating` - Schedule heating cycles  
+- `POST /api/cancel-scheduled-heating` - Cancel scheduled events
+- `GET /api/list-heating-events` - List all heating events with filtering
+- `POST /api/stop-heating` - Emergency stop functionality
+- `POST /api/v1/auth` - Authentication endpoints
+
+The API documentation includes authentication flows, request/response examples, error handling, and integration best practices.
+
 ## 🤝 Contributing
 
 ### Development Workflow

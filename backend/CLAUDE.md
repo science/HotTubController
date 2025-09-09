@@ -196,6 +196,57 @@ The architecture is designed to support intelligent hot tub heating control with
 - **IFTTT Webhooks**: Equipment control through pre-configured automation scenes
 - **Cron System**: Dynamic scheduling for heating cycles and temperature monitoring
 
+## Security Requirements
+
+### Authentication Architecture
+The API uses a layered security model with role-based access control:
+
+**CRITICAL**: NO public endpoints that expose system data. All data endpoints require authentication.
+
+#### Authentication Types
+1. **User Tokens**: Standard Bearer tokens for frontend applications
+2. **Admin Tokens**: Elevated Bearer tokens for administrative operations
+3. **Master Password**: System-level access for token management
+4. **Cron API Keys**: System-to-system authentication for scheduled operations
+
+#### Base Action Classes (MANDATORY)
+- `AuthenticatedAction`: Extends Action, requires user/admin Bearer token
+- `AdminAuthenticatedAction`: Extends AuthenticatedAction, requires admin role
+- `CronAuthenticatedAction`: Extends Action, requires cron API key
+- Plain `Action`: ONLY for public status endpoint with minimal info
+
+#### Security Rules (ENFORCE STRICTLY)
+- **NO bypassing authentication for "convenience"**
+- **NO public endpoints that expose temperature, system status, or equipment data**
+- **ALL heating control endpoints require authentication (user, admin, or cron)**
+- **Emergency endpoints still require authentication (admin or cron)**
+- **Use appropriate base class for each action**:
+  - User data access → `AuthenticatedAction`
+  - Admin operations → `AdminAuthenticatedAction` 
+  - Cron operations → `CronAuthenticatedAction`
+  - Public status only → `Action` (with minimal response)
+
+#### Token Management
+- Tokens have roles: `user` (default) or `admin`
+- Admin tokens can access emergency stops and elevated operations
+- User tokens can access heating scheduling and status
+- Store roles in token objects and enforce in base classes
+- Master password creates tokens, supports role specification
+
+#### Security Checklist for New Endpoints
+- [ ] Does endpoint extend appropriate base authentication class?
+- [ ] Does endpoint expose sensitive data? (Requires auth if yes)
+- [ ] Is role requirement appropriate for operation sensitivity?
+- [ ] Does API documentation specify authentication requirements?
+- [ ] Are authentication headers properly validated?
+
+### Development Anti-Patterns (NEVER DO THESE)
+- Creating public endpoints for system data "for testing"
+- Bypassing authentication with hardcoded tokens
+- Using inline authentication instead of base classes
+- Returning verbose error messages that expose system internals
+- Storing secrets in code or committing them to git
+
 ## Environment Setup
 Ensure `.env` file exists with proper API tokens:
 ```bash
