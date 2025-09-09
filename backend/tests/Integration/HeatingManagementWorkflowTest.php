@@ -16,6 +16,7 @@ use HotTubController\Domain\Token\TokenService;
 use HotTubController\Infrastructure\Storage\JsonStorageManager;
 use HotTubController\Services\CronManager;
 use HotTubController\Services\WirelessTagClient;
+use HotTubController\Tests\TestCase\AuthenticationTestHelper;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -27,6 +28,7 @@ use DateTime;
  */
 class HeatingManagementWorkflowTest extends TestCase
 {
+    use AuthenticationTestHelper;
     private string $testStorageDir;
     private JsonStorageManager $storageManager;
     private HeatingEventRepository $eventRepository;
@@ -49,8 +51,8 @@ class HeatingManagementWorkflowTest extends TestCase
         $this->cycleRepository = new HeatingCycleRepository($this->storageManager);
 
         // Mock external dependencies
-        $this->tokenService = $this->createMock(TokenService::class);
-        $this->tokenService->method('validateToken')->willReturn(true);
+        // Use AuthenticationTestHelper for consistent token service mocking
+        $this->tokenService = $this->createMockTokenService();
 
         $wirelessTagClient = $this->createMock(WirelessTagClient::class);
         $wirelessTagClient->method('getFreshTemperatureData')->willReturn([
@@ -96,6 +98,7 @@ class HeatingManagementWorkflowTest extends TestCase
 
         $this->statusAction = new HeatingStatusAction(
             $logger,
+            $this->tokenService,
             $wirelessTagClient,
             $this->eventRepository,
             $this->cycleRepository
@@ -183,7 +186,7 @@ class HeatingManagementWorkflowTest extends TestCase
         $this->assertEquals('Morning Warmup', $secondEvent['name']);
 
         // Step 4: Get heating status
-        $statusRequest = $this->createRequest('GET', '/api/heating-status');
+        $statusRequest = $this->createAuthenticatedRequest('GET', '/api/heating-status');
 
         $statusResponse = $this->statusAction->__invoke(
             $statusRequest,
