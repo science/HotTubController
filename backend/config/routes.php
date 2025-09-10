@@ -25,6 +25,9 @@ return function (App $app) {
     // API routes
     $app->group('/api/v1', function ($group) {
         
+        // System status endpoint for warming/health checks (public, no auth required)
+        $group->get('/status', StatusAction::class);
+        
         // Authentication
         $group->post('/auth', AuthenticateAction::class);
         

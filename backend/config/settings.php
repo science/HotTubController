@@ -65,6 +65,11 @@ return [
         'token_file' => $_ENV['TOKEN_STORAGE_PATH'] ?? __DIR__ . '/../storage/tokens.json',
     ],
     
+    // Performance Monitoring
+    'performance' => [
+        'enable_logging' => filter_var($_ENV['PERFORMANCE_LOGGING'] ?? true, FILTER_VALIDATE_BOOLEAN),
+        'slow_threshold_ms' => (int) ($_ENV['SLOW_THRESHOLD_MS'] ?? 1000),
+    ],
     
     // Server
     'server' => [

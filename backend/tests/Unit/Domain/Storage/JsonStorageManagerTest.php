@@ -31,7 +31,12 @@ class JsonStorageManagerTest extends TestCase
 
     protected function tearDown(): void
     {
-        $this->removeDirectory($this->testStoragePath);
+        try {
+            $this->removeDirectory($this->testStoragePath);
+        } catch (Exception $e) {
+            // Log error but don't fail test teardown
+            error_log("Failed to clean up test storage directory: " . $e->getMessage());
+        }
     }
 
     public function testSaveAndLoadBasicData(): void
@@ -214,15 +219,25 @@ class JsonStorageManagerTest extends TestCase
             return;
         }
         
-        $files = array_diff(scandir($path), ['.', '..']);
+        $files = @scandir($path);
+        if ($files === false) {
+            throw new Exception("Cannot read directory: $path");
+        }
+        
+        $files = array_diff($files, ['.', '..']);
         foreach ($files as $file) {
             $filePath = $path . '/' . $file;
             if (is_dir($filePath)) {
                 $this->removeDirectory($filePath);
             } else {
-                unlink($filePath);
+                if (!@unlink($filePath)) {
+                    throw new Exception("Cannot delete file: $filePath");
+                }
             }
         }
-        rmdir($path);
+        
+        if (!@rmdir($path)) {
+            throw new Exception("Cannot remove directory: $path");
+        }
     }
 }

@@ -15,6 +15,7 @@ use HotTubController\Application\Actions\Heating\ListHeatingEventsAction;
 use HotTubController\Application\Actions\Heating\HeatingStatusAction;
 use HotTubController\Application\Actions\StatusAction;
 use HotTubController\Application\Middleware\CorsMiddleware;
+use HotTubController\Application\Middleware\ResponseTimeMiddleware;
 use HotTubController\Application\Middleware\TokenValidationMiddleware;
 use HotTubController\Domain\Heating\CronJobBuilder;
 use HotTubController\Domain\Heating\Repositories\HeatingCycleRepository;
@@ -88,6 +89,15 @@ return function (ContainerBuilder $containerBuilder) {
                 $settings['allowed_headers'],
                 $settings['max_age']
             );
+        },
+
+        // Response Time Middleware
+        ResponseTimeMiddleware::class => function (ContainerInterface $c): ResponseTimeMiddleware {
+            $settings = $c->get('settings');
+            $enableLogging = $settings['performance']['enable_logging'] ?? true;
+            $slowThreshold = $settings['performance']['slow_threshold_ms'] ?? 1000;
+            
+            return new ResponseTimeMiddleware($enableLogging, $slowThreshold);
         },
 
         // Actions

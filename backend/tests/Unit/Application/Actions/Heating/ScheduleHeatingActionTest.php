@@ -99,16 +99,20 @@ class ScheduleHeatingActionTest extends TestCase
     {
         // This test is no longer relevant for unit testing since authentication is bypassed
         // In unit tests, we test core business logic, not authentication
-        // Authentication is tested separately in integration tests
-        $this->markTestSkipped('Authentication testing is handled in integration tests');
+        // Authentication is tested separately in:
+        // - TokenValidationMiddlewareTest (unit tests for auth logic)
+        // - HeatingManagementWorkflowTest (integration tests with full auth flow)
+        $this->markTestSkipped('Authentication testing is handled in middleware and integration tests');
     }
 
     public function testSchedulingFailsWithInvalidToken(): void
     {
         // This test is no longer relevant for unit testing since authentication is bypassed
         // In unit tests, we test core business logic, not authentication
-        // Authentication is tested separately in integration tests
-        $this->markTestSkipped('Authentication testing is handled in integration tests');
+        // Authentication is tested separately in:
+        // - TokenValidationMiddlewareTest (unit tests for auth logic)
+        // - HeatingManagementWorkflowTest (integration tests with full auth flow)
+        $this->markTestSkipped('Authentication testing is handled in middleware and integration tests');
     }
 
     public function testSchedulingFailsWithPastTime(): void

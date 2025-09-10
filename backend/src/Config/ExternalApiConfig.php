@@ -33,7 +33,7 @@ class ExternalApiConfig
      */
     public function getWirelessTagToken(): string
     {
-        return $this->config['WIRELESSTAG_OAUTH_TOKEN'];
+        return $this->config['WIRELESSTAG_OAUTH_TOKEN'] ?? '';
     }
     
     /**
@@ -41,7 +41,7 @@ class ExternalApiConfig
      */
     public function getHotTubDeviceId(): string
     {
-        return $this->config['WIRELESSTAG_HOT_TUB_DEVICE_ID'];
+        return $this->config['WIRELESSTAG_HOT_TUB_DEVICE_ID'] ?? '';
     }
     
     /**
@@ -57,7 +57,7 @@ class ExternalApiConfig
      */
     public function getIftttWebhookKey(): string
     {
-        return $this->config['IFTTT_WEBHOOK_KEY'];
+        return $this->config['IFTTT_WEBHOOK_KEY'] ?? '';
     }
     
     /**
