@@ -55,7 +55,7 @@ abstract class AuthenticatedAction extends Action
     {
         // Extract Authorization header
         $authHeader = $request->getHeaderLine('Authorization');
-        
+
         if (empty($authHeader)) {
             throw new RuntimeException('Missing Authorization header');
         }

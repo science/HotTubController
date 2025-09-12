@@ -108,30 +108,30 @@ class QueryBuilder
     public function get(): array
     {
         $data = $this->repository->getData();
-        
+
         // Apply where clauses
         $filtered = array_filter($data, [$this, 'matchesWhereConditions']);
-        
+
         // Apply ordering
         if ($this->orderBy !== null) {
             usort($filtered, [$this, 'compareForSort']);
         }
-        
+
         // Apply offset and limit
         if ($this->offset !== null) {
             $filtered = array_slice($filtered, $this->offset);
         }
-        
+
         if ($this->limit !== null) {
             $filtered = array_slice($filtered, 0, $this->limit);
         }
-        
+
         // Convert to models
         $models = [];
         foreach ($filtered as $item) {
             $models[] = $this->repository->createModel($item);
         }
-        
+
         return $models;
     }
 
@@ -160,7 +160,7 @@ class QueryBuilder
                 return false;
             }
         }
-        
+
         return true;
     }
 
@@ -169,10 +169,10 @@ class QueryBuilder
         $field = $where['field'];
         $operator = $where['operator'];
         $value = $where['value'];
-        
+
         // Support dot notation for nested fields
         $itemValue = $this->getNestedValue($item, $field);
-        
+
         return match ($operator) {
             '=' => $itemValue == $value,
             '!=' => $itemValue != $value,
@@ -194,14 +194,14 @@ class QueryBuilder
     {
         $keys = explode('.', $field);
         $value = $item;
-        
+
         foreach ($keys as $key) {
             if (!is_array($value) || !array_key_exists($key, $value)) {
                 return null;
             }
             $value = $value[$key];
         }
-        
+
         return $value;
     }
 
@@ -209,10 +209,10 @@ class QueryBuilder
     {
         $field = $this->orderBy['field'];
         $direction = $this->orderBy['direction'];
-        
+
         $valueA = $this->getNestedValue($a, $field);
         $valueB = $this->getNestedValue($b, $field);
-        
+
         // Handle null values
         if ($valueA === null && $valueB === null) {
             return 0;
@@ -223,10 +223,10 @@ class QueryBuilder
         if ($valueB === null) {
             return $direction === 'asc' ? 1 : -1;
         }
-        
+
         // Compare values
         $result = $valueA <=> $valueB;
-        
+
         return $direction === 'desc' ? -$result : $result;
     }
 }

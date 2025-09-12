@@ -27,7 +27,7 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->where('status', 'active')
             ->get();
-        
+
         $this->assertCount(2, $results);
         foreach ($results as $result) {
             $this->assertEquals('active', $result['status']);
@@ -39,7 +39,7 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->where('age', '>', 25)
             ->get();
-        
+
         $this->assertCount(2, $results);
         foreach ($results as $result) {
             $this->assertGreaterThan(25, $result['age']);
@@ -51,7 +51,7 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->whereIn('status', ['active', 'pending'])
             ->get();
-        
+
         $this->assertCount(3, $results);
     }
 
@@ -60,7 +60,7 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->whereNotNull('email')
             ->get();
-        
+
         $this->assertCount(3, $results);
     }
 
@@ -69,7 +69,7 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->whereNull('email')
             ->get();
-        
+
         $this->assertCount(1, $results);
     }
 
@@ -78,7 +78,7 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->whereBetween('age', [25, 30])
             ->get();
-        
+
         $this->assertCount(2, $results);
         foreach ($results as $result) {
             $this->assertGreaterThanOrEqual(25, $result['age']);
@@ -90,7 +90,7 @@ class QueryBuilderTest extends TestCase
     {
         $this->expectException(StorageException::class);
         $this->expectExceptionMessage('whereBetween requires exactly 2 values in range array');
-        
+
         $this->queryBuilder->whereBetween('age', [20]);
     }
 
@@ -100,7 +100,7 @@ class QueryBuilderTest extends TestCase
             ->where('status', 'active')
             ->where('age', '>', 20)
             ->get();
-        
+
         $this->assertCount(2, $results);
     }
 
@@ -109,11 +109,11 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->orderBy('age', 'asc')
             ->get();
-        
+
         $ages = array_column($results, 'age');
         $sortedAges = $ages;
         sort($sortedAges);
-        
+
         $this->assertEquals($sortedAges, $ages);
     }
 
@@ -122,11 +122,11 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->orderBy('age', 'desc')
             ->get();
-        
+
         $ages = array_column($results, 'age');
         $sortedAges = $ages;
         rsort($sortedAges);
-        
+
         $this->assertEquals($sortedAges, $ages);
     }
 
@@ -134,7 +134,7 @@ class QueryBuilderTest extends TestCase
     {
         $this->expectException(StorageException::class);
         $this->expectExceptionMessage('Order direction must be "asc" or "desc"');
-        
+
         $this->queryBuilder->orderBy('age', 'invalid');
     }
 
@@ -144,7 +144,7 @@ class QueryBuilderTest extends TestCase
             ->orderBy('age', 'asc')
             ->limit(2)
             ->get();
-        
+
         $this->assertCount(2, $results);
     }
 
@@ -153,12 +153,12 @@ class QueryBuilderTest extends TestCase
         $allResults = $this->queryBuilder
             ->orderBy('age', 'asc')
             ->get();
-        
+
         $offsetResults = $this->queryBuilder
             ->orderBy('age', 'asc')
             ->offset(1)
             ->get();
-        
+
         $this->assertCount(count($allResults) - 1, $offsetResults);
         $this->assertEquals($allResults[1]['name'], $offsetResults[0]['name']);
     }
@@ -170,7 +170,7 @@ class QueryBuilderTest extends TestCase
             ->offset(1)
             ->limit(2)
             ->get();
-        
+
         $this->assertCount(2, $results);
     }
 
@@ -180,7 +180,7 @@ class QueryBuilderTest extends TestCase
             ->where('status', 'active')
             ->orderBy('age', 'asc')
             ->first();
-        
+
         $this->assertNotNull($result);
         $this->assertEquals('active', $result['status']);
     }
@@ -190,7 +190,7 @@ class QueryBuilderTest extends TestCase
         $result = $this->queryBuilder
             ->where('status', 'nonexistent')
             ->first();
-        
+
         $this->assertNull($result);
     }
 
@@ -199,7 +199,7 @@ class QueryBuilderTest extends TestCase
         $count = $this->queryBuilder
             ->where('status', 'active')
             ->count();
-        
+
         $this->assertEquals(2, $count);
     }
 
@@ -214,7 +214,7 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->where('profile.location', 'NYC')
             ->get();
-        
+
         $this->assertCount(1, $results);
         $this->assertEquals('NYC', $results[0]['profile']['location']);
     }
@@ -224,7 +224,7 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->where('name', 'like', 'jo') // Use lowercase to match 'john@' and 'johnson'
             ->get();
-        
+
         $this->assertCount(2, $results); // Should match 'John Doe' and 'Bob Johnson'
         foreach ($results as $result) {
             $this->assertStringContainsStringIgnoringCase('jo', $result['name']);
@@ -235,7 +235,7 @@ class QueryBuilderTest extends TestCase
     {
         $this->expectException(StorageException::class);
         $this->expectExceptionMessage('Unsupported operator: unsupported');
-        
+
         $this->queryBuilder
             ->where('field', 'unsupported', 'value')
             ->get();
@@ -256,7 +256,7 @@ class QueryBuilderTest extends TestCase
         $results = $this->queryBuilder
             ->orderBy('email', 'asc')
             ->get();
-        
+
         // Null values should come first in ascending order
         $this->assertNull($results[0]['email']);
     }
@@ -270,9 +270,9 @@ class QueryBuilderTest extends TestCase
             ->orderBy('age', 'desc')
             ->limit(2)
             ->get();
-        
+
         $this->assertLessThanOrEqual(2, count($results));
-        
+
         foreach ($results as $result) {
             $this->assertGreaterThan(20, $result['age']);
             $this->assertContains($result['status'], ['active', 'pending']);

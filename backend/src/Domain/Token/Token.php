@@ -20,7 +20,8 @@ class Token
         private bool $active = true,
         private ?DateTimeImmutable $lastUsed = null,
         private string $role = self::ROLE_USER
-    ) {}
+    ) {
+    }
 
     public function getId(): string
     {

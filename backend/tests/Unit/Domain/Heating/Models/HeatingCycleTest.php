@@ -80,7 +80,7 @@ class HeatingCycleTest extends TestCase
     {
         $futureTime = new DateTime('+2 hours');
         $this->cycle->setEstimatedCompletion($futureTime);
-        
+
         $this->assertEquals($futureTime, $this->cycle->getEstimatedCompletion());
         $this->assertIsInt($this->cycle->getEstimatedTimeRemaining());
         $this->assertGreaterThan(0, $this->cycle->getEstimatedTimeRemaining());
@@ -90,7 +90,7 @@ class HeatingCycleTest extends TestCase
     {
         $this->cycle->setTargetTemp(104.0);
         $this->cycle->setCurrentTemp(98.0);
-        
+
         $this->assertEquals(6.0, $this->cycle->getTemperatureDifference());
     }
 
@@ -105,16 +105,16 @@ class HeatingCycleTest extends TestCase
         // Set a start time further in the past to ensure measurable elapsed time
         $pastTime = new DateTime('-2 seconds');
         $this->cycle->setStartedAt($pastTime);
-        
+
         $elapsed = $this->cycle->getElapsedTime();
         $this->assertIsInt($elapsed);
         $this->assertGreaterThanOrEqual(1, $elapsed); // Should be at least 1 second
-        
+
         // Sleep for a moment and check again
         sleep(1); // 1 second to ensure difference
         $newElapsed = $this->cycle->getElapsedTime();
         $this->assertGreaterThan($elapsed, $newElapsed);
-        
+
         // Verify the difference is reasonable (should be ~1 second, allowing for timing variance)
         $timeDifference = $newElapsed - $elapsed;
         $this->assertGreaterThanOrEqual(1, $timeDifference);
@@ -125,9 +125,9 @@ class HeatingCycleTest extends TestCase
     {
         $metadata = ['initial_temp' => 88.5, 'heating_rate' => 0.5];
         $this->cycle->setMetadata($metadata);
-        
+
         $this->assertEquals($metadata, $this->cycle->getMetadata());
-        
+
         $this->cycle->addMetadata('new_key', 'new_value');
         $this->assertEquals('new_value', $this->cycle->getMetadata()['new_key']);
     }
@@ -137,16 +137,16 @@ class HeatingCycleTest extends TestCase
         $this->cycle->setTargetTemp(104.0);
         $this->cycle->setCurrentTemp(98.0);
         $this->cycle->setStatus(HeatingCycle::STATUS_HEATING);
-        
+
         $array = $this->cycle->toArray();
-        
+
         $this->assertArrayHasKey('id', $array);
         $this->assertArrayHasKey('created_at', $array);
         $this->assertArrayHasKey('started_at', $array);
         $this->assertArrayHasKey('target_temp', $array);
         $this->assertArrayHasKey('current_temp', $array);
         $this->assertArrayHasKey('status', $array);
-        
+
         $this->assertEquals('test-cycle-123', $array['id']);
         $this->assertEquals(104.0, $array['target_temp']);
         $this->assertEquals(98.0, $array['current_temp']);
@@ -166,10 +166,10 @@ class HeatingCycleTest extends TestCase
             'last_check' => '2024-01-01 13:00:00',
             'metadata' => ['test' => 'value']
         ];
-        
+
         $cycle = new HeatingCycle();
         $cycle->fromArray($data);
-        
+
         $this->assertEquals('from-array-123', $cycle->getId());
         $this->assertEquals(104.0, $cycle->getTargetTemp());
         $this->assertEquals(98.0, $cycle->getCurrentTemp());
@@ -200,7 +200,7 @@ class HeatingCycleTest extends TestCase
     {
         $this->cycle->setTargetTemp(104.0);
         $this->cycle->setCurrentTemp(-10.0);
-        
+
         $errors = $this->cycle->validate();
         $this->assertNotEmpty($errors);
         $this->assertStringContainsString('cannot be negative', $errors[0]);
@@ -211,7 +211,7 @@ class HeatingCycleTest extends TestCase
         $this->cycle->setTargetTemp(104.0);
         $pastTime = new DateTime('-1 hour');
         $this->cycle->setEstimatedCompletion($pastTime);
-        
+
         $errors = $this->cycle->validate();
         $this->assertNotEmpty($errors);
         $this->assertStringContainsString('cannot be before start time', $errors[0]);
@@ -221,10 +221,10 @@ class HeatingCycleTest extends TestCase
     {
         $this->cycle->setTargetTemp(104.0);
         $this->cycle->setCurrentTemp(98.0);
-        
+
         $json = json_encode($this->cycle);
         $this->assertIsString($json);
-        
+
         $decoded = json_decode($json, true);
         $this->assertIsArray($decoded);
         $this->assertEquals('test-cycle-123', $decoded['id']);
@@ -240,7 +240,7 @@ class HeatingCycleTest extends TestCase
     {
         $startTime = new DateTime('2024-01-01 10:00:00');
         $this->cycle->setStartedAt($startTime);
-        
+
         $this->assertEquals($startTime, $this->cycle->getStartedAt());
         $this->assertInstanceOf(DateTime::class, $this->cycle->getUpdatedAt());
     }
@@ -249,7 +249,7 @@ class HeatingCycleTest extends TestCase
     {
         $pastTime = new DateTime('-1 hour');
         $this->cycle->setEstimatedCompletion($pastTime);
-        
+
         $this->assertEquals(0, $this->cycle->getEstimatedTimeRemaining());
     }
 }

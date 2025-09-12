@@ -31,7 +31,7 @@ class HeatingCycleRepository extends Repository
     public function findRecentCycles(int $hours = 24): array
     {
         $since = new \DateTime("-{$hours} hours");
-        
+
         return $this->query()
             ->where('started_at', '>=', $since->format('Y-m-d H:i:s'))
             ->orderBy('started_at', 'desc')
@@ -66,7 +66,7 @@ class HeatingCycleRepository extends Repository
     public function findLongRunningCycles(int $hours = 4): array
     {
         $cutoff = new \DateTime("-{$hours} hours");
-        
+
         return $this->query()
             ->where('status', HeatingCycle::STATUS_HEATING)
             ->where('started_at', '<=', $cutoff->format('Y-m-d H:i:s'))
@@ -93,7 +93,7 @@ class HeatingCycleRepository extends Repository
         foreach ($cycles as $cycle) {
             $startTime = $cycle->getStartedAt()->getTimestamp();
             $endTime = $cycle->getUpdatedAt()?->getTimestamp();
-            
+
             if ($endTime && $endTime > $startTime) {
                 $totalSeconds += ($endTime - $startTime);
                 $count++;
@@ -107,14 +107,14 @@ class HeatingCycleRepository extends Repository
     {
         $activeCycles = $this->findActiveCycles();
         $stopped = 0;
-        
+
         foreach ($activeCycles as $cycle) {
             $cycle->setStatus(HeatingCycle::STATUS_STOPPED);
             if ($this->save($cycle)) {
                 $stopped++;
             }
         }
-        
+
         return $stopped;
     }
 

@@ -17,7 +17,7 @@ class TokenValidationMiddleware implements MiddlewareInterface
 {
     private TokenService $tokenService;
     private LoggerInterface $logger;
-    
+
     public function __construct(
         TokenService $tokenService,
         LoggerInterface $logger
@@ -25,24 +25,24 @@ class TokenValidationMiddleware implements MiddlewareInterface
         $this->tokenService = $tokenService;
         $this->logger = $logger;
     }
-    
+
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         try {
             // Extract Authorization header
             $authHeader = $request->getHeaderLine('Authorization');
-            
+
             if (empty($authHeader)) {
                 return $this->createUnauthorizedResponse('Missing Authorization header');
             }
-            
+
             // Parse Bearer token
             if (!preg_match('/^Bearer\s+(.+)$/i', $authHeader, $matches)) {
                 return $this->createUnauthorizedResponse('Invalid Authorization header format. Expected: Bearer <token>');
             }
-            
+
             $token = $matches[1];
-            
+
             // Validate token
             if (!$this->tokenService->validateToken($token)) {
                 $this->logger->warning('Invalid token used in API request', [
@@ -52,31 +52,29 @@ class TokenValidationMiddleware implements MiddlewareInterface
                     'user_agent' => $request->getHeaderLine('User-Agent'),
                     'ip_address' => $this->getClientIpAddress($request),
                 ]);
-                
+
                 return $this->createUnauthorizedResponse('Invalid or expired token');
             }
-            
+
             // Update token last used timestamp
             $this->tokenService->updateTokenLastUsed($token);
-            
+
             $this->logger->debug('Token validation successful', [
                 'token_preview' => substr($token, 0, 10) . '...',
                 'request_uri' => (string) $request->getUri(),
                 'request_method' => $request->getMethod(),
             ]);
-            
+
             // Continue to the next middleware/handler
             return $handler->handle($request);
-            
         } catch (RuntimeException $e) {
             $this->logger->error('Token validation middleware error', [
                 'error' => $e->getMessage(),
                 'request_uri' => (string) $request->getUri(),
                 'request_method' => $request->getMethod(),
             ]);
-            
+
             return $this->createUnauthorizedResponse('Authentication error');
-            
         } catch (\Exception $e) {
             $this->logger->error('Unexpected error in token validation middleware', [
                 'error' => $e->getMessage(),
@@ -84,11 +82,11 @@ class TokenValidationMiddleware implements MiddlewareInterface
                 'request_uri' => (string) $request->getUri(),
                 'request_method' => $request->getMethod(),
             ]);
-            
+
             return $this->createErrorResponse('Internal server error', 500);
         }
     }
-    
+
     private function createUnauthorizedResponse(string $message): ResponseInterface
     {
         $response = new Response(401);
@@ -100,10 +98,10 @@ class TokenValidationMiddleware implements MiddlewareInterface
             ],
             'timestamp' => (new \DateTime())->format('c'),
         ], JSON_PRETTY_PRINT));
-        
+
         return $response->withHeader('Content-Type', 'application/json');
     }
-    
+
     private function createErrorResponse(string $message, int $statusCode): ResponseInterface
     {
         $response = new Response($statusCode);
@@ -115,10 +113,10 @@ class TokenValidationMiddleware implements MiddlewareInterface
             ],
             'timestamp' => (new \DateTime())->format('c'),
         ], JSON_PRETTY_PRINT));
-        
+
         return $response->withHeader('Content-Type', 'application/json');
     }
-    
+
     private function getClientIpAddress(ServerRequestInterface $request): string
     {
         // Check for IP address from various headers (proxy-aware)
@@ -129,20 +127,20 @@ class TokenValidationMiddleware implements MiddlewareInterface
             'HTTP_CLIENT_IP',            // Proxy header
             'REMOTE_ADDR',               // Standard CGI variable
         ];
-        
+
         $serverParams = $request->getServerParams();
-        
+
         foreach ($headers as $header) {
             if (!empty($serverParams[$header])) {
                 $ips = explode(',', $serverParams[$header]);
                 $ip = trim($ips[0]);
-                
+
                 if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
                     return $ip;
                 }
             }
         }
-        
+
         // Fallback to REMOTE_ADDR even if it's private
         return $serverParams['REMOTE_ADDR'] ?? 'unknown';
     }

@@ -18,7 +18,7 @@ interface TokenRepositoryInterface
 
     /**
      * Get all tokens
-     * 
+     *
      * @return Token[]
      */
     public function findAll(): array;

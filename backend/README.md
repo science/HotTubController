@@ -64,10 +64,12 @@ src/
 - **Audit Logging**: Complete operation tracking for safety and debugging
 
 ### ✅ Authentication & Security
-- Master password authentication for admin operations
-- Token-based API access with user management
-- File-based token storage with proper permissions
-- Rate limiting and secure credential management
+- **Enhanced Token-Based Authentication**: Comprehensive role-based access control (admin/user)
+- **Bootstrap System**: Initial admin token creation via master password authentication
+- **Admin Management APIs**: Complete user/token management with proper authorization
+- **Authentication Base Classes**: Strict security enforcement through AuthenticatedAction hierarchy
+- **File-based Token Storage**: Secure token persistence with proper permissions
+- **Multi-layer Security**: Separate cron API keys, master password, and user tokens
 
 ### ✅ Heating Control System (Phase 1 Complete)
 - **Cron Management System**: CronManager, CronSecurityManager, and CronJobBuilder with secure API key authentication
@@ -318,11 +320,14 @@ EXPOSE 80
 
 ## 🔮 What's Next
 
-**Phase 1 Complete!** 🎉 The entire heating control system is now fully implemented and tested with 486 passing tests.
+**Phase 1 Complete!** 🎉 The entire heating control system is now fully implemented and tested with 486+ passing tests.
 
 ### **🎯 CURRENT STATUS: Ready for Phase 2** 
 With Phase 1 complete, the project now has:
 - Complete heating control API suite with all management endpoints
+- **Enhanced Authentication System**: Token-based API with role-based access control
+- **Admin Management System**: Bootstrap and user management APIs
+- **Authentication Architecture**: Proper security base classes enforcing authentication
 - Robust cron-based scheduling system with security
 - Comprehensive test coverage and safety features
 - Full integration with WirelessTag sensors and IFTTT equipment control
@@ -345,12 +350,16 @@ Complete API documentation for frontend integration:
 - **[OpenAPI Specification](docs/api-reference.yaml)** - Complete Swagger/OpenAPI 3.0 specification
 
 ### Key API Endpoints for Frontend:
-- `GET /api/heating-status` - Real-time system status (public)
-- `POST /api/schedule-heating` - Schedule heating cycles  
-- `POST /api/cancel-scheduled-heating` - Cancel scheduled events
-- `GET /api/list-heating-events` - List all heating events with filtering
-- `POST /api/stop-heating` - Emergency stop functionality
-- `POST /api/v1/auth` - Authentication endpoints
+- `GET /api/status` - Basic system status (minimal public info)
+- `GET /api/heating-status` - Detailed system status (requires authentication)
+- `POST /api/schedule-heating` - Schedule heating cycles (requires authentication)
+- `POST /api/cancel-scheduled-heating` - Cancel scheduled events (requires authentication)
+- `GET /api/list-heating-events` - List all heating events with filtering (requires authentication)
+- `POST /api/stop-heating` - Emergency stop functionality (requires admin authentication)
+- `POST /api/auth` - Master password authentication
+- `POST /api/admin/bootstrap` - Bootstrap admin token creation (master password)
+- `POST /api/admin/user` - Create user tokens (admin only)
+- `GET /api/admin/users` - List all users (admin only)
 
 The API documentation includes authentication flows, request/response examples, error handling, and integration best practices.
 

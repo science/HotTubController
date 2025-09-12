@@ -29,6 +29,7 @@ use DateTime;
 class HeatingManagementWorkflowTest extends TestCase
 {
     use AuthenticationTestHelper;
+
     private string $testStorageDir;
     private JsonStorageManager $storageManager;
     private HeatingEventRepository $eventRepository;

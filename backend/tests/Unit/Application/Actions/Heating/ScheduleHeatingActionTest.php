@@ -49,7 +49,7 @@ class ScheduleHeatingActionTest extends TestCase
     {
         $startTime = new DateTime('+2 hours');
         $targetTemp = 102.5;
-        
+
         $request = $this->createRequest('POST', '/api/schedule-heating', [
             'start_time' => $startTime->format('c'),
             'target_temp' => $targetTemp,
@@ -118,7 +118,7 @@ class ScheduleHeatingActionTest extends TestCase
     public function testSchedulingFailsWithPastTime(): void
     {
         $pastTime = new DateTime('-1 hour');
-        
+
         $request = $this->createRequest('POST', '/api/schedule-heating', [
             'start_time' => $pastTime->format('c'),
             'target_temp' => 102.0
@@ -156,7 +156,7 @@ class ScheduleHeatingActionTest extends TestCase
     public function testSchedulingFailsWithOverlappingEvent(): void
     {
         $startTime = new DateTime('+2 hours');
-        
+
         $request = $this->createRequest('POST', '/api/schedule-heating', [
             'start_time' => $startTime->format('c'),
             'target_temp' => 102.0
@@ -185,7 +185,7 @@ class ScheduleHeatingActionTest extends TestCase
     public function testSchedulingWithDefaultValues(): void
     {
         $startTime = new DateTime('+2 hours');
-        
+
         $request = $this->createRequest('POST', '/api/schedule-heating', [
             'start_time' => $startTime->format('c')
             // No target_temp (should default to 102.0)
@@ -198,7 +198,7 @@ class ScheduleHeatingActionTest extends TestCase
         $this->eventRepository->expects($this->once())
             ->method('findByTimeRange')
             ->willReturn([]);
-            
+
         $this->eventRepository->expects($this->exactly(2))
             ->method('save')
             ->willReturn(true);
@@ -219,19 +219,19 @@ class ScheduleHeatingActionTest extends TestCase
     private function createRequest(string $method, string $uri, array $data = []): ServerRequestInterface
     {
         $request = (new ServerRequestFactory())->createServerRequest($method, $uri);
-        
+
         if (!empty($data)) {
             $request = $request->withParsedBody($data);
         }
-        
+
         return $request;
     }
-    
+
     private function createResponse(): ResponseInterface
     {
         return (new ResponseFactory())->createResponse();
     }
-    
+
     /**
      * Helper method to invoke the protected action method directly for unit testing
      */
@@ -240,7 +240,7 @@ class ScheduleHeatingActionTest extends TestCase
         $reflection = new ReflectionClass($this->action);
         $method = $reflection->getMethod('action');
         $method->setAccessible(true);
-        
+
         return $method->invoke($this->action, $request, $this->createResponse(), []);
     }
 }

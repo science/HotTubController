@@ -44,7 +44,7 @@ class HeatingTestHelpers
             $targetTempF,
             5 // 5-minute intervals
         );
-        
+
         // Convert sequence to simple array of temperatures for callback
         $temperatures = array_column($temperatureSequence, 'water_temp_f');
 
@@ -146,7 +146,7 @@ class HeatingTestHelpers
 
     /**
      * Inject specific temperature reading (no longer needed with test mode)
-     * 
+     *
      * This method is kept for backward compatibility but no longer does anything
      * since temperature injection is now handled by WirelessTagTestDataProvider.
      *

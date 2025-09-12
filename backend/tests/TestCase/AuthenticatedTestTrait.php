@@ -50,15 +50,15 @@ trait AuthenticatedTestTrait
     protected function assertAuthenticationRequired(ResponseInterface $response): void
     {
         $this->assertSame(401, $response->getStatusCode());
-        
+
         $data = $this->getResponseData($response);
         $this->assertArrayHasKey('error', $data);
-        
+
         if (is_array($data['error'])) {
             $message = strtolower($data['error']['message']);
             $this->assertTrue(
-                str_contains($message, 'authentication') || 
-                str_contains($message, 'authorization') || 
+                str_contains($message, 'authentication') ||
+                str_contains($message, 'authorization') ||
                 str_contains($message, 'token') ||
                 str_contains($message, 'missing') ||
                 str_contains($message, 'invalid'),
@@ -67,8 +67,8 @@ trait AuthenticatedTestTrait
         } else {
             $message = strtolower($data['error']);
             $this->assertTrue(
-                str_contains($message, 'authentication') || 
-                str_contains($message, 'authorization') || 
+                str_contains($message, 'authentication') ||
+                str_contains($message, 'authorization') ||
                 str_contains($message, 'token') ||
                 str_contains($message, 'missing') ||
                 str_contains($message, 'invalid'),
@@ -83,10 +83,10 @@ trait AuthenticatedTestTrait
     protected function assertAdminRequired(ResponseInterface $response): void
     {
         $this->assertSame(401, $response->getStatusCode());
-        
+
         $data = $this->getResponseData($response);
         $this->assertArrayHasKey('error', $data);
-        
+
         if (is_array($data['error'])) {
             $this->assertStringContainsString('admin', strtolower($data['error']['message']));
         } else {

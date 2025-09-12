@@ -17,7 +17,8 @@ class CorsMiddleware implements MiddlewareInterface
         private array $allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
         private array $allowedHeaders = ['Content-Type', 'Authorization', 'X-Requested-With'],
         private int $maxAge = 86400
-    ) {}
+    ) {
+    }
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
@@ -37,10 +38,10 @@ class CorsMiddleware implements MiddlewareInterface
     private function addCorsHeaders(ResponseInterface $response, ServerRequestInterface $request): ResponseInterface
     {
         $origin = $request->getHeaderLine('Origin');
-        
+
         // Determine allowed origin
         $allowedOrigin = $this->determineAllowedOrigin($origin);
-        
+
         if ($allowedOrigin !== null) {
             $response = $response->withHeader('Access-Control-Allow-Origin', $allowedOrigin);
         }

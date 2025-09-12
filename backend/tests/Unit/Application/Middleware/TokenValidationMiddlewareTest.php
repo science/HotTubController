@@ -24,7 +24,7 @@ class TokenValidationMiddlewareTest extends TestCase
     {
         $this->tokenService = $this->createMock(TokenService::class);
         $this->logger = $this->createMock(LoggerInterface::class);
-        
+
         $this->middleware = new TokenValidationMiddleware(
             $this->tokenService,
             $this->logger
@@ -70,7 +70,7 @@ class TokenValidationMiddlewareTest extends TestCase
 
         $this->assertEquals(401, $response->getStatusCode());
         $this->assertEquals('application/json', $response->getHeaderLine('Content-Type'));
-        
+
         $responseBody = json_decode((string) $response->getBody(), true);
         $this->assertEquals('authentication_required', $responseBody['error']['type']);
         $this->assertStringContainsString('Missing Authorization header', $responseBody['error']['message']);
@@ -87,7 +87,7 @@ class TokenValidationMiddlewareTest extends TestCase
         $response = $this->middleware->process($request, $handler);
 
         $this->assertEquals(401, $response->getStatusCode());
-        
+
         $responseBody = json_decode((string) $response->getBody(), true);
         $this->assertEquals('authentication_required', $responseBody['error']['type']);
         $this->assertStringContainsString('Invalid Authorization header format', $responseBody['error']['message']);
@@ -124,7 +124,7 @@ class TokenValidationMiddlewareTest extends TestCase
         $response = $this->middleware->process($request, $handler);
 
         $this->assertEquals(401, $response->getStatusCode());
-        
+
         $responseBody = json_decode((string) $response->getBody(), true);
         $this->assertEquals('authentication_required', $responseBody['error']['type']);
         $this->assertStringContainsString('Invalid or expired token', $responseBody['error']['message']);
@@ -156,7 +156,7 @@ class TokenValidationMiddlewareTest extends TestCase
         $response = $this->middleware->process($request, $handler);
 
         $this->assertEquals(401, $response->getStatusCode());
-        
+
         $responseBody = json_decode((string) $response->getBody(), true);
         $this->assertEquals('authentication_required', $responseBody['error']['type']);
         $this->assertStringContainsString('Authentication error', $responseBody['error']['message']);
@@ -186,7 +186,7 @@ class TokenValidationMiddlewareTest extends TestCase
         $response = $this->middleware->process($request, $handler);
 
         $this->assertEquals(500, $response->getStatusCode());
-        
+
         $responseBody = json_decode((string) $response->getBody(), true);
         $this->assertEquals('server_error', $responseBody['error']['type']);
         $this->assertStringContainsString('Internal server error', $responseBody['error']['message']);
@@ -254,7 +254,7 @@ class TokenValidationMiddlewareTest extends TestCase
 
         $responseBody = json_decode((string) $response->getBody(), true);
         $this->assertArrayHasKey('timestamp', $responseBody);
-        
+
         // Verify timestamp is a valid ISO 8601 format
         $timestamp = \DateTime::createFromFormat(\DateTime::ATOM, $responseBody['timestamp']);
         $this->assertInstanceOf(\DateTime::class, $timestamp);

@@ -39,7 +39,7 @@ abstract class Action
     {
         $response = new Response($statusCode);
         $response->getBody()->write(json_encode($data, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
-        
+
         return $response->withHeader('Content-Type', 'application/json');
     }
 
@@ -51,24 +51,24 @@ abstract class Action
     protected function getJsonInput(ServerRequestInterface $request): array
     {
         $input = $request->getParsedBody();
-        
+
         if (!is_array($input)) {
             return [];
         }
-        
+
         return $input;
     }
 
     protected function validateRequired(array $data, array $required): array
     {
         $missing = [];
-        
+
         foreach ($required as $field) {
             if (!isset($data[$field]) || $data[$field] === '' || $data[$field] === null) {
                 $missing[] = $field;
             }
         }
-        
+
         return $missing;
     }
 }

@@ -25,7 +25,7 @@ abstract class Repository implements RepositoryInterface
 
         $data = $this->loadData();
         $modelData = $model->toArray();
-        
+
         // Update existing or add new
         $found = false;
         foreach ($data as $index => $item) {
@@ -35,7 +35,7 @@ abstract class Repository implements RepositoryInterface
                 break;
             }
         }
-        
+
         if (!$found) {
             $data[] = $modelData;
         }
@@ -46,13 +46,13 @@ abstract class Repository implements RepositoryInterface
     public function find(string $id): ?Model
     {
         $data = $this->loadData();
-        
+
         foreach ($data as $item) {
             if ($item['id'] === $id) {
                 return $this->createModel($item);
             }
         }
-        
+
         return null;
     }
 
@@ -60,11 +60,11 @@ abstract class Repository implements RepositoryInterface
     {
         $data = $this->loadData();
         $models = [];
-        
+
         foreach ($data as $item) {
             $models[] = $this->createModel($item);
         }
-        
+
         return $models;
     }
 
@@ -72,15 +72,15 @@ abstract class Repository implements RepositoryInterface
     {
         $data = $this->loadData();
         $originalCount = count($data);
-        
+
         $data = array_filter($data, function ($item) use ($id) {
             return $item['id'] !== $id;
         });
-        
+
         if (count($data) < $originalCount) {
             return $this->saveData(array_values($data));
         }
-        
+
         return false;
     }
 
@@ -122,6 +122,6 @@ abstract class Repository implements RepositoryInterface
     }
 
     abstract protected function getStorageKey(): string;
-    
+
     abstract protected function getModelClass(): string;
 }

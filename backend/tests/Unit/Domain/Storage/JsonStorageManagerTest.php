@@ -42,7 +42,7 @@ class JsonStorageManagerTest extends TestCase
     public function testSaveAndLoadBasicData(): void
     {
         $data = ['key1' => 'value1', 'key2' => 'value2'];
-        
+
         $this->assertTrue($this->storageManager->save('test_key', $data));
         $this->assertEquals($data, $this->storageManager->load('test_key'));
     }
@@ -62,7 +62,7 @@ class JsonStorageManagerTest extends TestCase
     public function testExists(): void
     {
         $this->assertFalse($this->storageManager->exists('test_key'));
-        
+
         $this->storageManager->save('test_key', ['data']);
         $this->assertTrue($this->storageManager->exists('test_key'));
     }
@@ -71,7 +71,7 @@ class JsonStorageManagerTest extends TestCase
     {
         $this->storageManager->save('test_key', ['data']);
         $this->assertTrue($this->storageManager->exists('test_key'));
-        
+
         $this->assertTrue($this->storageManager->delete('test_key'));
         $this->assertFalse($this->storageManager->exists('test_key'));
     }
@@ -84,7 +84,7 @@ class JsonStorageManagerTest extends TestCase
     public function testNestedDirectoryCreation(): void
     {
         $data = ['nested' => 'data'];
-        
+
         $this->assertTrue($this->storageManager->save('level1/level2/test', $data));
         $this->assertEquals($data, $this->storageManager->load('level1/level2/test'));
     }
@@ -94,10 +94,10 @@ class JsonStorageManagerTest extends TestCase
         $filePath = $this->testStoragePath . '/invalid.json';
         mkdir(dirname($filePath), 0755, true);
         file_put_contents($filePath, '{"invalid": json}');
-        
+
         $this->expectException(StorageException::class);
         $this->expectExceptionMessageMatches('/Invalid JSON/');
-        
+
         $this->storageManager->load('invalid');
     }
 
@@ -105,9 +105,9 @@ class JsonStorageManagerTest extends TestCase
     {
         // Test that rotated keys use date-based filenames
         $data = ['rotated' => 'data'];
-        
+
         $this->storageManager->save('test_rotated', $data);
-        
+
         $expectedFile = $this->testStoragePath . '/' . date('Y-m-d') . '.json';
         $this->assertFileExists($expectedFile);
         $this->assertEquals($data, json_decode(file_get_contents($expectedFile), true));
@@ -118,19 +118,19 @@ class JsonStorageManagerTest extends TestCase
         // Create a subdirectory to match the expected structure
         $subDir = $this->testStoragePath . '/test_category';
         mkdir($subDir, 0755, true);
-        
+
         // Create old file in subdirectory
         $oldDate = date('Y-m-d', strtotime('-2 days'));
         $oldFilePath = $subDir . '/' . $oldDate . '.json';
         file_put_contents($oldFilePath, json_encode(['old' => 'data']));
-        
+
         // Create current file
         $currentData = ['current' => 'data'];
         $this->storageManager->save('current', $currentData);
-        
+
         // Run cleanup
         $deleted = $this->storageManager->cleanup();
-        
+
         $this->assertEquals(1, $deleted);
         $this->assertFileDoesNotExist($oldFilePath);
         $this->assertEquals($currentData, $this->storageManager->load('current'));
@@ -151,7 +151,7 @@ class JsonStorageManagerTest extends TestCase
                 ]
             ]
         ];
-        
+
         $this->assertTrue($this->storageManager->save('complex', $complexData));
         $this->assertEquals($complexData, $this->storageManager->load('complex'));
     }
@@ -162,13 +162,13 @@ class JsonStorageManagerTest extends TestCase
         $storageManager = new JsonStorageManager($this->testStoragePath, [
             'locking' => ['enabled' => true, 'timeout' => 1]
         ]);
-        
+
         $data1 = ['writer1' => 'data'];
         $data2 = ['writer2' => 'data'];
-        
+
         $this->assertTrue($storageManager->save('concurrent_test', $data1));
         $this->assertTrue($storageManager->save('concurrent_test', $data2));
-        
+
         $result = $storageManager->load('concurrent_test');
         $this->assertTrue($result === $data1 || $result === $data2);
     }
@@ -185,15 +185,15 @@ class JsonStorageManagerTest extends TestCase
                 'metadata' => ['key' => 'value']
             ];
         }
-        
+
         $startTime = microtime(true);
         $this->assertTrue($this->storageManager->save('large_data', $largeData));
         $saveTime = microtime(true) - $startTime;
-        
+
         $startTime = microtime(true);
         $loadedData = $this->storageManager->load('large_data');
         $loadTime = microtime(true) - $startTime;
-        
+
         $this->assertEquals($largeData, $loadedData);
         $this->assertLessThan(1.0, $saveTime, 'Save should complete within 1 second');
         $this->assertLessThan(1.0, $loadTime, 'Load should complete within 1 second');
@@ -208,7 +208,7 @@ class JsonStorageManagerTest extends TestCase
             'japanese' => 'こんにちは世界',
             'special_chars' => '!@#$%^&*(){}[]|\\:";\'<>?,./',
         ];
-        
+
         $this->assertTrue($this->storageManager->save('unicode_test', $unicodeData));
         $this->assertEquals($unicodeData, $this->storageManager->load('unicode_test'));
     }
@@ -218,12 +218,12 @@ class JsonStorageManagerTest extends TestCase
         if (!is_dir($path)) {
             return;
         }
-        
+
         $files = @scandir($path);
         if ($files === false) {
             throw new Exception("Cannot read directory: $path");
         }
-        
+
         $files = array_diff($files, ['.', '..']);
         foreach ($files as $file) {
             $filePath = $path . '/' . $file;
@@ -235,7 +235,7 @@ class JsonStorageManagerTest extends TestCase
                 }
             }
         }
-        
+
         if (!@rmdir($path)) {
             throw new Exception("Cannot remove directory: $path");
         }

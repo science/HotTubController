@@ -20,26 +20,26 @@ class JsonTokenRepository implements TokenRepositoryInterface
     public function findByToken(string $token): ?Token
     {
         $data = $this->loadData();
-        
+
         foreach ($data['tokens'] as $tokenData) {
             if ($tokenData['token'] === $token) {
                 return Token::fromArray($tokenData);
             }
         }
-        
+
         return null;
     }
 
     public function findById(string $id): ?Token
     {
         $data = $this->loadData();
-        
+
         foreach ($data['tokens'] as $tokenData) {
             if ($tokenData['id'] === $id) {
                 return Token::fromArray($tokenData);
             }
         }
-        
+
         return null;
     }
 
@@ -47,11 +47,11 @@ class JsonTokenRepository implements TokenRepositoryInterface
     {
         $data = $this->loadData();
         $tokens = [];
-        
+
         foreach ($data['tokens'] as $tokenData) {
             $tokens[] = Token::fromArray($tokenData);
         }
-        
+
         return $tokens;
     }
 
@@ -59,7 +59,7 @@ class JsonTokenRepository implements TokenRepositoryInterface
     {
         $data = $this->loadData();
         $tokenArray = $token->toArray();
-        
+
         // Find existing token and update, or add new one
         $found = false;
         foreach ($data['tokens'] as $index => $existingToken) {
@@ -69,13 +69,13 @@ class JsonTokenRepository implements TokenRepositoryInterface
                 break;
             }
         }
-        
+
         if (!$found) {
             $data['tokens'][] = $tokenArray;
         }
-        
+
         $this->saveData($data);
-        
+
         $this->logger->info('Token saved', [
             'token_id' => $token->getId(),
             'token_preview' => $token->getTokenPreview(),
@@ -87,18 +87,18 @@ class JsonTokenRepository implements TokenRepositoryInterface
     {
         $data = $this->loadData();
         $originalCount = count($data['tokens']);
-        
+
         $data['tokens'] = array_values(array_filter(
             $data['tokens'],
             fn($token) => $token['id'] !== $id
         ));
-        
+
         if (count($data['tokens']) < $originalCount) {
             $this->saveData($data);
             $this->logger->info('Token deleted', ['token_id' => $id]);
             return true;
         }
-        
+
         return false;
     }
 
@@ -114,7 +114,7 @@ class JsonTokenRepository implements TokenRepositoryInterface
         if ($tokenEntity === null) {
             return;
         }
-        
+
         $updatedToken = $tokenEntity->updateLastUsed();
         $this->save($updatedToken);
     }
@@ -126,10 +126,10 @@ class JsonTokenRepository implements TokenRepositoryInterface
             if (!is_dir($directory)) {
                 mkdir($directory, 0755, true);
             }
-            
+
             $initialData = ['tokens' => []];
             file_put_contents($this->filePath, json_encode($initialData, JSON_PRETTY_PRINT));
-            
+
             $this->logger->info('Token storage file created', ['path' => $this->filePath]);
         }
     }
@@ -140,13 +140,13 @@ class JsonTokenRepository implements TokenRepositoryInterface
             $this->logger->error('Cannot read token file', ['path' => $this->filePath]);
             return ['tokens' => []];
         }
-        
+
         $content = file_get_contents($this->filePath);
         if ($content === false) {
             $this->logger->error('Failed to read token file', ['path' => $this->filePath]);
             return ['tokens' => []];
         }
-        
+
         $data = json_decode($content, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
             $this->logger->error('Invalid JSON in token file', [
@@ -155,14 +155,14 @@ class JsonTokenRepository implements TokenRepositoryInterface
             ]);
             return ['tokens' => []];
         }
-        
+
         return $data ?? ['tokens' => []];
     }
 
     private function saveData(array $data): void
     {
         $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        
+
         if (file_put_contents($this->filePath, $json) === false) {
             $this->logger->error('Failed to write token file', ['path' => $this->filePath]);
             throw new \RuntimeException('Failed to save token data');

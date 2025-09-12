@@ -10,18 +10,18 @@ use Psr\Http\Message\ServerRequestInterface;
 class StatusAction extends Action
 {
     private static ?float $processStartTime = null;
-    
+
     protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         $startTime = microtime(true);
-        
+
         if (self::$processStartTime === null) {
             self::$processStartTime = $startTime;
         }
-        
+
         $status = $this->determineSystemStatus();
         $metrics = $this->gatherSystemMetrics($startTime);
-        
+
         $responseData = [
             'service' => 'Hot Tub Controller',
             'version' => '1.0.0',
@@ -32,37 +32,37 @@ class StatusAction extends Action
             'memory' => $metrics['memory'],
             'system' => $metrics['system']
         ];
-        
+
         return $this->jsonResponse($responseData);
     }
-    
+
     private function determineSystemStatus(): string
     {
         try {
             $memoryLimit = $this->parseMemoryLimit(ini_get('memory_limit'));
             $memoryUsage = memory_get_usage(true);
             $memoryPercent = $memoryUsage / $memoryLimit;
-            
+
             if ($memoryPercent > 0.9) {
                 return 'warning';
             }
-            
+
             if ($memoryPercent > 0.95) {
                 return 'critical';
             }
-            
+
             return 'ready';
         } catch (\Exception $e) {
             return 'ready';
         }
     }
-    
+
     private function gatherSystemMetrics(float $startTime): array
     {
         $memoryLimit = $this->parseMemoryLimit(ini_get('memory_limit'));
         $memoryUsage = memory_get_usage(true);
         $memoryPeak = memory_get_peak_usage(true);
-        
+
         return [
             'memory' => [
                 'usage_bytes' => $memoryUsage,
@@ -82,17 +82,17 @@ class StatusAction extends Action
             ]
         ];
     }
-    
+
     private function parseMemoryLimit(string $memoryLimit): int
     {
         if ($memoryLimit === '-1') {
             return PHP_INT_MAX;
         }
-        
+
         $memoryLimit = trim($memoryLimit);
         $last = strtolower($memoryLimit[strlen($memoryLimit) - 1]);
         $value = (int) $memoryLimit;
-        
+
         switch ($last) {
             case 'g':
                 $value *= 1024;
@@ -101,7 +101,7 @@ class StatusAction extends Action
             case 'k':
                 $value *= 1024;
         }
-        
+
         return $value;
     }
 }

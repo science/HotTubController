@@ -21,7 +21,7 @@ class AuthenticateAction extends Action
     protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         $input = $this->getJsonInput($request);
-        
+
         $missing = $this->validateRequired($input, ['password']);
         if (!empty($missing)) {
             return $this->errorResponse('Password required', 400);
@@ -29,7 +29,7 @@ class AuthenticateAction extends Action
 
         if (password_verify($input['password'], $this->masterPasswordHash)) {
             $this->logger->info('Master authentication successful');
-            
+
             return $this->jsonResponse([
                 'authenticated' => true,
                 'message' => 'Master authentication successful'

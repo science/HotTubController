@@ -10,7 +10,7 @@ use RuntimeException;
 
 /**
  * CronJobBuilder - Constructs secure cron jobs with curl config files
- * 
+ *
  * This class handles the construction of self-deleting cron jobs that use
  * curl config files to securely call API endpoints without exposing
  * sensitive information in process lists or crontab entries.
@@ -20,22 +20,22 @@ class CronJobBuilder
     private const CONFIG_FILE_PREFIX = 'cron-config-';
     private const API_KEY_FILE = 'storage/cron-api-key.txt';
     private const CONFIG_DIR = 'storage/curl-configs';
-    
+
     private string $projectRoot;
     private string $baseUrl;
     private string $apiKeyFile;
     private string $configDir;
-    
+
     public function __construct(?string $projectRoot = null, ?string $baseUrl = null)
     {
         $this->projectRoot = $projectRoot ?? dirname(__DIR__, 3);
         $this->baseUrl = $baseUrl ?? $this->detectBaseUrl();
         $this->apiKeyFile = $this->projectRoot . '/' . self::API_KEY_FILE;
         $this->configDir = $this->projectRoot . '/' . self::CONFIG_DIR;
-        
+
         $this->ensureConfigDirectoryExists();
     }
-    
+
     /**
      * Build a heating start cron job with curl config
      *
@@ -52,10 +52,10 @@ class CronJobBuilder
     ): array {
         $this->validateEventId($eventId);
         $this->validateTargetTemp($targetTemp);
-        
+
         $cronId = "HOT_TUB_START:{$eventId}";
         $configFile = $this->generateConfigFilePath('start', $eventId);
-        
+
         // Create curl config for start-heating endpoint
         $curlConfig = $this->buildCurlConfig(
             'start-heating',
@@ -65,15 +65,15 @@ class CronJobBuilder
                 'scheduled_time' => $startTime->format('Y-m-d H:i:s'),
             ]
         );
-        
+
         $this->writeCurlConfig($configFile, $curlConfig);
-        
+
         return [
             'config_file' => $configFile,
             'cron_id' => $cronId,
         ];
     }
-    
+
     /**
      * Build a temperature monitoring cron job with curl config
      *
@@ -90,10 +90,10 @@ class CronJobBuilder
     ): array {
         $this->validateEventId($cycleId);
         $this->validateEventId($monitorId);
-        
+
         $cronId = "HOT_TUB_MONITOR:{$monitorId}";
         $configFile = $this->generateConfigFilePath('monitor', $monitorId);
-        
+
         // Create curl config for monitor-temp endpoint
         $curlConfig = $this->buildCurlConfig(
             'monitor-temp',
@@ -103,15 +103,15 @@ class CronJobBuilder
                 'check_time' => $checkTime->format('Y-m-d H:i:s'),
             ]
         );
-        
+
         $this->writeCurlConfig($configFile, $curlConfig);
-        
+
         return [
             'config_file' => $configFile,
             'cron_id' => $cronId,
         ];
     }
-    
+
     /**
      * Build a stop heating cron job with curl config (for emergency scenarios)
      *
@@ -122,11 +122,11 @@ class CronJobBuilder
     public function buildStopHeatingCron(string $cycleId, string $reason = 'emergency'): array
     {
         $this->validateEventId($cycleId);
-        
+
         $stopId = 'stop-' . $cycleId . '-' . time();
         $cronId = "HOT_TUB_MONITOR:{$stopId}";
         $configFile = $this->generateConfigFilePath('stop', $stopId);
-        
+
         // Create curl config for stop-heating endpoint
         $curlConfig = $this->buildCurlConfig(
             'stop-heating',
@@ -135,15 +135,15 @@ class CronJobBuilder
                 'reason' => $reason,
             ]
         );
-        
+
         $this->writeCurlConfig($configFile, $curlConfig);
-        
+
         return [
             'config_file' => $configFile,
             'cron_id' => $cronId,
         ];
     }
-    
+
     /**
      * Calculate estimated time to heat based on temperature differential
      *
@@ -160,16 +160,16 @@ class CronJobBuilder
         if ($targetTemp <= $currentTemp) {
             return 0;
         }
-        
+
         $tempDifference = $targetTemp - $currentTemp;
         $estimatedMinutes = (int) ceil($tempDifference / $heatingRate);
-        
+
         // Add safety buffer (10% or minimum 5 minutes)
         $safetyBuffer = max(5, (int) ceil($estimatedMinutes * 0.1));
-        
+
         return $estimatedMinutes + $safetyBuffer;
     }
-    
+
     /**
      * Calculate next monitor check time based on current progress
      *
@@ -187,7 +187,7 @@ class CronJobBuilder
     ): DateTime {
         $tempDifference = abs($targetTemp - $currentTemp);
         $nextCheck = clone $baseTime;
-        
+
         if ($precisionMode || $tempDifference <= 2.0) {
             // Precision mode: check every 15 seconds when close to target
             $nextCheck->modify('+15 seconds');
@@ -200,10 +200,10 @@ class CronJobBuilder
             $checkInterval = min(15, max(5, (int)($estimatedMinutes * 0.3)));
             $nextCheck->modify("+{$checkInterval} minutes");
         }
-        
+
         return $nextCheck;
     }
-    
+
     /**
      * Validate that API key file exists and is readable
      *
@@ -215,19 +215,19 @@ class CronJobBuilder
         if (!file_exists($this->apiKeyFile)) {
             throw new RuntimeException("Cron API key file not found: {$this->apiKeyFile}");
         }
-        
+
         if (!is_readable($this->apiKeyFile)) {
             throw new RuntimeException("Cron API key file not readable: {$this->apiKeyFile}");
         }
-        
+
         $apiKey = trim(file_get_contents($this->apiKeyFile));
         if (empty($apiKey)) {
             throw new RuntimeException("Cron API key file is empty: {$this->apiKeyFile}");
         }
-        
+
         return true;
     }
-    
+
     /**
      * Clean up config file
      *
@@ -239,17 +239,17 @@ class CronJobBuilder
         if (file_exists($configFile)) {
             return unlink($configFile);
         }
-        
+
         return true;
     }
-    
+
     /**
      * Build curl configuration content for an API endpoint
      */
     private function buildCurlConfig(string $endpoint, array $params = []): string
     {
         $url = rtrim($this->baseUrl, '/') . '/api/' . ltrim($endpoint, '/');
-        
+
         $config = [
             '--silent',
             '--show-error',
@@ -261,15 +261,15 @@ class CronJobBuilder
             '--retry 2',
             '--retry-delay 5',
         ];
-        
+
         // Add additional parameters
         foreach ($params as $key => $value) {
             $config[] = '--data-urlencode "' . $key . '=' . addslashes($value) . '"';
         }
-        
+
         return implode("\n", $config) . "\n";
     }
-    
+
     /**
      * Generate config file path
      */
@@ -278,7 +278,7 @@ class CronJobBuilder
         $filename = self::CONFIG_FILE_PREFIX . $type . '-' . $id . '.conf';
         return $this->configDir . '/' . $filename;
     }
-    
+
     /**
      * Write curl config to file with secure permissions
      */
@@ -287,13 +287,13 @@ class CronJobBuilder
         if (file_put_contents($configFile, $content) === false) {
             throw new RuntimeException("Failed to write curl config file: {$configFile}");
         }
-        
+
         // Set restrictive permissions (owner read/write only)
         if (!chmod($configFile, 0600)) {
             throw new RuntimeException("Failed to set permissions on config file: {$configFile}");
         }
     }
-    
+
     /**
      * Validate event ID format
      */
@@ -302,16 +302,16 @@ class CronJobBuilder
         if (!preg_match('/^[a-zA-Z0-9_-]+$/', $eventId)) {
             throw new InvalidArgumentException("Invalid event ID format: {$eventId}");
         }
-        
+
         if (strlen($eventId) > 50) {
             throw new InvalidArgumentException("Event ID too long (max 50 chars): {$eventId}");
         }
-        
+
         if (strlen($eventId) < 3) {
             throw new InvalidArgumentException("Event ID too short (min 3 chars): {$eventId}");
         }
     }
-    
+
     /**
      * Validate target temperature
      */
@@ -321,7 +321,7 @@ class CronJobBuilder
             throw new InvalidArgumentException("Target temperature out of safe range (50-110°F): {$targetTemp}");
         }
     }
-    
+
     /**
      * Detect base URL for the application
      */
@@ -333,11 +333,11 @@ class CronJobBuilder
             $host = $_SERVER['HTTP_HOST'];
             return "{$scheme}://{$host}";
         }
-        
+
         // Fallback to localhost for development
         return 'http://localhost:8080';
     }
-    
+
     /**
      * Ensure config directory exists with proper permissions
      */
@@ -348,7 +348,7 @@ class CronJobBuilder
                 throw new RuntimeException("Failed to create config directory: {$this->configDir}");
             }
         }
-        
+
         // Ensure restrictive permissions
         chmod($this->configDir, 0700);
     }

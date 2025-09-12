@@ -11,7 +11,7 @@ use RuntimeException;
 
 /**
  * CronManager - Self-Deleting Cron Management System
- * 
+ *
  * This service manages cron jobs for the hot tub controller system using
  * a self-deleting pattern where each cron removes itself after execution.
  * This eliminates orphaned crons and provides clean one-shot behavior.
@@ -20,24 +20,24 @@ class CronManager
 {
     private const CRON_TAG_START = 'HOT_TUB_START';
     private const CRON_TAG_MONITOR = 'HOT_TUB_MONITOR';
-    
+
     private const WRAPPER_SCRIPT_PATH = 'storage/bin/cron-wrapper.sh';
     private const CONFIG_DIR = 'storage/curl-configs';
     private const LOG_FILE = 'storage/logs/cron-manager.log';
-    
+
     private string $projectRoot;
     private string $wrapperScriptPath;
     private string $configDir;
-    
+
     public function __construct(?string $projectRoot = null)
     {
         $this->projectRoot = $projectRoot ?? dirname(__DIR__, 2);
         $this->wrapperScriptPath = $this->projectRoot . '/' . self::WRAPPER_SCRIPT_PATH;
         $this->configDir = $this->projectRoot . '/' . self::CONFIG_DIR;
-        
+
         $this->ensureDirectoriesExist();
     }
-    
+
     /**
      * Add a self-deleting cron job that executes once at the specified time
      *
@@ -57,33 +57,33 @@ class CronManager
     ): string {
         $this->validateTag($tag);
         $this->validateIdentifier($identifier);
-        
+
         if (!file_exists($curlConfigFile)) {
             throw new InvalidArgumentException("Curl config file does not exist: {$curlConfigFile}");
         }
-        
+
         // Generate unique cron ID
         $cronId = "{$tag}:{$identifier}";
-        
+
         // Build cron expression from DateTime
         $cronExpression = $this->buildCronExpression($executionTime);
-        
+
         // Build the full cron command
         $command = $this->buildCronCommand($cronId, $curlConfigFile);
-        
+
         // Create the full cron entry
         $cronEntry = "{$cronExpression} {$command} # {$cronId}";
-        
+
         $this->log("Adding self-deleting cron: {$cronId}");
-        
+
         // Add to crontab
         $this->addToCrontab($cronEntry);
-        
+
         $this->log("Successfully added cron: {$cronId}");
-        
+
         return $cronId;
     }
-    
+
     /**
      * Add a heating start cron that triggers /api/start-heating
      *
@@ -96,7 +96,7 @@ class CronManager
     {
         return $this->addSelfDeletingCron($startTime, $curlConfigFile, self::CRON_TAG_START, $eventId);
     }
-    
+
     /**
      * Add a temperature monitoring cron that triggers /api/monitor-temp
      *
@@ -109,7 +109,7 @@ class CronManager
     {
         return $this->addSelfDeletingCron($checkTime, $curlConfigFile, self::CRON_TAG_MONITOR, $cycleId);
     }
-    
+
     /**
      * Remove crons by tag pattern (backup cleanup method)
      *
@@ -119,11 +119,11 @@ class CronManager
     public function removeByTag(string $tagPattern): int
     {
         $this->log("Removing crons with tag pattern: {$tagPattern}");
-        
+
         $currentCrontab = $this->getCurrentCrontab();
         $filteredLines = [];
         $removedCount = 0;
-        
+
         foreach ($currentCrontab as $line) {
             if ($this->isCronLine($line) && $this->matchesTagPattern($line, $tagPattern)) {
                 $this->log("Removing cron line: " . trim($line));
@@ -132,15 +132,15 @@ class CronManager
                 $filteredLines[] = $line;
             }
         }
-        
+
         if ($removedCount > 0) {
             $this->setCrontab($filteredLines);
             $this->log("Removed {$removedCount} crons with tag pattern: {$tagPattern}");
         }
-        
+
         return $removedCount;
     }
-    
+
     /**
      * Remove all START event crons
      *
@@ -152,7 +152,7 @@ class CronManager
         $pattern = $eventId ? self::CRON_TAG_START . ":{$eventId}" : self::CRON_TAG_START;
         return $this->removeByTag($pattern);
     }
-    
+
     /**
      * Remove all MONITOR event crons
      *
@@ -164,7 +164,7 @@ class CronManager
         $pattern = $cycleId ? self::CRON_TAG_MONITOR . ":{$cycleId}" : self::CRON_TAG_MONITOR;
         return $this->removeByTag($pattern);
     }
-    
+
     /**
      * Emergency cleanup: remove ALL application crons
      *
@@ -173,16 +173,16 @@ class CronManager
     public function removeAllApplicationCrons(): int
     {
         $this->log("Emergency cleanup: removing all application crons");
-        
+
         $startRemoved = $this->removeByTag(self::CRON_TAG_START);
         $monitorRemoved = $this->removeByTag(self::CRON_TAG_MONITOR);
-        
+
         $totalRemoved = $startRemoved + $monitorRemoved;
         $this->log("Emergency cleanup complete: removed {$totalRemoved} crons");
-        
+
         return $totalRemoved;
     }
-    
+
     /**
      * List all application crons currently in crontab
      *
@@ -192,7 +192,7 @@ class CronManager
     {
         $currentCrontab = $this->getCurrentCrontab();
         $applicationCrons = [];
-        
+
         foreach ($currentCrontab as $line) {
             if ($this->isCronLine($line) && $this->isApplicationCron($line)) {
                 $cronInfo = $this->parseCronLine($line);
@@ -201,10 +201,10 @@ class CronManager
                 }
             }
         }
-        
+
         return $applicationCrons;
     }
-    
+
     /**
      * List START event crons
      *
@@ -216,7 +216,7 @@ class CronManager
             return strpos($cron['tag'], self::CRON_TAG_START) === 0;
         });
     }
-    
+
     /**
      * List MONITOR event crons
      *
@@ -228,7 +228,7 @@ class CronManager
             return strpos($cron['tag'], self::CRON_TAG_MONITOR) === 0;
         });
     }
-    
+
     /**
      * Clean up orphaned config files (files without corresponding crons)
      *
@@ -239,20 +239,20 @@ class CronManager
         if (!is_dir($this->configDir)) {
             return 0;
         }
-        
+
         $activeCrons = $this->listApplicationCrons();
         $activeConfigFiles = [];
-        
+
         // Extract config file paths from active crons
         foreach ($activeCrons as $cron) {
             if (preg_match('/curl --config "([^"]+)"/', $cron['command'], $matches)) {
                 $activeConfigFiles[] = basename($matches[1]);
             }
         }
-        
+
         $cleanupCount = 0;
         $configFiles = glob($this->configDir . '/*.conf');
-        
+
         foreach ($configFiles as $configFile) {
             $filename = basename($configFile);
             if (!in_array($filename, $activeConfigFiles)) {
@@ -262,10 +262,10 @@ class CronManager
                 }
             }
         }
-        
+
         return $cleanupCount;
     }
-    
+
     /**
      * Build cron expression from DateTime object
      */
@@ -279,7 +279,7 @@ class CronManager
             (int) $dateTime->format('n')  // month
         );
     }
-    
+
     /**
      * Build the full cron command using the wrapper script
      */
@@ -292,7 +292,7 @@ class CronManager
             escapeshellarg($curlConfigFile)
         );
     }
-    
+
     /**
      * Add a cron entry to the current crontab
      */
@@ -302,7 +302,7 @@ class CronManager
         $currentCrontab[] = $cronEntry;
         $this->setCrontab($currentCrontab);
     }
-    
+
     /**
      * Get current crontab as array of lines
      */
@@ -310,33 +310,33 @@ class CronManager
     {
         $output = [];
         $returnCode = 0;
-        
+
         exec('crontab -l 2>/dev/null', $output, $returnCode);
-        
+
         // If no crontab exists, return empty array
         if ($returnCode !== 0) {
             return [];
         }
-        
+
         return $output;
     }
-    
+
     /**
      * Set the crontab from array of lines
      */
     private function setCrontab(array $lines): void
     {
         $tempFile = tempnam(sys_get_temp_dir(), 'crontab');
-        
+
         try {
             file_put_contents($tempFile, implode("\n", $lines) . "\n");
-            
+
             $command = "crontab " . escapeshellarg($tempFile);
             $output = [];
             $returnCode = 0;
-            
+
             exec($command, $output, $returnCode);
-            
+
             if ($returnCode !== 0) {
                 throw new RuntimeException("Failed to update crontab: " . implode("\n", $output));
             }
@@ -346,7 +346,7 @@ class CronManager
             }
         }
     }
-    
+
     /**
      * Check if a line is a cron job (not a comment or empty line)
      */
@@ -355,7 +355,7 @@ class CronManager
         $line = trim($line);
         return !empty($line) && !str_starts_with($line, '#');
     }
-    
+
     /**
      * Check if a cron line belongs to our application
      */
@@ -363,7 +363,7 @@ class CronManager
     {
         return strpos($line, '# HOT_TUB_') !== false;
     }
-    
+
     /**
      * Check if a cron line matches a tag pattern
      */
@@ -371,31 +371,31 @@ class CronManager
     {
         return strpos($line, "# {$pattern}") !== false;
     }
-    
+
     /**
      * Parse a cron line and extract information
      */
     private function parseCronLine(string $line): ?array
     {
         $line = trim($line);
-        
+
         // Extract comment (tag)
         if (!preg_match('/# (HOT_TUB_(?:START|MONITOR):[^\\s]+)$/', $line, $matches)) {
             return null;
         }
-        
+
         $tag = $matches[1];
         $commandPart = trim(str_replace("# {$tag}", '', $line));
-        
+
         // Parse cron expression (first 5 fields)
         $parts = preg_split('/\\s+/', $commandPart);
         if (count($parts) < 5) {
             return null;
         }
-        
+
         $cronExpression = implode(' ', array_slice($parts, 0, 5));
         $command = implode(' ', array_slice($parts, 5));
-        
+
         return [
             'tag' => $tag,
             'cron_expression' => $cronExpression,
@@ -403,19 +403,19 @@ class CronManager
             'full_line' => $line,
         ];
     }
-    
+
     /**
      * Validate cron tag
      */
     private function validateTag(string $tag): void
     {
         $validTags = [self::CRON_TAG_START, self::CRON_TAG_MONITOR];
-        
+
         if (!in_array($tag, $validTags)) {
             throw new InvalidArgumentException("Invalid cron tag: {$tag}");
         }
     }
-    
+
     /**
      * Validate identifier format
      */
@@ -424,12 +424,12 @@ class CronManager
         if (!preg_match('/^[a-zA-Z0-9_-]+$/', $identifier)) {
             throw new InvalidArgumentException("Invalid identifier format: {$identifier}");
         }
-        
+
         if (strlen($identifier) > 50) {
             throw new InvalidArgumentException("Identifier too long (max 50 chars): {$identifier}");
         }
     }
-    
+
     /**
      * Ensure required directories exist with proper permissions
      */
@@ -440,7 +440,7 @@ class CronManager
             $this->configDir,
             dirname($this->projectRoot . '/' . self::LOG_FILE),
         ];
-        
+
         foreach ($directories as $dir) {
             if (!is_dir($dir)) {
                 if (!mkdir($dir, 0755, true)) {
@@ -448,11 +448,11 @@ class CronManager
                 }
             }
         }
-        
+
         // Ensure config directory has restrictive permissions
         chmod($this->configDir, 0700);
     }
-    
+
     /**
      * Log a message to the cron manager log file
      */
@@ -462,7 +462,7 @@ class CronManager
         $timestamp = date('Y-m-d H:i:s');
         $pid = getmypid();
         $logEntry = "[{$timestamp}] [INFO] [{$pid}] {$message}\n";
-        
+
         file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
     }
 }

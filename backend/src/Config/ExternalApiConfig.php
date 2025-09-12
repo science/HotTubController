@@ -9,7 +9,7 @@ use RuntimeException;
 
 /**
  * Configuration manager for external API credentials and settings
- * 
+ *
  * Provides secure access to WirelessTag and IFTTT API credentials
  * from environment variables without exposing token values in logs.
  */
@@ -21,13 +21,13 @@ class ExternalApiConfig
         'WIRELESSTAG_HOT_TUB_DEVICE_ID',
         'IFTTT_WEBHOOK_KEY'
     ];
-    
+
     public function __construct()
     {
         $this->loadConfiguration();
         $this->validateConfiguration();
     }
-    
+
     /**
      * Get WirelessTag OAuth Bearer token
      */
@@ -35,7 +35,7 @@ class ExternalApiConfig
     {
         return $this->config['WIRELESSTAG_OAUTH_TOKEN'] ?? '';
     }
-    
+
     /**
      * Get WirelessTag hot tub device ID
      */
@@ -43,7 +43,7 @@ class ExternalApiConfig
     {
         return $this->config['WIRELESSTAG_HOT_TUB_DEVICE_ID'] ?? '';
     }
-    
+
     /**
      * Get WirelessTag ambient temperature device ID (optional)
      */
@@ -51,7 +51,7 @@ class ExternalApiConfig
     {
         return $this->config['WIRELESSTAG_AMBIENT_DEVICE_ID'] ?? null;
     }
-    
+
     /**
      * Get IFTTT webhook API key
      */
@@ -59,7 +59,7 @@ class ExternalApiConfig
     {
         return $this->config['IFTTT_WEBHOOK_KEY'] ?? '';
     }
-    
+
     /**
      * Check if all required tokens are available
      */
@@ -72,14 +72,14 @@ class ExternalApiConfig
         }
         return true;
     }
-    
+
     /**
      * Get configuration status for debugging (without exposing token values)
      */
     public function getConfigStatus(): array
     {
         $status = [];
-        
+
         foreach ($this->requiredKeys as $key) {
             $value = $this->config[$key] ?? null;
             $status[$key] = [
@@ -88,7 +88,7 @@ class ExternalApiConfig
                 'preview' => $value ? substr($value, 0, 8) . '...' : null
             ];
         }
-        
+
         // Add optional keys
         $optionalKeys = ['WIRELESSTAG_AMBIENT_DEVICE_ID'];
         foreach ($optionalKeys as $key) {
@@ -100,26 +100,26 @@ class ExternalApiConfig
                 'optional' => true
             ];
         }
-        
+
         return $status;
     }
-    
+
     /**
      * Validate that WirelessTag token appears to be a valid Bearer token
      */
     public function validateWirelessTagToken(): bool
     {
         $token = $this->getWirelessTagToken();
-        
+
         // Basic token validation - should be a reasonably long string
         if (strlen($token) < 20) {
             return false;
         }
-        
+
         // Could add more sophisticated validation here if needed
         return true;
     }
-    
+
     /**
      * Get WirelessTag API configuration array
      */
@@ -133,9 +133,9 @@ class ExternalApiConfig
             ]
         ];
     }
-    
+
     /**
-     * Get IFTTT API configuration array  
+     * Get IFTTT API configuration array
      */
     public function getIftttConfig(): array
     {
@@ -143,7 +143,7 @@ class ExternalApiConfig
             'webhook_key' => $this->getIftttWebhookKey()
         ];
     }
-    
+
     /**
      * Load configuration from environment variables
      */
@@ -153,7 +153,7 @@ class ExternalApiConfig
         $keys = array_merge($this->requiredKeys, [
             'WIRELESSTAG_AMBIENT_DEVICE_ID' // Optional
         ]);
-        
+
         foreach ($keys as $key) {
             $value = $_ENV[$key] ?? getenv($key);
             if ($value !== false) {
@@ -161,22 +161,22 @@ class ExternalApiConfig
             }
         }
     }
-    
+
     /**
      * Validate that required configuration is present
-     * 
+     *
      * @throws RuntimeException if required configuration is missing
      */
     private function validateConfiguration(): void
     {
         $missing = [];
-        
+
         foreach ($this->requiredKeys as $key) {
             if (empty($this->config[$key])) {
                 $missing[] = $key;
             }
         }
-        
+
         if (!empty($missing)) {
             $missingKeys = implode(', ', $missing);
             throw new RuntimeException(
@@ -185,10 +185,10 @@ class ExternalApiConfig
             );
         }
     }
-    
+
     /**
      * Create configuration from custom values (useful for testing)
-     * 
+     *
      * @param array $customConfig Custom configuration values
      * @return self
      */
@@ -199,19 +199,19 @@ class ExternalApiConfig
         $instance->validateConfiguration();
         return $instance;
     }
-    
+
     /**
      * Log configuration status (safely, without exposing tokens)
      */
     public function logConfigStatus(): void
     {
         $status = $this->getConfigStatus();
-        
+
         foreach ($status as $key => $info) {
             $optional = $info['optional'] ?? false;
             $configured = $info['configured'] ? '✓' : '✗';
             $optionalText = $optional ? ' (optional)' : '';
-            
+
             error_log("External API Config - {$key}{$optionalText}: {$configured}");
         }
     }

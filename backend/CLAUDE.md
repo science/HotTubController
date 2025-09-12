@@ -252,3 +252,6 @@ cp .env.example .env
 chmod 600 .env
 # Edit .env with actual WIRELESSTAG_OAUTH_TOKEN and IFTTT_WEBHOOK_KEY
 ```
+
+## GitHub Operations
+For GitHub CLI operations including project board management, issue tracking, and repository operations, see [GITHUB_OPERATIONS.md](../GITHUB_OPERATIONS.md) in the project root.

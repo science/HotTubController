@@ -171,7 +171,7 @@ class HeatingCycle extends Model
 
         $now = new DateTime();
         $remaining = $this->estimatedCompletion->getTimestamp() - $now->getTimestamp();
-        
+
         return max(0, $remaining);
     }
 
@@ -194,9 +194,9 @@ class HeatingCycle extends Model
         $this->targetTemp = (float)($data['target_temp'] ?? 104.0);
         $this->currentTemp = isset($data['current_temp']) ? (float)$data['current_temp'] : null;
         $this->status = $data['status'] ?? self::STATUS_HEATING;
-        $this->estimatedCompletion = isset($data['estimated_completion']) ? 
+        $this->estimatedCompletion = isset($data['estimated_completion']) ?
             new DateTime($data['estimated_completion']) : null;
-        $this->lastCheck = isset($data['last_check']) ? 
+        $this->lastCheck = isset($data['last_check']) ?
             new DateTime($data['last_check']) : null;
         $this->metadata = $data['metadata'] ?? [];
     }

@@ -10,28 +10,28 @@ use DateTimeImmutable;
 
 /**
  * Helper trait for creating properly mocked TokenService instances in tests
- * 
+ *
  * This trait provides convenience methods for setting up authentication mocks
  * that work correctly with the AuthenticatedAction base class requirements.
- * 
+ *
  * Usage:
  * ```php
- * class MyActionTest extends TestCase 
+ * class MyActionTest extends TestCase
  * {
  *     use AuthenticationTestHelper;
- * 
- *     public function testMyAction(): void 
+ *
+ *     public function testMyAction(): void
  *     {
  *         $tokenService = $this->createMockTokenService();
  *         $action = new MyAction($logger, $tokenService);
- *         
+ *
  *         $request = $request->withHeader('Authorization', 'Bearer test-token');
  *         $response = $action->__invoke($request, $response, []);
  *         // ... assertions
  *     }
  * }
  * ```
- * 
+ *
  * Note: This trait creates TokenService mocks for dependency injection.
  * For HTTP request creation with auth headers, see AuthenticatedTestTrait.
  */
@@ -39,7 +39,7 @@ trait AuthenticationTestHelper
 {
     /**
      * Create a mock TokenService with user role authentication
-     * 
+     *
      * @param string $tokenValue The token value to mock (default: 'test-token')
      * @param string $tokenName The token name for debugging (default: 'Test Token')
      * @return TokenService
@@ -73,7 +73,7 @@ trait AuthenticationTestHelper
 
     /**
      * Create a mock TokenService with admin role authentication
-     * 
+     *
      * @param string $tokenValue The admin token value to mock (default: 'admin-token')
      * @param string $tokenName The token name for debugging (default: 'Admin Test Token')
      * @return TokenService
@@ -107,7 +107,7 @@ trait AuthenticationTestHelper
 
     /**
      * Create a mock TokenService that rejects authentication
-     * 
+     *
      * @param string $tokenValue The token value that should be rejected
      * @return TokenService
      */
@@ -125,7 +125,7 @@ trait AuthenticationTestHelper
     /**
      * Create a mock TokenService where token exists but getTokenByValue returns null
      * This simulates edge cases in token validation
-     * 
+     *
      * @param string $tokenValue The token value to mock
      * @return TokenService
      */

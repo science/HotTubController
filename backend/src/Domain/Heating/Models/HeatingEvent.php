@@ -53,7 +53,7 @@ class HeatingEvent extends Model
     public function setEventType(string $eventType): self
     {
         $validTypes = [self::EVENT_TYPE_START, self::EVENT_TYPE_MONITOR];
-        
+
         if (!in_array($eventType, $validTypes)) {
             throw new \InvalidArgumentException("Invalid event type: {$eventType}");
         }

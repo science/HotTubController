@@ -53,7 +53,7 @@ class HeatingEventRepository extends Repository
     public function findPastDueEvents(): array
     {
         $now = new DateTime();
-        
+
         return $this->query()
             ->where('scheduled_for', '<=', $now->format('Y-m-d H:i:s'))
             ->where('status', HeatingEvent::STATUS_SCHEDULED)
@@ -65,7 +65,7 @@ class HeatingEventRepository extends Repository
     {
         $now = new DateTime();
         $future = new DateTime("+{$hours} hours");
-        
+
         return $this->query()
             ->whereBetween('scheduled_for', [
                 $now->format('Y-m-d H:i:s'),
@@ -79,7 +79,7 @@ class HeatingEventRepository extends Repository
     public function findTriggeredEvents(int $hours = 24): array
     {
         $since = new DateTime("-{$hours} hours");
-        
+
         return $this->query()
             ->where('status', HeatingEvent::STATUS_TRIGGERED)
             ->where('updated_at', '>=', $since->format('Y-m-d H:i:s'))
@@ -102,15 +102,15 @@ class HeatingEventRepository extends Repository
                 $start->format('Y-m-d H:i:s'),
                 $end->format('Y-m-d H:i:s')
             ]);
-            
+
         if ($status !== null) {
             $query->where('status', $status);
         }
-        
+
         if ($eventType !== null) {
             $query->where('event_type', $eventType);
         }
-        
+
         return $query
             ->orderBy('scheduled_for', 'asc')
             ->get();
@@ -120,7 +120,7 @@ class HeatingEventRepository extends Repository
     {
         $startEvents = $this->findStartEvents();
         $cancelled = 0;
-        
+
         foreach ($startEvents as $event) {
             if ($event->isScheduled()) {
                 $event->cancel();
@@ -128,7 +128,7 @@ class HeatingEventRepository extends Repository
                 $cancelled++;
             }
         }
-        
+
         return $cancelled;
     }
 
@@ -136,7 +136,7 @@ class HeatingEventRepository extends Repository
     {
         $cycleEvents = $this->findEventsByCycle($cycleId);
         $cancelled = 0;
-        
+
         foreach ($cycleEvents as $event) {
             if ($event->isScheduled()) {
                 $event->cancel();
@@ -144,7 +144,7 @@ class HeatingEventRepository extends Repository
                 $cancelled++;
             }
         }
-        
+
         return $cancelled;
     }
 
@@ -152,7 +152,7 @@ class HeatingEventRepository extends Repository
     {
         $monitorEvents = $this->findMonitorEvents();
         $cancelled = 0;
-        
+
         foreach ($monitorEvents as $event) {
             if ($event->isScheduled()) {
                 $event->cancel();
@@ -160,7 +160,7 @@ class HeatingEventRepository extends Repository
                 $cancelled++;
             }
         }
-        
+
         return $cancelled;
     }
 
@@ -173,11 +173,11 @@ class HeatingEventRepository extends Repository
     {
         $query = $this->query()
             ->where('status', HeatingEvent::STATUS_SCHEDULED);
-            
+
         if ($eventType !== null) {
             $query->where('event_type', $eventType);
         }
-        
+
         return $query
             ->orderBy('scheduled_for', 'asc')
             ->first();
@@ -205,14 +205,14 @@ class HeatingEventRepository extends Repository
             ->whereIn('status', [HeatingEvent::STATUS_TRIGGERED, HeatingEvent::STATUS_CANCELLED])
             ->where('updated_at', '<=', $cutoff->format('Y-m-d H:i:s'))
             ->get();
-        
+
         $deleted = 0;
         foreach ($oldEvents as $event) {
             if ($this->delete($event->getId())) {
                 $deleted++;
             }
         }
-        
+
         return $deleted;
     }
 

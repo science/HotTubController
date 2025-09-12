@@ -64,7 +64,7 @@ class HeatingStatusActionTest extends TestCase
                     'signal' => -45,
                 ]
             ]);
-            
+
         $this->wirelessTagClient->expects($this->once())
             ->method('processTemperatureData')
             ->willReturn([
@@ -174,7 +174,7 @@ class HeatingStatusActionTest extends TestCase
         // Mock temperature reading
         $this->wirelessTagClient->method('getCachedTemperatureData')
             ->willReturn([['temperature' => 75.0, 'name' => 'Sensor']]);
-            
+
         $this->wirelessTagClient->method('processTemperatureData')
             ->willReturn([
                 'water_temperature' => ['fahrenheit' => 75.0],
@@ -249,7 +249,7 @@ class HeatingStatusActionTest extends TestCase
         // Mock basic data
         $this->wirelessTagClient->method('getCachedTemperatureData')
             ->willReturn([['temperature' => 85.0, 'name' => 'Sensor']]);
-            
+
         $this->wirelessTagClient->method('processTemperatureData')
             ->willReturn([
                 'water_temperature' => ['fahrenheit' => 85.0],
@@ -324,7 +324,7 @@ class HeatingStatusActionTest extends TestCase
     {
         return (new ResponseFactory())->createResponse();
     }
-    
+
     /**
      * Helper method to invoke the protected action method directly for unit testing
      */
@@ -333,8 +333,7 @@ class HeatingStatusActionTest extends TestCase
         $reflection = new ReflectionClass($this->action);
         $method = $reflection->getMethod('action');
         $method->setAccessible(true);
-        
+
         return $method->invoke($this->action, $request, $this->createResponse(), []);
     }
-
 }

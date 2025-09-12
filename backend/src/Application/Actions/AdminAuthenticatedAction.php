@@ -14,6 +14,11 @@ abstract class AdminAuthenticatedAction extends AuthenticatedAction
         // First perform standard authentication
         parent::authenticate($request);
 
+        // At this point, $this->authenticatedToken should be set by parent::authenticate()
+        if (!$this->authenticatedToken) {
+            throw new RuntimeException('Authentication failed: no token available');
+        }
+
         // Then check for admin role
         if (!$this->authenticatedToken->isAdmin()) {
             $this->logger->warning('Non-admin user attempted to access admin endpoint', [

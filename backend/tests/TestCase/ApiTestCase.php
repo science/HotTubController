@@ -24,25 +24,25 @@ abstract class ApiTestCase extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Create container with test dependencies
         $containerBuilder = new ContainerBuilder();
-        
+
         // Add standard dependencies
         $dependencies = require __DIR__ . '/../../config/dependencies.php';
         $dependencies($containerBuilder);
-        
+
         // Override with test-specific bindings if needed
         $containerBuilder->addDefinitions([
             // Test-specific overrides can be added here
         ]);
-        
+
         $this->container = $containerBuilder->build();
-        
+
         // Create Slim app
         AppFactory::setContainer($this->container);
         $this->app = AppFactory::create();
-        
+
         // Add routes and middleware
         $this->configureApp();
     }
@@ -62,15 +62,15 @@ abstract class ApiTestCase extends TestCase
         array $serverParams = []
     ): ServerRequestInterface {
         $request = (new ServerRequestFactory())->createServerRequest($method, $uri, $serverParams);
-        
+
         foreach ($headers as $name => $value) {
             $request = $request->withHeader($name, $value);
         }
-        
+
         foreach ($cookies as $name => $value) {
             $request = $request->withCookieParams(array_merge($request->getCookieParams(), [$name => $value]));
         }
-        
+
         return $request;
     }
 
@@ -129,12 +129,12 @@ abstract class ApiTestCase extends TestCase
     protected function assertJsonResponse(array $expected, ResponseInterface $response): void
     {
         $this->assertSame('application/json', $response->getHeaderLine('Content-Type'));
-        
+
         $body = (string) $response->getBody();
         $actual = json_decode($body, true);
-        
+
         $this->assertIsArray($actual, 'Response body is not valid JSON: ' . $body);
-        
+
         foreach ($expected as $key => $value) {
             $this->assertArrayHasKey($key, $actual, "Response missing key: $key");
             if (is_array($value)) {

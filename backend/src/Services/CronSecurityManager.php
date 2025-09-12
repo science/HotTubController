@@ -9,7 +9,7 @@ use InvalidArgumentException;
 
 /**
  * CronSecurityManager - Manages API keys and security for cron operations
- * 
+ *
  * This service handles the generation, storage, and rotation of API keys
  * used by cron jobs to authenticate with the heating control system.
  * It ensures secure storage and provides utilities for key management.
@@ -20,20 +20,20 @@ class CronSecurityManager
     private const API_KEY_PREFIX = 'cron_api_';
     private const KEY_LENGTH = 64; // 64 hex characters = 256 bits
     private const BACKUP_SUFFIX = '.backup';
-    
+
     private string $projectRoot;
     private string $apiKeyFile;
     private string $logFile;
-    
+
     public function __construct(?string $projectRoot = null)
     {
         $this->projectRoot = $projectRoot ?? dirname(__DIR__, 2);
         $this->apiKeyFile = $this->projectRoot . '/' . self::API_KEY_FILE;
         $this->logFile = $this->projectRoot . '/storage/logs/cron-security.log';
-        
+
         $this->ensureDirectoriesExist();
     }
-    
+
     /**
      * Generate and store a new cron API key
      *
@@ -44,24 +44,24 @@ class CronSecurityManager
     public function generateApiKey(bool $backupExisting = true): string
     {
         $this->log('Generating new cron API key');
-        
+
         // Backup existing key if requested and exists
         if ($backupExisting && file_exists($this->apiKeyFile)) {
             $this->backupExistingKey();
         }
-        
+
         // Generate cryptographically secure random key
         $randomBytes = random_bytes(self::KEY_LENGTH / 2); // 32 bytes = 64 hex chars
         $apiKey = self::API_KEY_PREFIX . bin2hex($randomBytes);
-        
+
         // Store key with restrictive permissions
         $this->storeApiKey($apiKey);
-        
+
         $this->log("Generated new cron API key with ID: " . substr($apiKey, 0, 20) . "...");
-        
+
         return $apiKey;
     }
-    
+
     /**
      * Get the current API key
      *
@@ -73,20 +73,20 @@ class CronSecurityManager
         if (!$this->apiKeyExists()) {
             throw new RuntimeException("Cron API key file not found: {$this->apiKeyFile}");
         }
-        
+
         $apiKey = trim(file_get_contents($this->apiKeyFile));
-        
+
         if (empty($apiKey)) {
             throw new RuntimeException("Cron API key file is empty: {$this->apiKeyFile}");
         }
-        
+
         if (!$this->isValidApiKey($apiKey)) {
             throw new RuntimeException("Invalid API key format in file: {$this->apiKeyFile}");
         }
-        
+
         return $apiKey;
     }
-    
+
     /**
      * Check if API key file exists
      *
@@ -96,7 +96,7 @@ class CronSecurityManager
     {
         return file_exists($this->apiKeyFile) && is_readable($this->apiKeyFile);
     }
-    
+
     /**
      * Validate that an API key matches the expected format
      *
@@ -109,18 +109,18 @@ class CronSecurityManager
         if (!str_starts_with($apiKey, self::API_KEY_PREFIX)) {
             return false;
         }
-        
+
         // Check total length (prefix + hex chars)
         $expectedLength = strlen(self::API_KEY_PREFIX) + self::KEY_LENGTH;
         if (strlen($apiKey) !== $expectedLength) {
             return false;
         }
-        
+
         // Check that the suffix is valid hex
         $hexPart = substr($apiKey, strlen(self::API_KEY_PREFIX));
         return ctype_xdigit($hexPart);
     }
-    
+
     /**
      * Rotate the API key (generate new key and backup old one)
      *
@@ -130,7 +130,7 @@ class CronSecurityManager
     public function rotateApiKey(): array
     {
         $this->log('Starting API key rotation');
-        
+
         $oldKey = null;
         if ($this->apiKeyExists()) {
             try {
@@ -139,17 +139,17 @@ class CronSecurityManager
                 $this->log("Warning: Could not read old API key during rotation: " . $e->getMessage());
             }
         }
-        
+
         $newKey = $this->generateApiKey(true);
-        
+
         $this->log('API key rotation completed successfully');
-        
+
         return [
             'old_key' => $oldKey,
             'new_key' => $newKey,
         ];
     }
-    
+
     /**
      * Initialize API key system (generate key if it doesn't exist)
      *
@@ -167,11 +167,11 @@ class CronSecurityManager
                 return $this->generateApiKey(true);
             }
         }
-        
+
         $this->log('No existing API key found, generating new one');
         return $this->generateApiKey(false);
     }
-    
+
     /**
      * Verify that an API key matches the stored key
      *
@@ -183,7 +183,7 @@ class CronSecurityManager
         if (!$this->apiKeyExists()) {
             return false;
         }
-        
+
         try {
             $storedKey = $this->getCurrentApiKey();
             return hash_equals($storedKey, $providedKey);
@@ -192,7 +192,7 @@ class CronSecurityManager
             return false;
         }
     }
-    
+
     /**
      * Get API key file information
      *
@@ -210,7 +210,7 @@ class CronSecurityManager
             'permissions' => null,
             'valid_format' => false,
         ];
-        
+
         if (file_exists($this->apiKeyFile)) {
             $info['exists'] = true;
             $info['readable'] = is_readable($this->apiKeyFile);
@@ -218,7 +218,7 @@ class CronSecurityManager
             $info['size'] = filesize($this->apiKeyFile);
             $info['modified'] = date('Y-m-d H:i:s', filemtime($this->apiKeyFile));
             $info['permissions'] = substr(sprintf('%o', fileperms($this->apiKeyFile)), -4);
-            
+
             if ($info['readable']) {
                 try {
                     $apiKey = $this->getCurrentApiKey();
@@ -230,10 +230,10 @@ class CronSecurityManager
                 }
             }
         }
-        
+
         return $info;
     }
-    
+
     /**
      * Clean up backup API key files older than specified days
      *
@@ -245,9 +245,9 @@ class CronSecurityManager
         $backupPattern = $this->apiKeyFile . self::BACKUP_SUFFIX . '*';
         $backupFiles = glob($backupPattern);
         $removedCount = 0;
-        
+
         $cutoffTime = time() - ($olderThanDays * 24 * 60 * 60);
-        
+
         foreach ($backupFiles as $backupFile) {
             if (filemtime($backupFile) < $cutoffTime) {
                 if (unlink($backupFile)) {
@@ -256,10 +256,10 @@ class CronSecurityManager
                 }
             }
         }
-        
+
         return $removedCount;
     }
-    
+
     /**
      * Store API key to file with secure permissions
      */
@@ -267,26 +267,26 @@ class CronSecurityManager
     {
         // Write to temporary file first, then move (atomic operation)
         $tempFile = $this->apiKeyFile . '.tmp';
-        
+
         if (file_put_contents($tempFile, $apiKey) === false) {
             throw new RuntimeException("Failed to write API key to temporary file: {$tempFile}");
         }
-        
+
         // Set restrictive permissions (owner read/write only)
         if (!chmod($tempFile, 0600)) {
             unlink($tempFile);
             throw new RuntimeException("Failed to set permissions on API key file");
         }
-        
+
         // Atomic move to final location
         if (!rename($tempFile, $this->apiKeyFile)) {
             unlink($tempFile);
             throw new RuntimeException("Failed to move API key file to final location");
         }
-        
+
         $this->log("API key stored successfully with secure permissions");
     }
-    
+
     /**
      * Backup existing API key with timestamp
      */
@@ -295,20 +295,20 @@ class CronSecurityManager
         if (!file_exists($this->apiKeyFile)) {
             return;
         }
-        
+
         $timestamp = date('Y-m-d_H-i-s');
         $backupFile = $this->apiKeyFile . self::BACKUP_SUFFIX . '_' . $timestamp;
-        
+
         if (!copy($this->apiKeyFile, $backupFile)) {
             throw new RuntimeException("Failed to backup existing API key to: {$backupFile}");
         }
-        
+
         // Ensure backup has same restrictive permissions
         chmod($backupFile, 0600);
-        
+
         $this->log("Backed up existing API key to: " . basename($backupFile));
     }
-    
+
     /**
      * Ensure required directories exist with proper permissions
      */
@@ -318,7 +318,7 @@ class CronSecurityManager
             dirname($this->apiKeyFile),
             dirname($this->logFile),
         ];
-        
+
         foreach ($directories as $dir) {
             if (!is_dir($dir)) {
                 if (!mkdir($dir, 0755, true)) {
@@ -327,7 +327,7 @@ class CronSecurityManager
             }
         }
     }
-    
+
     /**
      * Log a message to the security log file
      */
@@ -336,7 +336,7 @@ class CronSecurityManager
         $timestamp = date('Y-m-d H:i:s');
         $pid = getmypid();
         $logEntry = "[{$timestamp}] [INFO] [{$pid}] {$message}\n";
-        
+
         file_put_contents($this->logFile, $logEntry, FILE_APPEND | LOCK_EX);
     }
 }

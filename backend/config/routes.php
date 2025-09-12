@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use HotTubController\Application\Actions\Admin\BootstrapAction;
 use HotTubController\Application\Actions\Admin\CreateUserAction;
 use HotTubController\Application\Actions\Admin\ListUsersAction;
 use HotTubController\Application\Actions\Auth\AuthenticateAction;
@@ -31,8 +32,10 @@ return function (App $app) {
         // Authentication
         $group->post('/auth', AuthenticateAction::class);
         
+        // Bootstrap endpoint for initial admin token creation (uses master password)
+        $group->post('/admin/bootstrap', BootstrapAction::class);
         
-        // Admin endpoints (use master password auth for now - TODO: convert to AdminAuthenticatedAction)
+        // Admin endpoints (token-authenticated with admin role required)
         $group->post('/admin/user', CreateUserAction::class);
         $group->get('/admin/users', ListUsersAction::class);
         

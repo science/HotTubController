@@ -10,7 +10,8 @@ class TokenService
 {
     public function __construct(
         private TokenRepositoryInterface $tokenRepository
-    ) {}
+    ) {
+    }
 
     public function createToken(string $name, string $role = Token::ROLE_USER): Token
     {
@@ -21,7 +22,7 @@ class TokenService
 
         $id = 'usr_' . bin2hex(random_bytes(3));
         $token = 'tk_' . bin2hex(random_bytes(8));
-        
+
         $tokenEntity = new Token(
             $id,
             $token,
@@ -31,9 +32,9 @@ class TokenService
             null,
             $role
         );
-        
+
         $this->tokenRepository->save($tokenEntity);
-        
+
         return $tokenEntity;
     }
 
@@ -56,7 +57,7 @@ class TokenService
 
         $deactivatedToken = $token->deactivate();
         $this->tokenRepository->save($deactivatedToken);
-        
+
         return true;
     }
 

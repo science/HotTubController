@@ -21,7 +21,7 @@ use RuntimeException;
 
 /**
  * StopHeatingAction - Emergency stop endpoint for heating cycles
- * 
+ *
  * This endpoint provides emergency stop capability for active heating cycles.
  * It can be called manually via the web interface or programmatically when
  * safety conditions are detected. It immediately stops heating equipment
@@ -35,7 +35,7 @@ class StopHeatingAction extends Action
     private TokenService $tokenService;
     private CronSecurityManager $cronSecurityManager;
     private HeatingCycleRepository $cycleRepository;
-    
+
     public function __construct(
         LoggerInterface $logger,
         WirelessTagClient $wirelessTagClient,
@@ -53,7 +53,7 @@ class StopHeatingAction extends Action
         $this->cronSecurityManager = $cronSecurityManager;
         $this->cycleRepository = $cycleRepository;
     }
-    
+
     protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         // Parse request parameters
@@ -61,20 +61,20 @@ class StopHeatingAction extends Action
         $cycleId = $input['cycle_id'] ?? null;
         $reason = $input['reason'] ?? 'manual_stop';
         $authMethod = $input['auth_method'] ?? 'token';
-        
+
         $this->logger->info('Emergency stop heating requested', [
             'cycle_id' => $cycleId,
             'reason' => $reason,
             'auth_method' => $authMethod,
         ]);
-        
+
         try {
             // Authenticate request (web token or cron API key)
             $this->authenticateStopRequest($request, $authMethod);
-            
+
             // Validate parameters
             $this->validateStopParameters($cycleId, $reason);
-            
+
             // Get current temperature for logging
             $currentTemp = null;
             try {
@@ -84,19 +84,19 @@ class StopHeatingAction extends Action
                     'error' => $e->getMessage(),
                 ]);
             }
-            
+
             // Stop all heating operations
             $stoppedCycles = $this->stopAllHeating($cycleId, $reason, $currentTemp);
-            
+
             // Clean up monitoring crons
             $removedCrons = $this->cleanupMonitoringCrons($cycleId);
-            
+
             $this->logger->info('Emergency stop completed', [
                 'stopped_cycles' => count($stoppedCycles),
                 'removed_crons' => $removedCrons,
                 'reason' => $reason,
             ]);
-            
+
             return $this->jsonResponse([
                 'status' => 'stopped',
                 'stopped_cycles' => $stoppedCycles,
@@ -106,7 +106,6 @@ class StopHeatingAction extends Action
                 'stopped_at' => (new DateTime())->format('c'),
                 'message' => 'Heating stopped successfully',
             ]);
-            
         } catch (Exception $e) {
             $this->logger->error('Failed to stop heating', [
                 'cycle_id' => $cycleId,
@@ -114,11 +113,11 @@ class StopHeatingAction extends Action
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return $this->errorResponse('Failed to stop heating: ' . $e->getMessage(), 500);
         }
     }
-    
+
     /**
      * Authenticate stop request (supports both admin tokens and cron API keys)
      */
@@ -134,24 +133,24 @@ class StopHeatingAction extends Action
             throw new RuntimeException('Invalid authentication method: ' . $authMethod);
         }
     }
-    
+
     /**
      * Authenticate using admin token (header-based)
      */
     private function authenticateWithAdminToken(ServerRequestInterface $request): void
     {
         $authHeader = $request->getHeaderLine('Authorization');
-        
+
         if (empty($authHeader)) {
             throw new RuntimeException('Missing Authorization header');
         }
-        
+
         if (!preg_match('/^Bearer\s+(.+)$/i', $authHeader, $matches)) {
             throw new RuntimeException('Invalid Authorization header format. Expected: Bearer <token>');
         }
-        
+
         $token = $matches[1];
-        
+
         if (!$this->tokenService->validateToken($token)) {
             throw new RuntimeException('Invalid or expired token');
         }
@@ -170,7 +169,7 @@ class StopHeatingAction extends Action
             'request_uri' => (string) $request->getUri(),
         ]);
     }
-    
+
     /**
      * Authenticate using cron API key
      */
@@ -178,11 +177,11 @@ class StopHeatingAction extends Action
     {
         $input = $this->getJsonInput($request);
         $providedAuth = $input['auth'] ?? null;
-        
+
         if (empty($providedAuth)) {
             throw new RuntimeException('Missing auth parameter for cron authentication');
         }
-        
+
         if (!$this->cronSecurityManager->verifyApiKey($providedAuth)) {
             $this->logger->warning('Invalid cron API key provided for emergency stop', [
                 'provided_key_preview' => substr($providedAuth, 0, 10) . '...',
@@ -195,7 +194,7 @@ class StopHeatingAction extends Action
             'request_uri' => (string) $request->getUri(),
         ]);
     }
-    
+
     /**
      * Validate stop parameters
      */
@@ -204,7 +203,7 @@ class StopHeatingAction extends Action
         if ($cycleId && !preg_match('/^[a-zA-Z0-9_-]+$/', $cycleId)) {
             throw new RuntimeException('Invalid cycle ID format');
         }
-        
+
         $validReasons = [
             'manual_stop',
             'emergency',
@@ -215,12 +214,12 @@ class StopHeatingAction extends Action
             'user_request',
             'system_shutdown',
         ];
-        
+
         if (!in_array($reason, $validReasons)) {
             throw new RuntimeException('Invalid stop reason: ' . $reason);
         }
     }
-    
+
     /**
      * Get current water temperature (best effort)
      */
@@ -228,7 +227,7 @@ class StopHeatingAction extends Action
     {
         try {
             $temperatureData = $this->wirelessTagClient->getTemperatureData();
-            
+
             if (!empty($temperatureData)) {
                 $primarySensor = reset($temperatureData);
                 return $primarySensor['temperature'];
@@ -238,25 +237,25 @@ class StopHeatingAction extends Action
                 'error' => $e->getMessage(),
             ]);
         }
-        
+
         return null;
     }
-    
+
     /**
      * Stop all active heating operations
      */
     private function stopAllHeating(?string $specificCycleId, string $reason, ?float $currentTemp): array
     {
         $this->logger->info('Stopping heating equipment');
-        
+
         // Always stop equipment first (safety priority)
         $this->stopHeatingEquipment();
-        
+
         // Find active heating cycles
         $activeCycles = $this->findActiveHeatingCycles($specificCycleId);
-        
+
         $stoppedCycles = [];
-        
+
         foreach ($activeCycles as $cycle) {
             try {
                 $this->stopHeatingCycle($cycle, $reason, $currentTemp);
@@ -266,12 +265,11 @@ class StopHeatingAction extends Action
                     'target_temp' => $cycle->getTargetTemp(),
                     'final_temp' => $currentTemp,
                 ];
-                
+
                 $this->logger->info('Stopped heating cycle', [
                     'cycle_id' => $cycle->getId(),
                     'reason' => $reason,
                 ]);
-                
             } catch (Exception $e) {
                 $this->logger->error('Failed to stop individual cycle', [
                     'cycle_id' => $cycle->getId(),
@@ -279,10 +277,10 @@ class StopHeatingAction extends Action
                 ]);
             }
         }
-        
+
         return $stoppedCycles;
     }
-    
+
     /**
      * Find active heating cycles
      */
@@ -302,7 +300,7 @@ class StopHeatingAction extends Action
                 ->get();
         }
     }
-    
+
     /**
      * Stop individual heating cycle
      */
@@ -310,25 +308,25 @@ class StopHeatingAction extends Action
     {
         $cycle->setStatus(HeatingCycle::STATUS_STOPPED);
         $cycle->setCompletedAt(new DateTime());
-        
+
         if ($currentTemp !== null) {
             $cycle->setFinalTemp($currentTemp);
         }
-        
+
         $cycle->addMetadata('stop_reason', $reason);
         $cycle->addMetadata('stopped_via_api', true);
         $cycle->addMetadata('stopped_at', (new DateTime())->format('Y-m-d H:i:s'));
-        
+
         $this->cycleRepository->save($cycle);
     }
-    
+
     /**
      * Clean up monitoring crons
      */
     private function cleanupMonitoringCrons(?string $specificCycleId): int
     {
         $this->logger->info('Cleaning up monitoring crons');
-        
+
         if ($specificCycleId) {
             // Remove crons for specific cycle
             return $this->cronManager->removeMonitoringEvents($specificCycleId);
@@ -337,7 +335,7 @@ class StopHeatingAction extends Action
             return $this->cronManager->removeMonitoringEvents();
         }
     }
-    
+
     /**
      * Stop heating equipment via IFTTT
      */
@@ -345,19 +343,18 @@ class StopHeatingAction extends Action
     {
         try {
             $result = $this->iftttClient->triggerEvent('hot-tub-heat-off');
-            
+
             if (!$result['success']) {
                 $this->logger->error('Failed to stop heating equipment via IFTTT', $result);
                 throw new RuntimeException('Failed to stop heating equipment: ' . ($result['error'] ?? 'Unknown error'));
             }
-            
+
             $this->logger->info('Heating equipment stopped via IFTTT');
-            
         } catch (Exception $e) {
             $this->logger->error('IFTTT stop command failed', [
                 'error' => $e->getMessage(),
             ]);
-            
+
             // In emergency scenarios, we still want to continue with database cleanup
             // even if IFTTT fails, but we should log this as a critical issue
             throw new RuntimeException('Critical: Equipment stop command failed - manual intervention required');

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use DI\ContainerBuilder;
+use HotTubController\Application\Actions\Admin\BootstrapAction;
 use HotTubController\Application\Actions\Admin\CreateUserAction;
 use HotTubController\Application\Actions\Admin\ListUsersAction;
 use HotTubController\Application\Actions\Auth\AuthenticateAction;
@@ -119,21 +120,26 @@ return function (ContainerBuilder $containerBuilder) {
             );
         },
 
-        CreateUserAction::class => function (ContainerInterface $c): CreateUserAction {
+        BootstrapAction::class => function (ContainerInterface $c): BootstrapAction {
             $settings = $c->get('settings');
-            return new CreateUserAction(
+            return new BootstrapAction(
                 $c->get(LoggerInterface::class),
                 $c->get(TokenService::class),
                 $settings['auth']['master_password_hash']
             );
         },
 
+        CreateUserAction::class => function (ContainerInterface $c): CreateUserAction {
+            return new CreateUserAction(
+                $c->get(LoggerInterface::class),
+                $c->get(TokenService::class)
+            );
+        },
+
         ListUsersAction::class => function (ContainerInterface $c): ListUsersAction {
-            $settings = $c->get('settings');
             return new ListUsersAction(
                 $c->get(LoggerInterface::class),
-                $c->get(TokenService::class),
-                $settings['auth']['master_password_hash']
+                $c->get(TokenService::class)
             );
         },
 

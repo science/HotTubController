@@ -79,7 +79,7 @@ class HeatingEventTest extends TestCase
     {
         $futureTime = new DateTime('+2 hours');
         $this->event->setScheduledFor($futureTime);
-        
+
         $this->assertEquals($futureTime, $this->event->getScheduledFor());
     }
 
@@ -93,7 +93,7 @@ class HeatingEventTest extends TestCase
     {
         $cronExpr = '0 6 * * *'; // Daily at 6 AM
         $this->event->setCronExpression($cronExpr);
-        
+
         $this->assertEquals($cronExpr, $this->event->getCronExpression());
     }
 
@@ -101,7 +101,7 @@ class HeatingEventTest extends TestCase
     {
         $cycleId = 'cycle-456';
         $this->event->setCycleId($cycleId);
-        
+
         $this->assertEquals($cycleId, $this->event->getCycleId());
     }
 
@@ -109,9 +109,9 @@ class HeatingEventTest extends TestCase
     {
         $metadata = ['retry_count' => 0, 'source' => 'web'];
         $this->event->setMetadata($metadata);
-        
+
         $this->assertEquals($metadata, $this->event->getMetadata());
-        
+
         $this->event->addMetadata('new_field', 'new_value');
         $this->assertEquals('new_value', $this->event->getMetadata()['new_field']);
     }
@@ -137,7 +137,7 @@ class HeatingEventTest extends TestCase
     {
         $futureTime = new DateTime('+3600 seconds'); // 1 hour from now
         $this->event->setScheduledFor($futureTime);
-        
+
         $timeRemaining = $this->event->getTimeUntilExecution();
         $this->assertGreaterThan(3500, $timeRemaining); // Should be close to 3600
         $this->assertLessThan(3700, $timeRemaining);
@@ -147,7 +147,7 @@ class HeatingEventTest extends TestCase
     {
         $pastTime = new DateTime('-1 hour');
         $this->event->setScheduledFor($pastTime);
-        
+
         $this->assertEquals(0, $this->event->getTimeUntilExecution());
     }
 
@@ -155,12 +155,12 @@ class HeatingEventTest extends TestCase
     {
         $this->event->setEventType(HeatingEvent::EVENT_TYPE_START);
         $comment = $this->event->generateCronComment();
-        
+
         $this->assertEquals('HOT_TUB_START:test-event-123', $comment);
 
         $this->event->setEventType(HeatingEvent::EVENT_TYPE_MONITOR);
         $comment = $this->event->generateCronComment();
-        
+
         $this->assertEquals('HOT_TUB_MONITOR:test-event-123', $comment);
     }
 
@@ -196,16 +196,16 @@ class HeatingEventTest extends TestCase
         $this->event->setTargetTemp(102.0);
         $this->event->setCronExpression('0 * * * *');
         $this->event->setCycleId('cycle-789');
-        
+
         $array = $this->event->toArray();
-        
+
         $this->assertArrayHasKey('id', $array);
         $this->assertArrayHasKey('scheduled_for', $array);
         $this->assertArrayHasKey('event_type', $array);
         $this->assertArrayHasKey('target_temp', $array);
         $this->assertArrayHasKey('cron_expression', $array);
         $this->assertArrayHasKey('cycle_id', $array);
-        
+
         $this->assertEquals('test-event-123', $array['id']);
         $this->assertEquals(HeatingEvent::EVENT_TYPE_MONITOR, $array['event_type']);
         $this->assertEquals(102.0, $array['target_temp']);
@@ -226,10 +226,10 @@ class HeatingEventTest extends TestCase
             'cycle_id' => 'cycle-999',
             'metadata' => ['source' => 'api']
         ];
-        
+
         $event = new HeatingEvent();
         $event->fromArray($data);
-        
+
         $this->assertEquals('from-array-456', $event->getId());
         $this->assertEquals(HeatingEvent::EVENT_TYPE_MONITOR, $event->getEventType());
         $this->assertEquals(106.0, $event->getTargetTemp());
@@ -245,7 +245,7 @@ class HeatingEventTest extends TestCase
         $futureTime = new DateTime('+1 hour');
         $this->event->setScheduledFor($futureTime);
         $this->event->setTargetTemp(104.0);
-        
+
         $this->assertEmpty($this->event->validate());
     }
 
@@ -253,13 +253,13 @@ class HeatingEventTest extends TestCase
     {
         $this->event->setTargetTemp(0);
         $errors = $this->event->validate();
-        
+
         $this->assertNotEmpty($errors);
         $this->assertStringContainsString('greater than 0', $errors[0]);
 
         $this->event->setTargetTemp(115.0);
         $errors = $this->event->validate();
-        
+
         $this->assertNotEmpty($errors);
         $this->assertStringContainsString('exceed 110°F', $errors[0]);
     }
@@ -269,7 +269,7 @@ class HeatingEventTest extends TestCase
         $pastTime = new DateTime('-1 hour');
         $this->event->setScheduledFor($pastTime);
         $this->event->setTargetTemp(104.0);
-        
+
         $errors = $this->event->validate();
         $this->assertNotEmpty($errors);
         $this->assertStringContainsString('Cannot schedule event in the past', $errors[0]);
@@ -281,7 +281,7 @@ class HeatingEventTest extends TestCase
         $this->event->setScheduledFor($futureTime);
         $this->event->setEventType(HeatingEvent::EVENT_TYPE_MONITOR);
         $this->event->setTargetTemp(104.0);
-        
+
         $errors = $this->event->validate();
         $this->assertNotEmpty($errors);
         $this->assertStringContainsString('Monitor events must have a cycle ID', $errors[0]);
@@ -290,10 +290,10 @@ class HeatingEventTest extends TestCase
     public function testJsonSerialization(): void
     {
         $this->event->setTargetTemp(105.0);
-        
+
         $json = json_encode($this->event);
         $this->assertIsString($json);
-        
+
         $decoded = json_decode($json, true);
         $this->assertIsArray($decoded);
         $this->assertEquals('test-event-123', $decoded['id']);
