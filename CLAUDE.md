@@ -185,7 +185,7 @@ Key Components:
 ## Project Status
 
 ### ✅ **Phase 1 Complete: Core Heating Control System**
-The complete heating control system is fully implemented and tested with 486 passing tests:
+The complete heating control system is fully implemented and tested with comprehensive test coverage:
 
 - **Cron Management System**: CronManager, CronSecurityManager, and CronJobBuilder with secure API key authentication
 - **Core Heating APIs**: StartHeatingAction, MonitorTempAction, StopHeatingAction fully implemented and tested
@@ -272,9 +272,16 @@ chmod 600 .env
 # Edit .env with actual WIRELESSTAG_OAUTH_TOKEN and IFTTT_WEBHOOK_KEY
 ```
 
+### Documentation Guidelines
+- **DO NOT include specific test counts** in documentation (e.g., "486 tests passing")
+- Use phrases like "comprehensive test suite", "extensive test coverage", or "all tests passing"
+- Avoid numbers that require constant updates when tests are added or modified
+- Focus on test quality and coverage rather than quantity
+
 ### Development Anti-Patterns (NEVER DO THESE)
 - Creating public endpoints for system data "for testing"
 - Bypassing authentication with hardcoded tokens
 - Using inline authentication instead of base classes
 - Returning verbose error messages that expose system internals
 - Storing secrets in code or committing them to git
+- **Including specific test counts in documentation** (creates maintenance burden)

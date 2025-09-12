@@ -58,7 +58,7 @@ src/
 ### ✅ Safety & Testing Infrastructure
 - **Environment Detection**: Automatic test mode when API keys are missing/invalid
 - **Dual Environment Strategy**: Separate `.env` and `.env.testing` configurations
-- **Comprehensive Test Suite**: 486 unit and integration tests (all passing)
+- **Comprehensive Test Suite**: Extensive unit and integration tests (all passing)
 - **Test Mode Support**: Both WirelessTag and IFTTT clients support deterministic testing
 - **VCR Temperature Simulation**: Realistic heating cycle testing without live APIs
 - **Audit Logging**: Complete operation tracking for safety and debugging
@@ -151,7 +151,7 @@ This prevents any accidental hardware triggers during testing.
 make test
 
 # Specific test suites  
-make test-unit         # Unit tests only (140+ tests)
+make test-unit         # Unit tests only
 make test-integration  # Integration tests only
 
 # Manual PHPUnit commands
@@ -320,7 +320,7 @@ EXPOSE 80
 
 ## 🔮 What's Next
 
-**Phase 1 Complete!** 🎉 The entire heating control system is now fully implemented and tested with 486+ passing tests.
+**Phase 1 Complete!** 🎉 The entire heating control system is now fully implemented and tested with comprehensive test coverage.
 
 ### **🎯 CURRENT STATUS: Ready for Phase 2** 
 With Phase 1 complete, the project now has:

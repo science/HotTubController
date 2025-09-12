@@ -9,7 +9,7 @@ This project provides a complete solution for automated hot tub heating with tem
 ## System Architecture
 
 ### Backend Foundation
-- **PHP API Backend**: Complete REST API with authentication, CORS proxy, and comprehensive testing (486+ tests)
+- **PHP API Backend**: Complete REST API with authentication, CORS proxy, and comprehensive testing
 - **Model-Persistence Layer**: Custom JSON-based storage with file rotation and advanced querying
 - **External API Integration**: WirelessTag temperature monitoring and IFTTT equipment control
 - **Safety-First Design**: Multiple protection layers against accidental hardware activation
