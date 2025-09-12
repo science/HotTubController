@@ -17,6 +17,10 @@
   - `POST /api/cancel-scheduled-heating` - Cancel scheduled heating events
   - `GET /api/list-heating-events` - Paginated event listing with filtering
   - `GET /api/heating-status` - Real-time system status and temperature
+- **Configurable Heating Rate System**: User-configurable heating velocity with admin control
+  - `GET /api/v1/admin/config/heating` - Get current heating configuration
+  - `PUT /api/v1/admin/config/heating` - Update heating rate (0.1-2.0°F/min) with validation
+  - HeatingConfig class with environment defaults and user override persistence
 - **Enhanced Authentication System**: Token-based API access with admin/user roles
 - **Admin Management APIs**: Bootstrap system and complete user/token management
   - `POST /api/admin/bootstrap` - Initial admin token creation
@@ -24,7 +28,7 @@
   - `GET /api/admin/users` - List all users (admin only)
 - **Authentication Architecture**: Proper security base classes enforcing strict authentication
 - **Integration Complete**: WirelessTag and IFTTT clients fully integrated with heating control logic
-- **Comprehensive Testing**: 486+ tests passing with complete coverage for all operations
+- **Comprehensive Testing**: 646+ tests passing with complete coverage for all operations
 - **Safety Features**: Emergency stop, equipment safety sequences, orphaned cron cleanup
 - **Bug Fixes**: Resolved all test failures and repository pattern issues
 
@@ -121,6 +125,10 @@ storage/bin/cron-wrapper.sh              # Cron execution wrapper ✅
 - Ready for frontend development with stable, secure API foundation
 
 **Recent Achievements (Latest Commits):**
+- ✅ **Implemented configurable heating rate system (GitHub issue #9)**
+- ✅ **Added HeatingConfig class with admin API endpoints for heating velocity control**
+- ✅ **Enhanced CronJobBuilder to use configurable heating rates instead of hardcoded values**
+- ✅ **Comprehensive testing coverage for heating configuration system**
 - ✅ **Implemented comprehensive token-based authentication system**
 - ✅ **Added admin management APIs with proper role-based access control**
 - ✅ **Created authentication base class hierarchy for security enforcement**
@@ -129,7 +137,7 @@ storage/bin/cron-wrapper.sh              # Cron execution wrapper ✅
 - ✅ Resolved repository pattern save() method issues across all actions
 - ✅ Implemented complete management API suite with authentication
 - ✅ Added intelligent overlap prevention for heating schedules
-- ✅ Enhanced test coverage to 486+ passing tests
+- ✅ Enhanced test coverage to 646+ passing tests
 
 
 

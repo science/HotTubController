@@ -172,7 +172,7 @@ src/
 
 #### VCR Temperature Simulation System
 A comprehensive testing framework for hot tub heating cycles:
-- **Realistic Physics**: Simulates 0.5°F/minute heating rate (1°F every 2 minutes)
+- **Realistic Physics**: Simulates configurable heating rate (default: 0.5°F/minute, 1°F every 2 minutes)
 - **Dynamic Sequences**: Temperature progressions from initial to target temps (e.g., 88°F → 102°F over 28 minutes)
 - **Precision Monitoring**: 15-second intervals when within 1°F of target temperature
 - **Sensor Variations**: Battery degradation, signal strength changes, timestamp progression
@@ -186,9 +186,49 @@ Key Components:
 - `HeatingTestHelpers`: High-level utilities for heating cycle validation
 
 ### Configuration
-- **Environment**: `.env` file with secure permissions (600) for API tokens
+
+#### Environment Configuration
+- **Environment**: `.env` file with secure permissions (600) for API tokens and settings
 - **Application Config**: `config.json` for application settings and feature flags
 - **Storage**: File-based persistence in `storage/` directory for tokens and state
+
+#### Heating System Configuration
+The heating system uses configurable parameters for accurate time estimation and control:
+
+**Environment Variables:**
+```bash
+# Heating rate in degrees Fahrenheit per minute (default: 0.5)
+HOT_TUB_HEATING_RATE=0.5
+```
+
+**HeatingConfig Class:**
+- Manages heating rate with validation (0.1-2.0°F/minute)
+- Supports unit validation ("fahrenheit_per_minute")
+- Persists user modifications to `storage/heating-config.json`
+- Used by `CronJobBuilder` for time estimation and `HeatingStatusAction` for progress calculation
+
+**Admin API Endpoints:**
+- `GET /api/v1/admin/config/heating` - Get current heating configuration
+- `PUT /api/v1/admin/config/heating` - Update heating configuration (requires admin token)
+
+**Example API Usage:**
+```bash
+# Get current config
+curl -H "Authorization: Bearer <admin-token>" \
+     https://api.example.com/api/v1/admin/config/heating
+
+# Update heating rate
+curl -X PUT \
+     -H "Authorization: Bearer <admin-token>" \
+     -H "Content-Type: application/json" \
+     -d '{"heating_rate": 0.6, "unit": "fahrenheit_per_minute"}' \
+     https://api.example.com/api/v1/admin/config/heating
+```
+
+**Configuration Persistence:**
+- Environment default can be overridden by persisted user settings
+- Falls back to safe defaults (0.5°F/minute) if configuration is invalid
+- Thread-safe file operations with atomic writes
 
 ### Planned Features
 The architecture is designed to support intelligent hot tub heating control with:

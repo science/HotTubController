@@ -26,7 +26,7 @@ class CronJobBuilderTest extends TestCase
         $this->testProjectRoot = sys_get_temp_dir() . '/cron-job-builder-test-' . uniqid();
         mkdir($this->testProjectRoot, 0755, true);
 
-        $this->cronJobBuilder = new CronJobBuilder($this->testProjectRoot, 'https://test.example.com');
+        $this->cronJobBuilder = new CronJobBuilder(null, $this->testProjectRoot, 'https://test.example.com');
     }
 
     protected function tearDown(): void

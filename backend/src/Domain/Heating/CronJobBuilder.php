@@ -7,6 +7,7 @@ namespace HotTubController\Domain\Heating;
 use DateTime;
 use InvalidArgumentException;
 use RuntimeException;
+use HotTubController\Config\HeatingConfig;
 
 /**
  * CronJobBuilder - Constructs secure cron jobs with curl config files
@@ -25,9 +26,14 @@ class CronJobBuilder
     private string $baseUrl;
     private string $apiKeyFile;
     private string $configDir;
+    private HeatingConfig $heatingConfig;
 
-    public function __construct(?string $projectRoot = null, ?string $baseUrl = null)
-    {
+    public function __construct(
+        ?HeatingConfig $heatingConfig = null,
+        ?string $projectRoot = null,
+        ?string $baseUrl = null
+    ) {
+        $this->heatingConfig = $heatingConfig ?? new HeatingConfig();
         $this->projectRoot = $projectRoot ?? dirname(__DIR__, 3);
         $this->baseUrl = $baseUrl ?? $this->detectBaseUrl();
         $this->apiKeyFile = $this->projectRoot . '/' . self::API_KEY_FILE;
@@ -149,19 +155,18 @@ class CronJobBuilder
      *
      * @param float $currentTemp Current water temperature
      * @param float $targetTemp Target temperature
-     * @param float $heatingRate Heating rate in degrees per minute (default 0.5°F/min)
      * @return int Estimated minutes to reach target
      */
     public function calculateHeatingTime(
         float $currentTemp,
-        float $targetTemp,
-        float $heatingRate = 0.5
+        float $targetTemp
     ): int {
         if ($targetTemp <= $currentTemp) {
             return 0;
         }
 
         $tempDifference = $targetTemp - $currentTemp;
+        $heatingRate = $this->heatingConfig->getHeatingRate();
         $estimatedMinutes = (int) ceil($tempDifference / $heatingRate);
 
         // Add safety buffer (10% or minimum 5 minutes)

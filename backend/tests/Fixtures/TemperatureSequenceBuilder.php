@@ -5,22 +5,29 @@ declare(strict_types=1);
 namespace Tests\Fixtures;
 
 use InvalidArgumentException;
+use HotTubController\Config\HeatingConfig;
 
 /**
  * Temperature Sequence Builder
  *
  * Builds realistic temperature sequences for hot tub heating cycle simulation.
- * Implements accurate heating physics: 0.5°F per minute (1°F every 2 minutes).
+ * Implements accurate heating physics with configurable heating rate.
  */
 class TemperatureSequenceBuilder
 {
-    private const HEATING_RATE_F_PER_MINUTE = 0.5;
+    private float $heatingRate;
     private const PRECISION_THRESHOLD_F = 1.0; // Within 1°F triggers precision monitoring
 
     // Base values for sensor readings
     private const BASE_BATTERY_VOLTAGE = 3.65;
     private const BASE_SIGNAL_STRENGTH = -85;
     private const AMBIENT_TEMP_OFFSET_F = 25.0; // Ambient is typically ~25°F cooler than water
+
+    public function __construct(?HeatingConfig $heatingConfig = null)
+    {
+        $heatingConfig = $heatingConfig ?? new HeatingConfig();
+        $this->heatingRate = $heatingConfig->getHeatingRate();
+    }
 
     /**
      * Build heating sequence from start to target temperature
@@ -48,7 +55,7 @@ class TemperatureSequenceBuilder
         $currentTime = time();
 
         $temperatureRise = $targetTempF - $startTempF;
-        $totalMinutes = ceil($temperatureRise / self::HEATING_RATE_F_PER_MINUTE);
+        $totalMinutes = ceil($temperatureRise / $this->heatingRate);
 
         // Generate regular interval readings until within precision threshold
         $minutesElapsed = 0;
@@ -65,7 +72,7 @@ class TemperatureSequenceBuilder
             $minutesElapsed += $intervalMinutes;
             $currentTime += ($intervalMinutes * 60);
             $currentTempF = min(
-                $startTempF + ($minutesElapsed * self::HEATING_RATE_F_PER_MINUTE),
+                $startTempF + ($minutesElapsed * $this->heatingRate),
                 $targetTempF
             );
         }
@@ -109,7 +116,7 @@ class TemperatureSequenceBuilder
         }
 
         // Calculate how many readings needed to reach target
-        $heatingRatePerSecond = self::HEATING_RATE_F_PER_MINUTE / 60;
+        $heatingRatePerSecond = $this->heatingRate / 60;
         $secondsToTarget = $tempDiff / $heatingRatePerSecond;
         $readingsNeeded = ceil($secondsToTarget / $intervalSeconds);
 
@@ -170,7 +177,7 @@ class TemperatureSequenceBuilder
             // Advance
             $minutesElapsed += 5;
             $currentTime += 300; // 5 minutes
-            $currentTempF += (5 * self::HEATING_RATE_F_PER_MINUTE);
+            $currentTempF += (5 * $this->heatingRate);
         }
 
         // Add failure reading
@@ -297,7 +304,7 @@ class TemperatureSequenceBuilder
      */
     public function getHeatingRate(): float
     {
-        return self::HEATING_RATE_F_PER_MINUTE;
+        return $this->heatingRate;
     }
 
     /**
@@ -314,6 +321,6 @@ class TemperatureSequenceBuilder
     public function calculateHeatingDuration(float $startTempF, float $targetTempF): int
     {
         $tempRise = $targetTempF - $startTempF;
-        return (int) ceil($tempRise / self::HEATING_RATE_F_PER_MINUTE);
+        return (int) ceil($tempRise / $this->heatingRate);
     }
 }

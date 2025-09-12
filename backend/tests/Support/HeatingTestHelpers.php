@@ -7,6 +7,7 @@ namespace Tests\Support;
 use Tests\Fixtures\TemperatureSequenceBuilder;
 use HotTubController\Services\WirelessTagClient;
 use PHPUnit\Framework\Assert;
+use HotTubController\Config\HeatingConfig;
 
 /**
  * Heating Test Helpers
@@ -188,14 +189,17 @@ class HeatingTestHelpers
      * Assert heating behavior is correct
      *
      * @param array $temperatureReadings Array of temperature readings
-     * @param float $expectedHeatingRate Expected heating rate in °F/min
+     * @param HeatingConfig|null $heatingConfig Heating configuration (or null for default)
      * @param float $tolerance Tolerance for heating rate validation
      */
     public function assertHeatingBehavior(
         array $temperatureReadings,
-        float $expectedHeatingRate = 0.5,
+        ?HeatingConfig $heatingConfig = null,
         float $tolerance = 0.1
     ): void {
+        $heatingConfig = $heatingConfig ?? new HeatingConfig();
+        $expectedHeatingRate = $heatingConfig->getHeatingRate();
+
         Assert::assertGreaterThan(1, count($temperatureReadings), "Need at least 2 readings");
 
         // Verify temperatures are generally increasing

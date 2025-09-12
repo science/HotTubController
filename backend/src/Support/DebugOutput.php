@@ -6,14 +6,14 @@ namespace HotTubController\Support;
 
 /**
  * Centralized Debug Output Utility
- * 
+ *
  * Provides level-based console output control for the hot tub controller.
  * Production code specifies the debug level of messages, and this utility
  * checks if that level should be output based on current DEBUG_LEVEL setting.
- * 
+ *
  * Debug Levels:
  * - 0: ERRORS only (test default)
- * - 1: ERRORS + WARNINGS (production default) 
+ * - 1: ERRORS + WARNINGS (production default)
  * - 2: ERRORS + WARNINGS + INFO (development default)
  * - 3: ERRORS + WARNINGS + INFO + DEBUG (full verbosity)
  */
@@ -26,14 +26,14 @@ class DebugOutput
 
     /**
      * Output a message at the specified debug level
-     * 
+     *
      * @param string $message The message to output
      * @param int $level The debug level of this message
      */
     public static function output(string $message, int $level = self::LEVEL_INFO): void
     {
         $currentLevel = self::getCurrentDebugLevel();
-        
+
         if ($level <= $currentLevel) {
             error_log($message);
         }
@@ -77,11 +77,11 @@ class DebugOutput
     private static function getCurrentDebugLevel(): int
     {
         $level = $_ENV['DEBUG_LEVEL'] ?? null;
-        
+
         if ($level === null) {
             // Default based on environment
             $appEnv = $_ENV['APP_ENV'] ?? 'production';
-            
+
             return match ($appEnv) {
                 'testing', 'test' => self::LEVEL_ERROR,    // Silent tests
                 'production' => self::LEVEL_WARN,          // Errors + warnings
@@ -89,7 +89,7 @@ class DebugOutput
                 default => self::LEVEL_WARN
             };
         }
-        
+
         return max(0, min(3, (int) $level));
     }
 

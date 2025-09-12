@@ -17,6 +17,7 @@ This project provides a complete solution for automated hot tub heating with tem
 
 ### Key Features
 - **Intelligent Heating Control**: Automated heating cycles with temperature-based monitoring intervals
+- **Configurable Heating Rate**: User-configurable heating velocity (0.1-2.0°F/min) with admin API control
 - **Equipment Safety**: Emergency stop capabilities with proper equipment shutdown sequences
 - **Temperature Monitoring**: Real-time water and ambient temperature tracking
 - **Scheduling System**: Cron-based heating automation with overlap prevention
@@ -27,6 +28,7 @@ This project provides a complete solution for automated hot tub heating with tem
 
 ### ✅ **Phase 1: Core Heating Control - COMPLETE**
 - Complete heating control API suite with management endpoints
+- **Configurable Heating Rate System**: Admin APIs for user-configurable heating velocity (0.1-2.0°F/min)
 - Cron-based scheduling system with secure API key authentication  
 - WirelessTag sensor integration for temperature monitoring
 - IFTTT webhook integration for equipment control (pump, heater, ionizer)

@@ -177,7 +177,7 @@ class HeatingCycleSimulationTest extends TestCase
             );
 
             // Validate heating rate consistency
-            $this->heatingHelpers->assertHeatingBehavior($progression, 0.5, 0.1);
+            $this->heatingHelpers->assertHeatingBehavior($progression, null, 0.1);
 
             // Validate expected duration
             $expectedDuration = $this->heatingHelpers->getExpectedHeatingDuration($startTempF, $targetTempF);

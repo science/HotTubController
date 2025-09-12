@@ -11,6 +11,7 @@ use HotTubController\Domain\Heating\Repositories\HeatingEventRepository;
 use HotTubController\Domain\Heating\Repositories\HeatingCycleRepository;
 use HotTubController\Domain\Token\TokenService;
 use HotTubController\Services\WirelessTagClient;
+use HotTubController\Config\HeatingConfig;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
@@ -22,18 +23,21 @@ class HeatingStatusAction extends AuthenticatedAction
     private WirelessTagClient $wirelessTagClient;
     private HeatingEventRepository $eventRepository;
     private HeatingCycleRepository $cycleRepository;
+    private HeatingConfig $heatingConfig;
 
     public function __construct(
         LoggerInterface $logger,
         TokenService $tokenService,
         WirelessTagClient $wirelessTagClient,
         HeatingEventRepository $eventRepository,
-        HeatingCycleRepository $cycleRepository
+        HeatingCycleRepository $cycleRepository,
+        ?HeatingConfig $heatingConfig = null
     ) {
         parent::__construct($logger, $tokenService);
         $this->wirelessTagClient = $wirelessTagClient;
         $this->eventRepository = $eventRepository;
         $this->cycleRepository = $cycleRepository;
+        $this->heatingConfig = $heatingConfig ?? new HeatingConfig();
     }
 
     protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
@@ -261,7 +265,7 @@ class HeatingStatusAction extends AuthenticatedAction
         // Estimate initial temperature difference
         // This is approximate since we don't store the initial temp differential
         $elapsedMinutes = $cycle->getElapsedTime() / 60;
-        $heatingRate = 0.5; // degrees per minute (approximate)
+        $heatingRate = $this->heatingConfig->getHeatingRate();
         $estimatedInitialDiff = $tempDiff + ($elapsedMinutes * $heatingRate);
 
         if ($estimatedInitialDiff <= 0) {

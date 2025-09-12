@@ -18,7 +18,7 @@ try {
     echo "Initializing cron management services...\n";
     $securityManager = new CronSecurityManager();
     $cronManager = new CronManager();
-    $cronJobBuilder = new CronJobBuilder(null, 'https://your-domain.com');
+    $cronJobBuilder = new CronJobBuilder(null, null, 'https://your-domain.com');
     
     // Check API key status
     echo "\n📋 API Key Status:\n";

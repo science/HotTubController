@@ -5,6 +5,8 @@ declare(strict_types=1);
 use HotTubController\Application\Actions\Admin\BootstrapAction;
 use HotTubController\Application\Actions\Admin\CreateUserAction;
 use HotTubController\Application\Actions\Admin\ListUsersAction;
+use HotTubController\Application\Actions\Admin\GetHeatingConfigAction;
+use HotTubController\Application\Actions\Admin\UpdateHeatingConfigAction;
 use HotTubController\Application\Actions\Auth\AuthenticateAction;
 use HotTubController\Application\Actions\Heating\MonitorTempAction;
 use HotTubController\Application\Actions\Heating\StartHeatingAction;
@@ -38,6 +40,10 @@ return function (App $app) {
         // Admin endpoints (token-authenticated with admin role required)
         $group->post('/admin/user', CreateUserAction::class);
         $group->get('/admin/users', ListUsersAction::class);
+        
+        // Heating configuration management (admin only)
+        $group->get('/admin/config/heating', GetHeatingConfigAction::class);
+        $group->put('/admin/config/heating', UpdateHeatingConfigAction::class);
         
     });
     

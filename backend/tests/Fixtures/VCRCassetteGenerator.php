@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Fixtures;
 
 use InvalidArgumentException;
+use HotTubController\Config\HeatingConfig;
 use RuntimeException;
 
 /**
@@ -15,19 +16,19 @@ use RuntimeException;
  */
 class VCRCassetteGenerator
 {
-    private const HEATING_RATE_F_PER_MINUTE = 0.5; // 1°F every 2 minutes
-
     private TemperatureSequenceBuilder $sequenceBuilder;
     private string $templatesPath;
     private string $generatedPath;
+    private HeatingConfig $heatingConfig;
 
-    public function __construct(?string $cassettesBasePath = null)
+    public function __construct(?string $cassettesBasePath = null, ?HeatingConfig $heatingConfig = null)
     {
         $basePath = $cassettesBasePath ?: __DIR__ . '/../cassettes';
         $this->templatesPath = $basePath . '/templates';
         $this->generatedPath = $basePath . '/generated';
 
-        $this->sequenceBuilder = new TemperatureSequenceBuilder();
+        $this->heatingConfig = $heatingConfig ?? new HeatingConfig();
+        $this->sequenceBuilder = new TemperatureSequenceBuilder($this->heatingConfig);
 
         // Ensure directories exist
         if (!is_dir($this->templatesPath)) {
@@ -346,7 +347,7 @@ class VCRCassetteGenerator
     public function calculateHeatingDuration(float $startTempF, float $targetTempF): int
     {
         $tempRise = $targetTempF - $startTempF;
-        return (int) ceil($tempRise / self::HEATING_RATE_F_PER_MINUTE);
+        return (int) ceil($tempRise / $this->heatingConfig->getHeatingRate());
     }
 
     /**
@@ -354,6 +355,6 @@ class VCRCassetteGenerator
      */
     public function getHeatingRate(): float
     {
-        return self::HEATING_RATE_F_PER_MINUTE;
+        return $this->heatingConfig->getHeatingRate();
     }
 }
