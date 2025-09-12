@@ -4,12 +4,21 @@ declare(strict_types=1);
 
 namespace HotTubController\Application\Actions;
 
+use HotTubController\Domain\Token\TokenService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Log\LoggerInterface;
 
-class StatusAction extends Action
+class StatusAction extends AuthenticatedAction
 {
     private static ?float $processStartTime = null;
+
+    public function __construct(
+        LoggerInterface $logger,
+        TokenService $tokenService
+    ) {
+        parent::__construct($logger, $tokenService);
+    }
 
     protected function action(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {

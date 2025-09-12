@@ -20,6 +20,7 @@ This project provides a complete solution for automated hot tub heating with tem
 - **Equipment Safety**: Emergency stop capabilities with proper equipment shutdown sequences
 - **Temperature Monitoring**: Real-time water and ambient temperature tracking
 - **Scheduling System**: Cron-based heating automation with overlap prevention
+- **Secure API Access**: All system endpoints require authentication - no public data exposure
 - **Comprehensive Logging**: Full audit trail for all operations and equipment interactions
 
 ## Development Status
@@ -31,6 +32,7 @@ This project provides a complete solution for automated hot tub heating with tem
 - IFTTT webhook integration for equipment control (pump, heater, ionizer)
 - **Enhanced Authentication System**: Token-based API access with admin/user roles
 - **Bootstrap & Admin Management**: Complete admin user management system
+- **Security Hardening**: All endpoints require authentication - no public system data exposure
 - Comprehensive test coverage with safety features and error handling
 
 ### 🎯 **Phase 2: Web Interface Foundation - READY TO START**

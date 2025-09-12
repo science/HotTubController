@@ -5,9 +5,15 @@ declare(strict_types=1);
 namespace HotTubController\Tests\Integration\Actions;
 
 use HotTubController\Tests\TestCase\ApiTestCase;
+use HotTubController\Tests\TestCase\AuthenticatedTestTrait;
 
 class StatusActionTest extends ApiTestCase
 {
+    use AuthenticatedTestTrait;
+
+    private string $userToken = '';
+    private string $adminToken = '';
+
     protected function configureApp(): void
     {
         // Configure routes
@@ -19,9 +25,49 @@ class StatusActionTest extends ApiTestCase
         $middleware($this->app);
     }
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Create test tokens for authentication
+        $this->createTestTokens();
+    }
+
+    private function createTestTokens(): void
+    {
+        // Create admin token via bootstrap
+        $bootstrapResponse = $this->request('POST', '/api/v1/admin/bootstrap', [
+            'master_password' => $_ENV['MASTER_PASSWORD'] ?? 'test-master-password',
+            'name' => 'Test Admin'
+        ]);
+
+        if ($bootstrapResponse->getStatusCode() === 200) {
+            $bootstrapData = $this->getResponseData($bootstrapResponse);
+            $this->adminToken = $bootstrapData['token'];
+
+            // Create a regular user token
+            $userResponse = $this->requestWithToken('POST', '/api/v1/admin/user', $this->adminToken, [
+                'name' => 'Test User'
+            ]);
+
+            if ($userResponse->getStatusCode() === 200) {
+                $userData = $this->getResponseData($userResponse);
+                $this->userToken = $userData['token'];
+            }
+        }
+    }
+
+    public function testStatusEndpointRequiresAuthentication(): void
+    {
+        // Test that unauthenticated requests are rejected
+        $this->assertEndpointRequiresAuth('GET', '/');
+        $this->assertEndpointRequiresAuth('GET', '/index.php');
+        $this->assertEndpointRequiresAuth('GET', '/api/v1/status');
+    }
+
     public function testStatusEndpointReturnsCorrectStructure(): void
     {
-        $response = $this->request('GET', '/');
+        $response = $this->requestWithToken('GET', '/', $this->userToken);
 
         $this->assertSame(200, $response->getStatusCode());
 
@@ -45,7 +91,7 @@ class StatusActionTest extends ApiTestCase
 
     public function testStatusEndpointAlsoWorksOnIndexPhp(): void
     {
-        $response = $this->request('GET', '/index.php');
+        $response = $this->requestWithToken('GET', '/index.php', $this->userToken);
 
         $this->assertSame(200, $response->getStatusCode());
 
@@ -66,7 +112,7 @@ class StatusActionTest extends ApiTestCase
     public function testEnhancedStatusEndpoint(): void
     {
         // Test new /api/v1/status endpoint
-        $response = $this->request('GET', '/api/v1/status');
+        $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
 
         $this->assertEquals(200, $response->getStatusCode());
         $data = $this->getResponseData($response);
@@ -110,7 +156,7 @@ class StatusActionTest extends ApiTestCase
     public function testResponseTimeHeader(): void
     {
         // Test that ResponseTimeMiddleware adds the header
-        $response = $this->request('GET', '/api/v1/status');
+        $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
 
         $this->assertTrue($response->hasHeader('X-Response-Time'));
 
@@ -126,7 +172,7 @@ class StatusActionTest extends ApiTestCase
     public function testResponseTimeHeaderOnRootEndpoint(): void
     {
         // Test that ResponseTimeMiddleware works on root endpoint too
-        $response = $this->request('GET', '/');
+        $response = $this->requestWithToken('GET', '/', $this->userToken);
 
         $this->assertTrue($response->hasHeader('X-Response-Time'));
 
@@ -136,7 +182,7 @@ class StatusActionTest extends ApiTestCase
 
     public function testMemoryInformationIsRealistic(): void
     {
-        $response = $this->request('GET', '/api/v1/status');
+        $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
         $data = $this->getResponseData($response);
 
         $memory = $data['memory'];
@@ -175,7 +221,7 @@ class StatusActionTest extends ApiTestCase
 
     public function testStatusDeterminationBasedOnMemory(): void
     {
-        $response = $this->request('GET', '/api/v1/status');
+        $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
         $data = $this->getResponseData($response);
 
         $status = $data['status'];
@@ -194,7 +240,7 @@ class StatusActionTest extends ApiTestCase
     public function testTimestampIsValid(): void
     {
         $beforeRequest = time();
-        $response = $this->request('GET', '/api/v1/status');
+        $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
         $afterRequest = time();
 
         $data = $this->getResponseData($response);

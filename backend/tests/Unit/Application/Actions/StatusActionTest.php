@@ -6,6 +6,9 @@ namespace HotTubController\Tests\Unit\Application\Actions;
 
 use PHPUnit\Framework\TestCase;
 use HotTubController\Application\Actions\StatusAction;
+use HotTubController\Domain\Token\TokenService;
+use HotTubController\Domain\Token\Token;
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 use Slim\Psr7\Factory\ResponseFactory;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -14,6 +17,8 @@ class StatusActionTest extends TestCase
 {
     private StatusAction $action;
     private LoggerInterface $logger;
+    private TokenService $tokenService;
+    private Token $mockToken;
 
     protected function setUp(): void
     {
@@ -22,14 +27,33 @@ class StatusActionTest extends TestCase
         // Mock the logger dependency
         $this->logger = $this->createMock(LoggerInterface::class);
 
-        // Create the action with mocked dependency
-        $this->action = new StatusAction($this->logger);
+        // Mock the token service dependency
+        $this->tokenService = $this->createMock(TokenService::class);
+
+        // Mock a valid token
+        $this->mockToken = $this->createMock(Token::class);
+        $this->mockToken->method('getTokenPreview')->willReturn('abc***xyz');
+        $this->mockToken->method('getName')->willReturn('test-token');
+
+        // Configure token service to validate successfully
+        $this->tokenService->method('validateToken')->willReturn(true);
+        $this->tokenService->method('getTokenByValue')->willReturn($this->mockToken);
+        $this->tokenService->expects($this->any())->method('updateTokenLastUsed');
+
+        // Create the action with mocked dependencies
+        $this->action = new StatusAction($this->logger, $this->tokenService);
+    }
+
+    private function createAuthenticatedRequest(string $method = 'GET', string $uri = '/'): ServerRequestInterface
+    {
+        return (new ServerRequestFactory())->createServerRequest($method, $uri)
+            ->withHeader('Authorization', 'Bearer valid-test-token');
     }
 
     public function testStatusReturnsExpectedStructure(): void
     {
-        // Create mock request and response objects
-        $request = (new ServerRequestFactory())->createServerRequest('GET', '/');
+        // Create mock request and response objects with valid auth header
+        $request = $this->createAuthenticatedRequest();
         $response = (new ResponseFactory())->createResponse();
 
         // Call the action directly (not through HTTP)
@@ -61,7 +85,7 @@ class StatusActionTest extends TestCase
 
     public function testMemoryMetricsStructure(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('GET', '/');
+        $request = $this->createAuthenticatedRequest();
         $response = (new ResponseFactory())->createResponse();
 
         $result = $this->action->__invoke($request, $response, []);
@@ -96,7 +120,7 @@ class StatusActionTest extends TestCase
 
     public function testSystemMetricsStructure(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('GET', '/');
+        $request = $this->createAuthenticatedRequest();
         $response = (new ResponseFactory())->createResponse();
 
         $result = $this->action->__invoke($request, $response, []);
@@ -124,7 +148,7 @@ class StatusActionTest extends TestCase
 
     public function testResponseTimeIsTracked(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('GET', '/');
+        $request = $this->createAuthenticatedRequest();
         $response = (new ResponseFactory())->createResponse();
 
         $result = $this->action->__invoke($request, $response, []);
@@ -139,7 +163,7 @@ class StatusActionTest extends TestCase
 
     public function testUptimeTracking(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('GET', '/');
+        $request = $this->createAuthenticatedRequest();
         $response = (new ResponseFactory())->createResponse();
 
         $result1 = $this->action->__invoke($request, $response, []);
@@ -163,7 +187,7 @@ class StatusActionTest extends TestCase
 
     public function testStatusDeterminationLogic(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('GET', '/');
+        $request = $this->createAuthenticatedRequest();
         $response = (new ResponseFactory())->createResponse();
 
         $result = $this->action->__invoke($request, $response, []);
@@ -184,7 +208,7 @@ class StatusActionTest extends TestCase
 
     public function testTimestampFormat(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('GET', '/');
+        $request = $this->createAuthenticatedRequest();
         $response = (new ResponseFactory())->createResponse();
 
         $result = $this->action->__invoke($request, $response, []);
@@ -203,7 +227,7 @@ class StatusActionTest extends TestCase
 
     public function testConsistentResponseStructure(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('GET', '/');
+        $request = $this->createAuthenticatedRequest();
         $response = (new ResponseFactory())->createResponse();
 
         // Call multiple times to ensure consistent structure
@@ -220,5 +244,42 @@ class StatusActionTest extends TestCase
             $this->assertEquals('Hot Tub Controller', $body['service']);
             $this->assertContains($body['status'], ['ready', 'warning', 'critical']);
         }
+    }
+
+    public function testStatusRequiresAuthentication(): void
+    {
+        // Create request without Authorization header
+        $request = (new ServerRequestFactory())->createServerRequest('GET', '/');
+        $response = (new ResponseFactory())->createResponse();
+
+        $result = $this->action->__invoke($request, $response, []);
+
+        // Should return 401 Unauthorized
+        $this->assertEquals(401, $result->getStatusCode());
+
+        $body = json_decode((string) $result->getBody(), true);
+        $this->assertArrayHasKey('error', $body);
+        $this->assertEquals('authentication_required', $body['error']['type']);
+    }
+
+    public function testStatusRejectsInvalidToken(): void
+    {
+        // Configure token service to reject token
+        $tokenService = $this->createMock(TokenService::class);
+        $tokenService->method('validateToken')->willReturn(false);
+
+        $action = new StatusAction($this->logger, $tokenService);
+
+        $request = $this->createAuthenticatedRequest();
+        $response = (new ResponseFactory())->createResponse();
+
+        $result = $action->__invoke($request, $response, []);
+
+        // Should return 401 Unauthorized
+        $this->assertEquals(401, $result->getStatusCode());
+
+        $body = json_decode((string) $result->getBody(), true);
+        $this->assertArrayHasKey('error', $body);
+        $this->assertEquals('authentication_required', $body['error']['type']);
     }
 }

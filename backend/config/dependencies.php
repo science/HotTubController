@@ -103,7 +103,10 @@ return function (ContainerBuilder $containerBuilder) {
 
         // Actions
         StatusAction::class => function (ContainerInterface $c): StatusAction {
-            return new StatusAction($c->get(LoggerInterface::class));
+            return new StatusAction(
+                $c->get(LoggerInterface::class),
+                $c->get(TokenService::class)
+            );
         },
 
         // Token Service

@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace HotTubController\Tests\Integration;
 
 use HotTubController\Tests\TestCase\ApiTestCase;
+use HotTubController\Tests\TestCase\AuthenticatedTestTrait;
 
 class WarmingWorkflowTest extends ApiTestCase
 {
+    use AuthenticatedTestTrait;
+
+    private string $userToken = '';
     protected function configureApp(): void
     {
         // Load actual routes and middleware for full integration testing
@@ -18,10 +22,42 @@ class WarmingWorkflowTest extends ApiTestCase
         $middleware($this->app);
     }
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Create test token for authentication
+        $this->createAuthToken();
+    }
+
+    private function createAuthToken(): void
+    {
+        // Create admin token via bootstrap
+        $bootstrapResponse = $this->request('POST', '/api/v1/admin/bootstrap', [
+            'master_password' => $_ENV['MASTER_PASSWORD'] ?? 'test-master-password',
+            'name' => 'Warming Test Admin'
+        ]);
+
+        if ($bootstrapResponse->getStatusCode() === 200) {
+            $bootstrapData = $this->getResponseData($bootstrapResponse);
+            $adminToken = $bootstrapData['token'];
+
+            // Create a regular user token for warming requests
+            $userResponse = $this->requestWithToken('POST', '/api/v1/admin/user', $adminToken, [
+                'name' => 'Warming Test User'
+            ]);
+
+            if ($userResponse->getStatusCode() === 200) {
+                $userData = $this->getResponseData($userResponse);
+                $this->userToken = $userData['token'];
+            }
+        }
+    }
+
     public function testStatusEndpointForWarming(): void
     {
         // Test the new dedicated warming endpoint
-        $response = $this->request('GET', '/api/v1/status');
+        $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
 
         $this->assertEquals(200, $response->getStatusCode());
         $this->assertTrue($response->hasHeader('X-Response-Time'));
@@ -50,7 +86,7 @@ class WarmingWorkflowTest extends ApiTestCase
     public function testRootStatusEndpointStillWorks(): void
     {
         // Ensure existing root endpoint continues to work
-        $response = $this->request('GET', '/');
+        $response = $this->requestWithToken('GET', '/', $this->userToken);
 
         $this->assertEquals(200, $response->getStatusCode());
         $this->assertTrue($response->hasHeader('X-Response-Time'));
@@ -67,7 +103,7 @@ class WarmingWorkflowTest extends ApiTestCase
 
         // Simulate a warming sequence with multiple rapid calls
         for ($i = 0; $i < 5; $i++) {
-            $response = $this->request('GET', '/api/v1/status');
+            $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
             $data = $this->getResponseData($response);
 
             $responses[] = [
@@ -115,7 +151,7 @@ class WarmingWorkflowTest extends ApiTestCase
     public function testCorsHeadersForStatusEndpoint(): void
     {
         // Test CORS support for frontend warming requests
-        $response = $this->request('GET', '/api/v1/status');
+        $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
 
         $this->assertEquals(200, $response->getStatusCode());
         $this->assertTrue($response->hasHeader('X-Response-Time'));
@@ -147,7 +183,7 @@ class WarmingWorkflowTest extends ApiTestCase
         // Test performance under rapid warming requests
         for ($i = 0; $i < 10; $i++) {
             $start = microtime(true);
-            $response = $this->request('GET', '/api/v1/status');
+            $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
             $end = microtime(true);
 
             $data = $this->getResponseData($response);
@@ -189,7 +225,7 @@ class WarmingWorkflowTest extends ApiTestCase
 
     public function testMemoryAndSystemInformationForWarming(): void
     {
-        $response = $this->request('GET', '/api/v1/status');
+        $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
         $data = $this->getResponseData($response);
 
         // Memory information useful for warming diagnostics
@@ -224,7 +260,7 @@ class WarmingWorkflowTest extends ApiTestCase
     public function testWarmingSequenceDetectsColdStart(): void
     {
         // First request should show relatively low uptime (cold start indicator)
-        $response = $this->request('GET', '/api/v1/status');
+        $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
         $data = $this->getResponseData($response);
 
         $initialUptime = $data['uptime_seconds'];
@@ -234,7 +270,7 @@ class WarmingWorkflowTest extends ApiTestCase
         // Wait a moment then make another request
         sleep(1);
 
-        $response2 = $this->request('GET', '/api/v1/status');
+        $response2 = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
         $data2 = $this->getResponseData($response2);
 
         $laterUptime = $data2['uptime_seconds'];
@@ -256,7 +292,7 @@ class WarmingWorkflowTest extends ApiTestCase
 
         // Make several requests in quick succession (simulating concurrent frontend calls)
         for ($i = 0; $i < 6; $i++) {
-            $response = $this->request('GET', '/api/v1/status');
+            $response = $this->requestWithToken('GET', '/api/v1/status', $this->userToken);
             $responses[] = $response;
 
             // Very small delay between requests to simulate near-concurrent access
