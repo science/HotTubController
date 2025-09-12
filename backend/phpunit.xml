@@ -42,6 +42,7 @@
 
     <php>
         <env name="APP_ENV" value="testing"/>
+        <env name="DEBUG_LEVEL" value="0"/>
         <env name="LOG_LEVEL" value="error"/>
         <ini name="display_errors" value="1"/>
         <ini name="error_reporting" value="-1"/>

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTubController\Services;
 
 use RuntimeException;
+use HotTubController\Support\DebugOutput;
 
 /**
  * IFTTT Webhook API Client
@@ -335,7 +336,7 @@ class IftttWebhookClient
             $durationMs
         );
 
-        error_log($message);
+        DebugOutput::info($message);
 
         $this->auditLog('TRIGGER_SUCCESS', [
             'event_name' => $eventName,
@@ -361,7 +362,7 @@ class IftttWebhookClient
             $durationMs
         );
 
-        error_log($message);
+        DebugOutput::warn($message);
 
         $this->auditLog('TRIGGER_ERROR', [
             'event_name' => $eventName,

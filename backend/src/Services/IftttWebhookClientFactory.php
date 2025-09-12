@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace HotTubController\Services;
 
+use HotTubController\Support\DebugOutput;
+
 /**
  * Factory for creating IFTTT Webhook Clients with proper environment detection
  *
@@ -34,7 +36,7 @@ class IftttWebhookClientFactory
         if ($isTestEnvironment && !empty($apiKey)) {
             // Safety check - if we're in test environment but somehow have an API key,
             // force test mode by clearing the key and log a warning
-            error_log("WARNING: IFTTT API key found in test environment - forcing safe mode");
+            DebugOutput::warn("WARNING: IFTTT API key found in test environment - forcing safe mode");
             $apiKey = null;
         }
 

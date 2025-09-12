@@ -18,6 +18,15 @@ make test-integration # Run only integration tests
 make coverage         # Generate HTML coverage report in coverage/
 ```
 
+#### Debug Output Control
+Tests run silently by default. Use `DEBUG_LEVEL` to control output verbosity:
+```bash
+make test                    # Silent (default) - errors only
+DEBUG_LEVEL=1 make test     # Show warnings (invalid readings, API issues)  
+DEBUG_LEVEL=2 make test     # Show info (IFTTT success messages)
+DEBUG_LEVEL=3 make test     # Show debug (full API call details)
+```
+
 ### Code Quality
 ```bash
 make analyze          # Run PHPStan static analysis (level 8)

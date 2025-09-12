@@ -33,6 +33,7 @@ This project provides a complete solution for automated hot tub heating with tem
 - **Enhanced Authentication System**: Token-based API access with admin/user roles
 - **Bootstrap & Admin Management**: Complete admin user management system
 - **Security Hardening**: All endpoints require authentication - no public system data exposure
+- **Debug Output Control**: Level-based test output control for clean development workflow
 - Comprehensive test coverage with safety features and error handling
 
 ### 🎯 **Phase 2: Web Interface Foundation - READY TO START**

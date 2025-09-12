@@ -6,6 +6,7 @@ namespace HotTubController\Services;
 
 use RuntimeException;
 use InvalidArgumentException;
+use HotTubController\Support\DebugOutput;
 
 /**
  * WirelessTag API Client
@@ -96,7 +97,7 @@ class WirelessTagClient
     {
         // Request fresh reading from sensor
         if (!$this->requestFreshReading($deviceId)) {
-            error_log("WirelessTag: Failed to request fresh reading for device {$deviceId}");
+            DebugOutput::warn("WirelessTag: Failed to request fresh reading for device {$deviceId}");
             return null;
         }
 
@@ -178,7 +179,7 @@ class WirelessTagClient
         $maxTemp = 120;  // 49°C (very hot, but possible for hot tubs)
 
         if ($tempF < $minTemp || $tempF > $maxTemp) {
-            error_log("WirelessTag: Invalid {$context} reading: {$tempF}°F (outside range {$minTemp}-{$maxTemp}°F)");
+            DebugOutput::warn("WirelessTag: Invalid {$context} reading: {$tempF}°F (outside range {$minTemp}-{$maxTemp}°F)");
             return false;
         }
 
@@ -323,7 +324,7 @@ class WirelessTagClient
     {
         $attemptInfo = $attempt > 1 ? " (attempt {$attempt})" : '';
 
-        error_log(sprintf(
+        DebugOutput::debug(sprintf(
             "WirelessTag SUCCESS: %s to %s (HTTP %d, %dms)%s",
             $operation,
             $endpoint,
@@ -338,7 +339,7 @@ class WirelessTagClient
      */
     private function logError(string $operation, string $endpoint, string $error, int $httpCode, int $durationMs, int $attempt, int $maxRetries): void
     {
-        error_log(sprintf(
+        DebugOutput::warn(sprintf(
             "WirelessTag ERROR: %s to %s failed - %s (HTTP %d, %dms, attempt %d/%d)",
             $operation,
             $endpoint,
