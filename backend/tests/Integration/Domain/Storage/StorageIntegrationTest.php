@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Integration\Domain\Storage;
+namespace HotTubController\Tests\Integration\Domain\Storage;
 
 use PHPUnit\Framework\TestCase;
 use HotTubController\Domain\Heating\Models\HeatingCycle;

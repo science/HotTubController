@@ -1,0 +1,204 @@
+http_interactions: 
+  - 
+    request: 
+      method: POST
+      uri: https://wirelesstag.net/ethClient.asmx/GetTagList
+      body: 
+        encoding: UTF-8
+        string: "{\"id\":\"{{DEVICE_ID}}\"}"
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Authorization: 
+          - Bearer ***MASKED***
+        User-Agent: 
+          - HotTubController/1.0
+        Accept: 
+          - application/json
+    response: 
+      status: 
+        code: 200
+        message: OK
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Date: 
+          - Sun, 07 Sep 2025 04:14:51 UTC
+      body: 
+        encoding: UTF-8
+        string: "{\"d\":[{\"uuid\":\"217af407-0165-462d-be07-809e82f6a865\",\"name\":\"Hot tub temperature\",\"temperature\":31.1111,\"cap\":18.8889,\"lastComm\":638928152910000000,\"batteryVolt\":3.65,\"signaldBm\":-86,\"alive\":true}]}"
+    recorded_at: Thu, 05 Sep 2024 21:00:00 GMT
+  - 
+    request: 
+      method: POST
+      uri: https://wirelesstag.net/ethClient.asmx/GetTagList
+      body: 
+        encoding: UTF-8
+        string: "{\"id\":\"{{DEVICE_ID}}\"}"
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Authorization: 
+          - Bearer ***MASKED***
+        User-Agent: 
+          - HotTubController/1.0
+        Accept: 
+          - application/json
+    response: 
+      status: 
+        code: 200
+        message: OK
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Date: 
+          - Sun, 07 Sep 2025 04:19:51 UTC
+      body: 
+        encoding: UTF-8
+        string: "{\"d\":[{\"uuid\":\"217af407-0165-462d-be07-809e82f6a865\",\"name\":\"Hot tub temperature\",\"temperature\":32.5,\"cap\":18.6111,\"lastComm\":638928155910000000,\"batteryVolt\":3.645,\"signaldBm\":-86,\"alive\":true}]}"
+    recorded_at: Thu, 05 Sep 2024 21:00:00 GMT
+  - 
+    request: 
+      method: POST
+      uri: https://wirelesstag.net/ethClient.asmx/GetTagList
+      body: 
+        encoding: UTF-8
+        string: "{\"id\":\"{{DEVICE_ID}}\"}"
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Authorization: 
+          - Bearer ***MASKED***
+        User-Agent: 
+          - HotTubController/1.0
+        Accept: 
+          - application/json
+    response: 
+      status: 
+        code: 200
+        message: OK
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Date: 
+          - Sun, 07 Sep 2025 04:24:51 UTC
+      body: 
+        encoding: UTF-8
+        string: "{\"d\":[{\"uuid\":\"217af407-0165-462d-be07-809e82f6a865\",\"name\":\"Hot tub temperature\",\"temperature\":33.8889,\"cap\":21.6667,\"lastComm\":638928158910000000,\"batteryVolt\":3.64,\"signaldBm\":-80,\"alive\":true}]}"
+    recorded_at: Thu, 05 Sep 2024 21:00:00 GMT
+  - 
+    request: 
+      method: POST
+      uri: https://wirelesstag.net/ethClient.asmx/GetTagList
+      body: 
+        encoding: UTF-8
+        string: "{\"id\":\"{{DEVICE_ID}}\"}"
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Authorization: 
+          - Bearer ***MASKED***
+        User-Agent: 
+          - HotTubController/1.0
+        Accept: 
+          - application/json
+    response: 
+      status: 
+        code: 200
+        message: OK
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Date: 
+          - Sun, 07 Sep 2025 04:29:51 UTC
+      body: 
+        encoding: UTF-8
+        string: "{\"d\":[{\"uuid\":\"217af407-0165-462d-be07-809e82f6a865\",\"name\":\"Hot tub temperature\",\"temperature\":35.2778,\"cap\":21.3889,\"lastComm\":638928161910000000,\"batteryVolt\":3.635,\"signaldBm\":-94,\"alive\":true}]}"
+    recorded_at: Thu, 05 Sep 2024 21:00:00 GMT
+  - 
+    request: 
+      method: POST
+      uri: https://wirelesstag.net/ethClient.asmx/GetTagList
+      body: 
+        encoding: UTF-8
+        string: "{\"id\":\"{{DEVICE_ID}}\"}"
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Authorization: 
+          - Bearer ***MASKED***
+        User-Agent: 
+          - HotTubController/1.0
+        Accept: 
+          - application/json
+    response: 
+      status: 
+        code: 200
+        message: OK
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Date: 
+          - Sun, 07 Sep 2025 04:34:51 UTC
+      body: 
+        encoding: UTF-8
+        string: "{\"d\":[{\"uuid\":\"217af407-0165-462d-be07-809e82f6a865\",\"name\":\"Hot tub temperature\",\"temperature\":36.6667,\"cap\":22.2222,\"lastComm\":638928164910000000,\"batteryVolt\":3.63,\"signaldBm\":-92,\"alive\":true}]}"
+    recorded_at: Thu, 05 Sep 2024 21:00:00 GMT
+  - 
+    request: 
+      method: POST
+      uri: https://wirelesstag.net/ethClient.asmx/GetTagList
+      body: 
+        encoding: UTF-8
+        string: "{\"id\":\"{{DEVICE_ID}}\"}"
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Authorization: 
+          - Bearer ***MASKED***
+        User-Agent: 
+          - HotTubController/1.0
+        Accept: 
+          - application/json
+    response: 
+      status: 
+        code: 200
+        message: OK
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Date: 
+          - Sun, 07 Sep 2025 04:39:51 UTC
+      body: 
+        encoding: UTF-8
+        string: "{\"d\":[{\"uuid\":\"217af407-0165-462d-be07-809e82f6a865\",\"name\":\"Hot tub temperature\",\"temperature\":38.0556,\"cap\":25.2778,\"lastComm\":638928167910000000,\"batteryVolt\":3.625,\"signaldBm\":-90,\"alive\":true}]}"
+    recorded_at: Thu, 05 Sep 2024 21:00:00 GMT
+  - 
+    request: 
+      method: POST
+      uri: https://wirelesstag.net/ethClient.asmx/GetTagList
+      body: 
+        encoding: UTF-8
+        string: "{\"id\":\"{{DEVICE_ID}}\"}"
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Authorization: 
+          - Bearer ***MASKED***
+        User-Agent: 
+          - HotTubController/1.0
+        Accept: 
+          - application/json
+    response: 
+      status: 
+        code: 200
+        message: OK
+      headers: 
+        Content-Type: 
+          - application/json; charset=utf-8
+        Date: 
+          - Sun, 07 Sep 2025 04:44:51 UTC
+      body: 
+        encoding: UTF-8
+        string: "{\"d\":[{\"uuid\":\"217af407-0165-462d-be07-809e82f6a865\",\"name\":\"Hot tub temperature\",\"temperature\":38.8889,\"cap\":24.4444,\"lastComm\":638928170910000000,\"batteryVolt\":3.62,\"signaldBm\":-91,\"alive\":true}]}"
+    recorded_at: Thu, 05 Sep 2024 21:00:00 GMT

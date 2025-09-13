@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Config;
+namespace HotTubController\Tests\Unit\Config;
 
 use PHPUnit\Framework\TestCase;
 use HotTubController\Config\HeatingConfig;

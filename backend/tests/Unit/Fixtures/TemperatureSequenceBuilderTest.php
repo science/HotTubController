@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Fixtures;
+namespace HotTubController\Tests\Unit\Fixtures;
 
 use PHPUnit\Framework\TestCase;
-use Tests\Fixtures\TemperatureSequenceBuilder;
+use HotTubController\Tests\Fixtures\TemperatureSequenceBuilder;
 use InvalidArgumentException;
 
 /**

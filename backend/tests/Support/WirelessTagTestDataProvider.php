@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Support;
+namespace HotTubController\Tests\Support;
 
 /**
  * WirelessTag Test Data Provider
@@ -120,6 +120,9 @@ class WirelessTagTestDataProvider
         int $intervalMinutes = 5,
         float $heatingRate = 0.5
     ): array {
+        // Seed random for deterministic test sequences
+        srand((int)($startTempF * 100 + $targetTempF * 100));
+        
         $sequence = [];
         $currentTemp = $startTempF;
         $tempIncrement = $heatingRate * $intervalMinutes;
@@ -128,7 +131,7 @@ class WirelessTagTestDataProvider
             $sequence[] = $currentTemp;
             $currentTemp += $tempIncrement;
 
-            // Add small random variation (±0.2°F) for realism
+            // Add small deterministic variation (±0.2°F) for realism
             $currentTemp += (rand(-20, 20) / 100.0);
         }
 
@@ -151,6 +154,9 @@ class WirelessTagTestDataProvider
         float $targetTempF,
         int $readings = 8
     ): array {
+        // Seed random for deterministic test sequences
+        srand((int)($currentTempF * 100 + $targetTempF * 100 + $readings));
+        
         $sequence = [];
         $tempDiff = $targetTempF - $currentTempF;
         $increment = $tempDiff / ($readings - 1); // -1 so we end at target
@@ -158,7 +164,7 @@ class WirelessTagTestDataProvider
         for ($i = 0; $i < $readings; $i++) {
             $temp = $currentTempF + ($increment * $i);
 
-            // Only add small random variation for readings that aren't the target
+            // Only add small deterministic variation for readings that aren't the target
             if ($i < $readings - 1) {
                 $temp += (rand(-3, 3) / 100.0); // ±0.03°F for intermediate readings
             } else {

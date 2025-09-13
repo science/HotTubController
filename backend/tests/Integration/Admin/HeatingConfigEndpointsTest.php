@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Integration\Admin;
+namespace HotTubController\Tests\Integration\Admin;
 
 use HotTubController\Tests\TestCase\ApiTestCase;
 use HotTubController\Tests\TestCase\AuthenticatedTestTrait;

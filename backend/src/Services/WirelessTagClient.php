@@ -416,8 +416,8 @@ class WirelessTagClient
     private function getTestTemperatureData(string $deviceId): ?array
     {
         // Load the test data provider
-        if (class_exists('Tests\Support\WirelessTagTestDataProvider')) {
-            return \Tests\Support\WirelessTagTestDataProvider::getTemperatureData($deviceId);
+        if (class_exists('HotTubController\Tests\Support\WirelessTagTestDataProvider')) {
+            return \HotTubController\Tests\Support\WirelessTagTestDataProvider::getTemperatureData($deviceId);
         }
 
         // Fallback if test provider not available
@@ -429,17 +429,15 @@ class WirelessTagClient
      */
     private function getTestConnectivityData(): array
     {
-        if (class_exists('Tests\Support\WirelessTagTestDataProvider')) {
-            return \Tests\Support\WirelessTagTestDataProvider::getConnectivityTestData();
+        if (class_exists('HotTubController\Tests\Support\WirelessTagTestDataProvider')) {
+            return \HotTubController\Tests\Support\WirelessTagTestDataProvider::getConnectivityTestData();
         }
 
-        return [
-            'available' => true,
-            'authenticated' => true,
-            'tested_at' => date('Y-m-d H:i:s'),
-            'response_time_ms' => rand(50, 200),
-            'error' => null
-        ];
+        throw new RuntimeException(
+            "Test mode error: WirelessTagTestDataProvider not available for connectivity test. " .
+            "Check that tests are running in the correct environment and " .
+            "that WirelessTagTestDataProvider class can be loaded."
+        );
     }
 
     /**
@@ -447,20 +445,12 @@ class WirelessTagClient
      */
     private function getFallbackTestData(string $deviceId): array
     {
-        $waterTempC = 35.0; // ~95°F
-        $ambientTempC = 20.0; // ~68°F
-
-        return [
-            [
-                'uuid' => $deviceId,
-                'name' => 'Hot tub temperature (test mode)',
-                'temperature' => $waterTempC,
-                'cap' => $ambientTempC,
-                'lastComm' => 621355968000000000 + (time() * 10000000),
-                'batteryVolt' => 3.65,
-                'signaldBm' => -80,
-                'alive' => true
-            ]
-        ];
+        throw new RuntimeException(
+            "Test mode error: WirelessTagTestDataProvider not available. " .
+            "This means the test data injection system is not working. " .
+            "Check that tests are running in the correct environment and " .
+            "that WirelessTagTestDataProvider class can be loaded. " .
+            "Device ID: {$deviceId}"
+        );
     }
 }

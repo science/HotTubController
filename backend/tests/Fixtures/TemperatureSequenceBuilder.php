@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Fixtures;
+namespace HotTubController\Tests\Fixtures;
 
 use InvalidArgumentException;
 use HotTubController\Config\HeatingConfig;
@@ -131,17 +131,28 @@ class TemperatureSequenceBuilder
             );
             $sequence[] = $reading;
 
-            // Advance time and temperature
+            // Stop once we've reached target - but ensure we include this reading
+            if ($currentTemp >= $targetTempF) {
+                break;
+            }
+
+            // Advance time and temperature for next iteration
             $currentTime += $intervalSeconds;
             $currentTemp = min(
                 $currentTemp + ($heatingRatePerSecond * $intervalSeconds),
                 $targetTempF
             );
+        }
 
-            // Stop once we've reached target
-            if ($currentTemp >= $targetTempF) {
-                break;
-            }
+        // Ensure the last reading is exactly at the target temperature
+        $lastReading = end($sequence);
+        if ($lastReading['water_temp_f'] < $targetTempF) {
+            $finalReading = $this->createTemperatureReading(
+                $targetTempF,
+                $currentTime,
+                (int) ($elapsedMinutes + ($readingsNeeded * $intervalSeconds / 60))
+            );
+            $sequence[] = $finalReading;
         }
 
         return $sequence;

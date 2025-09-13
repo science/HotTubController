@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Integration\Services;
+namespace HotTubController\Tests\Integration\Services;
 
 use PHPUnit\Framework\TestCase;
 use HotTubController\Services\IftttWebhookClient;

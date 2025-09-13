@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Services;
+namespace HotTubController\Tests\Unit\Services;
 
 use PHPUnit\Framework\TestCase;
 use HotTubController\Services\WirelessTagClient;

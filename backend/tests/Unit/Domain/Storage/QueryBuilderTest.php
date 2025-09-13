@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Domain\Storage;
+namespace HotTubController\Tests\Unit\Domain\Storage;
 
 use PHPUnit\Framework\TestCase;
 use HotTubController\Domain\Storage\QueryBuilder;

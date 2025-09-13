@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Domain\Heating\Models;
+namespace HotTubController\Tests\Unit\Domain\Heating\Models;
 
 use PHPUnit\Framework\TestCase;
 use HotTubController\Domain\Heating\Models\HeatingEvent;

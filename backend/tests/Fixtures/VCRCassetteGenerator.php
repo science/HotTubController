@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Fixtures;
+namespace HotTubController\Tests\Fixtures;
 
 use InvalidArgumentException;
 use HotTubController\Config\HeatingConfig;
