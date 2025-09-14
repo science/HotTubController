@@ -29,7 +29,7 @@ This project provides a complete solution for automated hot tub heating with tem
 ### ✅ **Phase 1: Core Heating Control - COMPLETE**
 - Complete heating control API suite with management endpoints
 - **Configurable Heating Rate System**: Admin APIs for user-configurable heating velocity (0.1-2.0°F/min)
-- Cron-based scheduling system with secure API key authentication  
+- Cron-based scheduling system with secure API key authentication
 - WirelessTag sensor integration for temperature monitoring
 - IFTTT webhook integration for equipment control (pump, heater, ionizer)
 - **Enhanced Authentication System**: Token-based API access with admin/user roles
@@ -38,11 +38,12 @@ This project provides a complete solution for automated hot tub heating with tem
 - **Debug Output Control**: Level-based test output control for clean development workflow
 - Comprehensive test coverage with safety features and error handling
 
-### 🎯 **Phase 2: Web Interface Foundation - READY TO START**
-- React-based dashboard for real-time monitoring and control
-- Mobile-responsive interface with PWA capabilities
-- Historical data visualization and analytics
-- User authentication and secure API communication
+### 🎯 **Phase 2: Web Interface Foundation - IN PROGRESS**
+- **✅ Frontend Foundation**: React + TypeScript + Vite setup with Node 22 and Volta
+- **✅ Node Version Management**: Volta configured for automatic Node 22.19.0/npm 11.6.0 switching
+- **⏳ Real-time Dashboard**: Temperature monitoring and heating control interface
+- **⏳ Mobile-responsive Design**: PWA-ready interface with authentication integration
+- **⏳ Historical Analytics**: Data visualization and performance tracking
 
 ### 📅 **Phase 3: Advanced Features - PLANNED** 
 - Machine learning temperature prediction and optimization
@@ -121,9 +122,18 @@ make test        # Verify installation with full test suite
 make serve       # Start development server (localhost:8080)
 ```
 
+### Frontend Setup
+```bash
+cd frontend
+npm install      # Install dependencies (uses Node 22.19.0 via Volta)
+npm run dev      # Start development server (localhost:5173)
+```
+
+**Node Version Management**: This project uses [Volta](https://volta.sh/) to automatically switch to Node 22.19.0 when working in the frontend directory. Volta is configured in `frontend/package.json` and will automatically download and use the correct Node/npm versions.
+
 ### Environment Configuration
 1. Configure WirelessTag OAuth token in `.env`
-2. Set IFTTT webhook key for equipment control  
+2. Set IFTTT webhook key for equipment control
 3. Configure CORS origins for frontend domains
 4. Review safety settings and test mode configuration
 
