@@ -4,8 +4,15 @@ import { Card, CardContent } from '../ui/card'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Progress } from '../ui/progress'
-import { TemperatureDisplayProps } from '../../types/heating'
+import { Temperature, HeatingSystemStatus } from '../../types/heating'
 import { formatTemperature, formatRelativeTime, cn } from '../../lib/utils'
+
+interface TemperatureDisplayProps {
+  temperature: Temperature
+  status: HeatingSystemStatus
+  onRefresh: () => void
+  loading?: boolean
+}
 
 export const TemperatureDisplay: React.FC<TemperatureDisplayProps> = ({
   temperature,

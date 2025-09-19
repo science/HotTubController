@@ -9,10 +9,12 @@ import { ActionButtons } from './components/controls/ActionButtons'
 import { ComponentShowcase } from './components/ComponentShowcase'
 import { Button } from './components/ui/button'
 import { useMockHotTub, useMockScenarios } from './hooks/useMockData'
+import { SettingsProvider, useSettings } from './contexts/SettingsContext'
 
-function App() {
+function AppContent() {
   const [targetTemp, setTargetTemp] = useState(102)
   const [showShowcase, setShowShowcase] = useState(false)
+  const { pollingEnabled, setPollingEnabled } = useSettings()
 
   const mockData = useMockHotTub()
   const scenarios = useMockScenarios()
@@ -101,26 +103,54 @@ function App() {
           loading={mockData.loading}
         />
 
-        {/* Development scenario switcher */}
-        <div className="bg-white rounded-lg p-4 shadow-sm">
-          <div className="text-sm font-medium text-gray-700 mb-2">
-            Development Scenarios:
+        {/* Development Controls */}
+        <div className="bg-white rounded-lg p-4 shadow-sm space-y-4">
+          {/* Polling Control */}
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-gray-700">Auto-refresh Data</div>
+              <div className="text-xs text-gray-500">Polls temperature and status every 2-5 seconds</div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={pollingEnabled}
+                onChange={(e) => setPollingEnabled(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {scenarios.scenarios.map((scenario) => (
-              <Button
-                key={scenario.id}
-                variant={scenarios.activeScenario === scenario.id ? "default" : "outline"}
-                size="sm"
-                onClick={() => scenarios.switchScenario(scenario.id)}
-              >
-                {scenario.name}
-              </Button>
-            ))}
+
+          {/* Scenario Switcher */}
+          <div>
+            <div className="text-sm font-medium text-gray-700 mb-2">
+              Development Scenarios:
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {scenarios.scenarios.map((scenario) => (
+                <Button
+                  key={scenario.id}
+                  variant={scenarios.activeScenario === scenario.id ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => scenarios.switchScenario(scenario.id)}
+                >
+                  {scenario.name}
+                </Button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
     </MobileLayout>
+  )
+}
+
+function App() {
+  return (
+    <SettingsProvider>
+      <AppContent />
+    </SettingsProvider>
   )
 }
 

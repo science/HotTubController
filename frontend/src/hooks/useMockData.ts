@@ -7,6 +7,7 @@ import {
   LoadingState,
   MockScenario
 } from '../types/heating'
+import { useSettings } from '../contexts/SettingsContext'
 import {
   createMockTemperature,
   createMockEvents,
@@ -25,6 +26,7 @@ let temperatureSimulator: TemperatureSimulator | null = null
 
 // Hook for mock temperature data with realistic updates
 export const useMockTemperature = (refreshInterval = 5000) => {
+  const { pollingEnabled } = useSettings()
   const [temperature, setTemperature] = useState<Temperature>(() =>
     createMockTemperature(97.9, 102)
   )
@@ -67,11 +69,13 @@ export const useMockTemperature = (refreshInterval = 5000) => {
     }
   }, [])
 
-  // Auto-refresh interval
+  // Auto-refresh interval (only when polling is enabled)
   useEffect(() => {
+    if (!pollingEnabled) return
+
     const interval = setInterval(refresh, refreshInterval)
     return () => clearInterval(interval)
-  }, [refresh, refreshInterval])
+  }, [refresh, refreshInterval, pollingEnabled])
 
   // Initial load
   useEffect(() => {
@@ -88,6 +92,7 @@ export const useMockTemperature = (refreshInterval = 5000) => {
 
 // Hook for mock system status
 export const useMockSystemStatus = (refreshInterval = 3000) => {
+  const { pollingEnabled } = useSettings()
   const [status, setStatus] = useState<HeatingSystemStatus>(() =>
     createMockSystemStatus(false, 0)
   )
@@ -127,11 +132,13 @@ export const useMockSystemStatus = (refreshInterval = 3000) => {
     }
   }, [])
 
-  // Auto-refresh interval
+  // Auto-refresh interval (only when polling is enabled)
   useEffect(() => {
+    if (!pollingEnabled) return
+
     const interval = setInterval(refresh, refreshInterval)
     return () => clearInterval(interval)
-  }, [refresh, refreshInterval])
+  }, [refresh, refreshInterval, pollingEnabled])
 
   // Initial load
   useEffect(() => {
