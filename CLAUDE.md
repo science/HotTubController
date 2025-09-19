@@ -28,10 +28,31 @@ make quality          # Run all quality checks (cs-check + analyze + test)
 ```
 
 ### Development Server
+
+#### Backend
 ```bash
-make serve            # Start dev server at localhost:8080
+make serve            # Start default dev server at localhost:8080
+make serve-sim        # Start simulation server (safe mode - no hardware)
+make serve-live       # Start live dev server (DANGER: controls real hardware)
 make serve-test       # Start test server at localhost:8081
 ```
+
+#### Environment Switching
+The backend supports multiple environment configurations for safe development:
+
+- **Simulation Mode** (`make serve-sim`): Uses `.env.development-sim`
+  - All API keys are empty, forcing safe mode
+  - No hardware can be triggered
+  - Ideal for frontend development and testing
+
+- **Live Mode** (`make serve-live`): Uses `.env.development-live`
+  - **WARNING**: Requires confirmation prompt
+  - Uses real API credentials and controls actual hardware
+  - Only use when you need to test real equipment
+
+#### Frontend
+**Note**: The frontend development server is typically running externally at `localhost:5173`.
+When debugging frontend issues, assume the dev server is already running and access it directly at that port.
 
 ### API Testing
 ```bash
@@ -49,6 +70,8 @@ php demo-storage-system.php            # Demonstrate storage system functionalit
 ### Environment Safety Strategy
 - **Production** (`.env`): Contains `IFTTT_WEBHOOK_KEY` for real hardware control
 - **Testing** (`.env.testing`): INTENTIONALLY omits `IFTTT_WEBHOOK_KEY` to prevent hardware triggers
+- **Development Simulation** (`.env.development-sim`): All API keys empty, forcing safe mode
+- **Development Live** (`.env.development-live`): Real API keys with safety confirmations
 - **Automatic detection**: Test environment forces safe mode regardless of configuration
 
 ### Safe Testing Commands
@@ -243,6 +266,47 @@ The API uses a layered security model with role-based access control:
 - [ ] Does API documentation specify authentication requirements?
 - [ ] Are authentication headers properly validated?
 
+## Frontend Development Guidelines
+
+### Tailwind CSS v4 Usage
+The frontend uses **Tailwind CSS v4** with modern configuration patterns. Follow these established patterns:
+
+#### ✅ **Tailwind v4 Patterns (Use These)**
+- **Import**: Use `@import "tailwindcss"` in CSS files
+- **Theme Configuration**: Define design tokens in `@theme` blocks within CSS:
+  ```css
+  @theme {
+    --color-primary-500: #3b82f6;
+    --spacing-touch-target: 44px;
+  }
+  ```
+- **Custom Utilities**: Use `@utility` directive for custom classes:
+  ```css
+  @utility text-temp-large {
+    font-size: var(--fontSize-temp-large);
+    line-height: var(--lineHeight-temp-large);
+  }
+  ```
+- **PostCSS**: Use `@tailwindcss/postcss` plugin in `postcss.config.js`
+- **CSS Variables**: Reference theme values as `var(--color-primary-500)`
+
+#### ❌ **Tailwind v3 Patterns (Avoid These)**
+- **Don't use `@tailwind` directives** (`@tailwind base`, `@tailwind components`, `@tailwind utilities`)
+- **Don't extend in `tailwind.config.js`** - use `@theme` blocks in CSS instead
+- **Don't create plugins with `addUtilities`** - use `@utility` directive
+- **Don't use arbitrary values** when CSS variables exist (use `bg-[var(--color-primary-500)]` over `bg-[#3b82f6]`)
+
+#### **Established Component Patterns**
+- **Class Variance Authority**: Use `cva()` for component variants (see `frontend/src/components/ui/button.tsx`)
+- **Class Merging**: Use `cn()` utility with `tailwind-merge` for conditional classes
+- **Component Layers**: Define reusable styles in `@layer components` with `@apply`
+- **Design Tokens**: All colors, spacing, fonts defined as CSS variables in `@theme`
+
+#### **Mobile-First Development**
+- Touch targets: Minimum 44px (`min-h-touch-target`, `min-w-touch-target`)
+- Safe areas: Use `env(safe-area-inset-*)` for mobile device notches
+- Responsive breakpoints: Mobile-first approach with `xs:`, `sm:`, `md:`, etc.
+
 ## External Dependencies
 
 ### WirelessTag API
@@ -265,12 +329,53 @@ The API uses a layered security model with role-based access control:
 
 ## Environment Setup
 
-Ensure `.env` file exists with proper API tokens:
+The project supports multiple environment configurations for different development needs:
+
+### Quick Start (Recommended)
+For safe development without hardware risk:
+```bash
+make serve-sim    # Automatically copies .env.development-sim to .env
+```
+
+### Manual Environment Setup
+
+#### Production Environment
 ```bash
 cp .env.example .env
 chmod 600 .env
 # Edit .env with actual WIRELESSTAG_OAUTH_TOKEN and IFTTT_WEBHOOK_KEY
 ```
+
+#### Development Environments
+
+**Simulation Mode (Safe)**:
+```bash
+cp .env.development-sim .env    # Or use: make serve-sim
+```
+- All API keys empty, forcing safe mode
+- No hardware can be triggered
+- Ideal for frontend development and testing
+
+**Live Development Mode (Hardware Control)**:
+```bash
+cp .env.development-live .env   # Or use: make serve-live
+```
+- **WARNING**: Controls real hardware
+- Requires real API credentials
+- Use only when testing actual equipment
+- Built-in confirmation prompts prevent accidents
+
+**Testing Environment**:
+```bash
+# Automatically used by test commands
+# Uses .env.testing with safety features
+```
+
+### Environment File Summary
+- `.env.example` - Template for production setup
+- `.env.development-sim` - Safe simulation mode (no hardware access)
+- `.env.development-live` - Live development mode (real hardware control)
+- `.env.testing` - Test environment (automatically safe)
 
 ### Documentation Guidelines
 - **DO NOT include specific test counts** in documentation (e.g., "486 tests passing")

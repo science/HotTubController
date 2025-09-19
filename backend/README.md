@@ -97,42 +97,85 @@ git clone <repository-url>
 cd backend
 make install          # Installs composer deps and creates .env
 
-# Set up development environment  
+# Set up development environment
 make dev-setup        # Creates directories and basic config files
-
-# Configure environment
-cp .env.example .env
-chmod 600 .env
-# Edit .env with your API tokens (see Configuration section)
 
 # Run tests to verify everything works
 make test
 
-# Start development server
-make serve            # http://localhost:8080
+# Start development server in SAFE simulation mode (recommended)
+make serve-sim        # http://localhost:8080 (no hardware control)
+```
+
+### Alternative Setup (Hardware Control)
+
+⚠️ **WARNING**: Only use this if you need to control real hot tub hardware:
+
+```bash
+# Configure for real hardware control
+cp .env.development-live .env
+chmod 600 .env
+# Edit .env with your REAL API tokens (see Configuration section)
+
+# Start server with hardware control (requires confirmation)
+make serve-live       # http://localhost:8080 (CONTROLS REAL HARDWARE!)
 ```
 
 ## ⚙️ Configuration
 
-### Environment Variables
+The backend supports multiple environment configurations for different development needs:
 
-Create `.env` file with:
+### 🔒 Simulation Mode (Recommended for Development)
+
+**File**: `.env.development-sim` (automatically used by `make serve-sim`)
 
 ```env
-# WirelessTag API (for temperature monitoring)
-WIRELESSTAG_OAUTH_TOKEN=your_wirelesstag_oauth_token_here
+# Safe simulation mode - no hardware can be triggered
+APP_ENV=development
+SIMULATION_MODE=true
 
-# IFTTT Webhooks (for equipment control) - CRITICAL: CONTROLS REAL HARDWARE
-IFTTT_WEBHOOK_KEY=your_ifttt_webhook_key_here
+# API keys are intentionally EMPTY for safety
+WIRELESSTAG_OAUTH_TOKEN=
+IFTTT_WEBHOOK_KEY=
 
 # Application settings
 LOG_LEVEL=info
-CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com
+CORS_ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-### Test Environment Safety
+**Benefits**:
+- ✅ No risk of accidental hardware triggers
+- ✅ Perfect for frontend development and testing
+- ✅ All API clients automatically enter safe mode
+- ✅ Realistic simulation responses for testing
 
-For testing, create `.env.testing` that **intentionally omits** `IFTTT_WEBHOOK_KEY`:
+### ⚠️ Live Development Mode (Hardware Control)
+
+**File**: `.env.development-live` (used by `make serve-live`)
+
+```env
+# Live mode - CONTROLS REAL HARDWARE!
+APP_ENV=development
+SIMULATION_MODE=false
+
+# REAL API credentials required
+WIRELESSTAG_OAUTH_TOKEN=your_real_wirelesstag_token_here
+IFTTT_WEBHOOK_KEY=your_real_ifttt_webhook_key_here
+
+# Safety features enabled
+HARDWARE_SAFETY_MODE=true
+MAX_HEATING_DURATION_MINUTES=120
+MAX_TEMPERATURE_F=104
+```
+
+**Use Cases**:
+- Testing actual temperature sensors
+- Verifying real equipment responses
+- Production troubleshooting
+
+### 🧪 Test Environment Safety
+
+**File**: `.env.testing` (automatically used by test commands)
 
 ```env
 # Test environment - IFTTT_WEBHOOK_KEY intentionally omitted for safety
@@ -140,7 +183,26 @@ WIRELESSTAG_OAUTH_TOKEN=your_test_token_here
 LOG_LEVEL=error
 ```
 
-This prevents any accidental hardware triggers during testing.
+### 🏭 Production Environment
+
+**File**: `.env` (manual configuration required)
+
+```env
+# Production configuration
+WIRELESSTAG_OAUTH_TOKEN=your_production_token_here
+IFTTT_WEBHOOK_KEY=your_production_webhook_key_here
+LOG_LEVEL=info
+CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com
+```
+
+### Environment Switching Commands
+
+```bash
+make serve-sim        # Safe simulation mode (recommended)
+make serve-live       # Live hardware control (requires confirmation)
+make serve-test       # Test environment
+make serve            # Uses current .env file
+```
 
 ## 🧪 Testing
 
