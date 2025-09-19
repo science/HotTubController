@@ -54,6 +54,23 @@ serve: ## Start development server
 	@echo "$(GREEN)Press Ctrl+C to stop$(RESET)"
 	php -S localhost:8080 -t public
 
+serve-sim: ## Start simulation server (safe mode)
+	@echo "$(YELLOW)Starting simulation server at http://localhost:8080$(RESET)"
+	@echo "$(GREEN)SAFE MODE: No real hardware will be controlled$(RESET)"
+	@echo "$(GREEN)Press Ctrl+C to stop$(RESET)"
+	@cp .env.development-sim .env
+	php -S localhost:8080 -t public
+
+serve-live: ## Start live development server (CONTROLS REAL HARDWARE)
+	@echo "$(RED)WARNING: This will control REAL HARDWARE!$(RESET)"
+	@echo "$(RED)Hot tub heater, pump, and ionizer will respond to API calls$(RESET)"
+	@read -p "Are you sure you want to continue? (yes/no): " confirm && [ "$$confirm" = "yes" ] || (echo "$(YELLOW)Aborted$(RESET)" && exit 1)
+	@echo "$(YELLOW)Starting live development server at http://localhost:8080$(RESET)"
+	@echo "$(RED)DANGER MODE: Real hardware control active$(RESET)"
+	@echo "$(GREEN)Press Ctrl+C to stop$(RESET)"
+	@cp .env.development-live .env
+	php -S localhost:8080 -t public
+
 serve-test: ## Start test server
 	@echo "$(YELLOW)Starting test server at http://localhost:8081$(RESET)"
 	APP_ENV=testing php -S localhost:8081 -t public
