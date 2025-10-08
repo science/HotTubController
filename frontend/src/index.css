@@ -1,102 +1,26 @@
 @import "tailwindcss";
 
 @theme {
-  /* Hot tub theme colors from tailwind.config.js */
-  --color-primary-50: #eff6ff;
-  --color-primary-100: #dbeafe;
-  --color-primary-500: #3b82f6;
-  --color-primary-600: #2563eb;
-  --color-primary-700: #1d4ed8;
-  --color-primary-900: #1e3a8a;
+  /* Simple monochrome palette */
+  --color-bg: #1a1a1a;
+  --color-text: #e0e0e0;
+  --color-text-dim: #808080;
+  --color-border: #333333;
+  --color-hover: #2a2a2a;
 
-  --color-warm-50: #fef7ed;
-  --color-warm-100: #fed7aa;
-  --color-warm-500: #f97316;
-  --color-warm-600: #ea580c;
-  --color-warm-700: #c2410c;
+  /* Status colors - minimal */
+  --color-green: #00ff00;
+  --color-red: #ff4444;
+  --color-yellow: #ffff00;
+  --color-blue: #4444ff;
 
-  --color-surface-50: #f8fafc;
-  --color-surface-100: #f1f5f9;
-  --color-surface-200: #e2e8f0;
-  --color-surface-800: #1e293b;
-  --color-surface-900: #0f172a;
+  /* Font */
+  --font-family-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
 
-  /* Add standard colors for body styles */
-  --color-slate-900: #0f172a;
-
-  /* Custom fontSize tokens - extend default sizes */
-  --font-size-temp-large: 4rem;
-  --font-size-temp-medium: 2.5rem;
-
-  /* Custom fontSize utilities - for Tailwind v4 */
-  --fontSize-temp-large: 4rem;
-  --fontSize-temp-medium: 2.5rem;
-  --lineHeight-temp-large: 1;
-  --lineHeight-temp-medium: 1.1;
-  --fontWeight-temp-large: 700;
-  --fontWeight-temp-medium: 600;
-
-  /* Custom spacing tokens */
-  --spacing-safe-top: env(safe-area-inset-top);
-  --spacing-safe-bottom: env(safe-area-inset-bottom);
-  --spacing-safe-left: env(safe-area-inset-left);
-  --spacing-safe-right: env(safe-area-inset-right);
+  /* Spacing */
   --spacing-touch-target: 44px;
-
-  /* Custom spacing for utilities */
   --width-touch-target: 44px;
   --height-touch-target: 44px;
-
-  /* Missing primary shades */
-  --color-primary-300: #93c5fd;
-
-  /* All slate colors */
-  --color-slate-50: #f8fafc;
-  --color-slate-100: #f1f5f9;
-  --color-slate-200: #e2e8f0;
-  --color-slate-300: #cbd5e1;
-  --color-slate-500: #64748b;
-  --color-slate-600: #475569;
-  --color-slate-700: #334155;
-  --color-slate-800: #1e293b;
-  --color-slate-950: #020617;
-
-  /* All red colors */
-  --color-red-50: #fef2f2;
-  --color-red-200: #fecaca;
-  --color-red-500: #ef4444;
-  --color-red-600: #dc2626;
-  --color-red-700: #b91c1c;
-
-  /* All green colors */
-  --color-green-50: #f0fdf4;
-  --color-green-100: #dcfce7;
-  --color-green-200: #bbf7d0;
-  --color-green-300: #86efac;
-  --color-green-500: #22c55e;
-  --color-green-600: #16a34a;
-  --color-green-800: #166534;
-
-  /* Additional colors for gradients */
-  --color-blue-300: #93c5fd;
-  --color-orange-300: #fdba74;
-
-  /* Custom font families */
-  --font-family-sans: Inter, system-ui, sans-serif;
-  --font-family-mono: JetBrains Mono, monospace;
-}
-
-/* Custom utility definitions for Tailwind v4 */
-@utility text-temp-large {
-  font-size: var(--fontSize-temp-large);
-  line-height: var(--lineHeight-temp-large);
-  font-weight: var(--fontWeight-temp-large);
-}
-
-@utility text-temp-medium {
-  font-size: var(--fontSize-temp-medium);
-  line-height: var(--lineHeight-temp-medium);
-  font-weight: var(--fontWeight-temp-medium);
 }
 
 @utility min-h-touch-target {
@@ -113,82 +37,41 @@
 }
 
 @layer base {
-  :root {
-    --safe-area-inset-top: env(safe-area-inset-top);
-    --safe-area-inset-right: env(safe-area-inset-right);
-    --safe-area-inset-bottom: env(safe-area-inset-bottom);
-    --safe-area-inset-left: env(safe-area-inset-left);
-  }
-
   * {
-    border-color: var(--color-surface-200);
+    border-color: var(--color-border);
   }
 
   body {
-    @apply bg-white text-slate-900 font-sans antialiased;
-    font-feature-settings: "rlig" 1, "calt" 1;
-
-    /* Mobile-first responsive body */
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-family-mono);
     min-height: 100vh;
-    min-height: 100dvh; /* Dynamic viewport height for mobile */
+    min-height: 100dvh;
     margin: 0;
-    padding: 0;
-
-    /* Support safe areas on mobile devices */
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-  }
-
-  /* Dark mode support */
-  @media (prefers-color-scheme: dark) {
-    body {
-      @apply bg-slate-900 text-slate-100;
-    }
+    padding: 1rem;
+    padding-top: calc(1rem + env(safe-area-inset-top));
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    padding-left: calc(1rem + env(safe-area-inset-left));
+    padding-right: calc(1rem + env(safe-area-inset-right));
   }
 }
 
 @layer components {
-  /* Custom component styles for hot tub interface */
-  .temperature-display {
-    font-size: 4rem;
-    line-height: 1;
-    font-weight: 700;
-    letter-spacing: -0.025em;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  button {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-family: var(--font-family-mono);
   }
 
-  .card-surface {
-    @apply bg-white border border-slate-200 rounded-xl shadow-sm;
+  button:hover {
+    background: var(--color-hover);
   }
 
-  .button-primary {
-    @apply bg-primary-500 hover:bg-primary-600 text-white font-medium py-3 px-6 rounded-lg;
-    @apply min-h-touch-target min-w-touch-target transition-colors duration-200;
-    @apply active:bg-primary-700 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
-  }
-
-  .button-secondary {
-    @apply bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-3 px-6 rounded-lg;
-    @apply min-h-touch-target min-w-touch-target transition-colors duration-200;
-    @apply active:bg-slate-300 focus:ring-2 focus:ring-slate-500 focus:ring-offset-2;
-  }
-
-  .button-danger {
-    @apply bg-red-500 hover:bg-red-600 text-white font-medium py-3 px-6 rounded-lg;
-    @apply min-h-touch-target min-w-touch-target transition-colors duration-200;
-    @apply active:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .card-surface {
-      @apply bg-slate-800 border-slate-700;
-    }
-
-    .button-secondary {
-      @apply bg-slate-700 hover:bg-slate-600 text-slate-200;
-      @apply active:bg-slate-500;
-    }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 }

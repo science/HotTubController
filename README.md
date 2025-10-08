@@ -59,7 +59,7 @@ This project provides a complete solution for automated hot tub heating with tem
 - **WirelessTag Ethernet Manager**: Bridge device connecting sensors to internet
   - Product: [Ethernet Tag Manager](https://store.wirelesstag.net/products/ethernet-tag-manager)
 - **WirelessTag OAuth API Key**: Account authentication for temperature data access
-
+  - Note on obtaining and interacting with the OAuth key and WT APIs: https://groups.google.com/g/wireless-sensor-tags/c/YJ0lXGJUnkY/m/RNMqU1eJAQAJ
 ### Equipment Control
 - **Smart Relay Controller**: IFTTT-compatible device for pump and heater control
   - Compatible devices: SmartLife or Tuya-based smart switches/relays

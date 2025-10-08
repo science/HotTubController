@@ -31,10 +31,21 @@ make quality          # Run all quality checks (cs-check + analyze + test)
 
 #### Backend
 ```bash
+cd backend
 make serve            # Start default dev server at localhost:8080
 make serve-sim        # Start simulation server (safe mode - no hardware)
 make serve-live       # Start live dev server (DANGER: controls real hardware)
 make serve-test       # Start test server at localhost:8081
+```
+
+#### Frontend
+```bash
+cd frontend
+npm run dev           # Start Vite dev server at localhost:5173 (uses Node 22.19.0 via Volta)
+npm run build         # Type-check and build for production
+npm run preview       # Preview production build
+npm run lint          # Run ESLint on TypeScript files
+npm run type-check    # Run TypeScript compiler checks without emitting
 ```
 
 #### Environment Switching
@@ -214,14 +225,30 @@ The complete heating control system is fully implemented and tested with compreh
 - **Core Heating APIs**: StartHeatingAction, MonitorTempAction, StopHeatingAction fully implemented and tested
 - **Management APIs**: Complete user-facing API suite for scheduling, monitoring, and controlling heating cycles
   - `POST /api/schedule-heating` - Schedule future heating with intelligent overlap prevention
-  - `POST /api/cancel-scheduled-heating` - Cancel scheduled heating events 
+  - `POST /api/cancel-scheduled-heating` - Cancel scheduled heating events
   - `GET /api/list-heating-events` - Paginated listing of all heating events with filtering
   - `GET /api/heating-status` - Real-time system status and temperature monitoring
 - **Equipment Safety**: Emergency stop capabilities, equipment safety sequences, orphaned cron cleanup
 - **Integration Complete**: Full WirelessTag and IFTTT integration with comprehensive error handling
 
-### 🎯 **Next Phase: Web Interface Foundation**
-The project is ready for Phase 2 development - building a React-based web interface for user-friendly access to the heating control APIs.
+### 🚧 **Phase 2 In Progress: Web Interface Foundation**
+React-based frontend with comprehensive mock data system for independent development:
+
+- **✅ Frontend Foundation**: React 19 + TypeScript + Vite with Node 22 (Volta)
+- **✅ Component Library**: Mobile-first UI components with Tailwind CSS v4
+  - Temperature display with progress indicators
+  - Action buttons and target selector
+  - Schedule management (quick schedule + event list)
+  - Responsive layout with status bar
+- **✅ Mock Data System**: Complete development environment without backend dependency
+  - Realistic temperature simulation and heating progression
+  - Development scenario switching (normal, heating, cooling, scheduled)
+  - Configurable polling with auto-refresh
+- **✅ State Management**: React Context for settings, custom hooks for data
+- **⏳ API Integration**: Replace mock hooks with real API service layer
+- **⏳ Authentication**: Add login flow and token management
+- **⏳ Real-time Updates**: WebSocket or polling for live temperature data
+- **⏳ PWA Features**: Offline support, install prompts, push notifications
 
 ## Authentication Architecture
 
@@ -265,6 +292,136 @@ The API uses a layered security model with role-based access control:
 - [ ] Is role requirement appropriate for operation sensitivity?
 - [ ] Does API documentation specify authentication requirements?
 - [ ] Are authentication headers properly validated?
+
+## Frontend Architecture
+
+### Component Organization
+```
+frontend/src/
+├── components/
+│   ├── ui/              # Reusable UI primitives (button, card, badge, progress)
+│   ├── temperature/     # Temperature display and progress components
+│   ├── controls/        # Action buttons and target selector
+│   ├── schedule/        # Schedule management components
+│   └── layout/          # Layout containers and status bar
+├── contexts/            # React Context providers (SettingsContext)
+├── hooks/               # Custom React hooks (useMockData, etc.)
+├── lib/                 # Shared utilities (cn, formatting helpers)
+├── types/               # TypeScript type definitions
+└── mock/                # Mock data and simulators for development
+```
+
+### State Management Patterns
+**React Context for Global Settings:**
+- `SettingsContext`: Application-wide settings (polling state, preferences)
+- Use custom hook pattern: `useSettings()` for type-safe access
+- Provider wraps entire app in `App.tsx`
+
+**Custom Hooks for Data:**
+- `useMockHotTub()`: Combined hook providing all mock data and actions
+- `useMockTemperature()`: Temperature data with auto-refresh
+- `useMockSystemStatus()`: System status with polling
+- `useMockEvents()`: Heating events with CRUD operations
+- `useMockScenarios()`: Development scenario switching
+
+**Component-Level State:**
+- Use `useState` for local UI state (target temp, UI toggles)
+- Prefer lifting state to parent when shared between siblings
+
+### Development Mock System
+The frontend uses a comprehensive mock data system for development without backend:
+
+**Mock Data Features:**
+- **Temperature Simulator**: Realistic heating progression (0.5°F/min default)
+- **Global Scenario State**: Switch between development scenarios (normal, heating, cooling)
+- **Simulated Delays**: Realistic API response timing (200-1000ms)
+- **Polling System**: Auto-refresh with configurable intervals (disabled by default)
+- **Action Simulation**: Full CRUD operations on mock events
+
+**Using Mock Data:**
+```typescript
+// Combined hook for all data and actions
+const mockData = useMockHotTub()
+
+// Access data
+mockData.temperature.current
+mockData.systemStatus.isHeating
+mockData.events
+
+// Trigger actions
+mockData.actions.startHeating(targetTemp)
+mockData.actions.refreshAll()
+```
+
+**Scenario Switching:**
+Development UI includes scenario buttons for testing different states:
+- Normal (idle state)
+- Heating (active heating cycle)
+- Cooling (post-heating cooldown)
+- Scheduled (future heating events)
+
+**Transition to Real API:**
+When ready to integrate with backend API:
+1. Create `src/services/api.ts` using axios for HTTP client
+2. Replace mock hooks with real API hooks using @tanstack/react-query
+3. Maintain same hook interface (`useMockHotTub` → `useHotTub`)
+4. Keep mock system available via environment flag for development/testing
+5. Add authentication token management (stored in Context or zustand store)
+
+### Utility Patterns
+**Class Name Merging:**
+```typescript
+import { cn } from '@/lib/utils'
+
+// Merge Tailwind classes with conditional logic
+<div className={cn("base-class", condition && "conditional-class", className)} />
+```
+
+**Format Helpers:**
+- `formatTemperature(temp, unit)`: Consistent temperature display with rounding
+- `formatDuration(minutes)`: Human-readable time (e.g., "2hr 30min")
+- `formatRelativeTime(date)`: Relative time strings (e.g., "in 2 hours")
+- `vibrate(pattern)`: Mobile haptic feedback (gracefully degrades on desktop)
+
+**Index Exports:**
+Components use index files for clean imports:
+```typescript
+// components/schedule/index.ts
+export { QuickSchedule } from './QuickSchedule'
+export { ScheduleList } from './ScheduleList'
+
+// Usage
+import { QuickSchedule, ScheduleList } from '@/components/schedule'
+```
+
+### Component Patterns
+**Consistent Props Structure:**
+- Primitive values first (strings, numbers, booleans)
+- Complex objects (data, status)
+- Callbacks (onAction, onChange)
+- UI state last (loading, disabled, className)
+
+**Loading States:**
+- Type: `'idle' | 'loading' | 'success' | 'error'`
+- Show loading spinners/disabled states during async operations
+- Provide visual feedback for user actions
+
+**Mobile-First Considerations:**
+- Touch targets minimum 44px (`min-h-touch-target`)
+- Haptic feedback on important actions (`vibrate()`)
+- Large, readable fonts for temperature displays
+- Safe area insets for notched devices
+
+**Icons and Visual Elements:**
+- Use `lucide-react` for all icons (consistent design system)
+- Import only needed icons: `import { Settings, RefreshCw } from 'lucide-react'`
+- Standard icon size: `h-4 w-4` for small UI elements, `h-6 w-6` for prominent actions
+- Add descriptive aria-labels for accessibility
+
+**Testing:**
+- Frontend tests not yet implemented
+- Playwright installed but not configured
+- Plan: Component tests + E2E tests with Playwright
 
 ## Frontend Development Guidelines
 

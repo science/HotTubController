@@ -137,14 +137,13 @@ export const createMockSystemStatus = (
 
 // Quick schedule presets
 export const defaultPresets: SchedulePreset[] = [
-  { id: 'preset-1', label: '+30min', type: 'relative', value: 30, description: 'Start in 30 minutes' },
-  { id: 'preset-2', label: '+1hr', type: 'relative', value: 60, description: 'Start in 1 hour' },
-  { id: 'preset-3', label: '+2hr', type: 'relative', value: 120, description: 'Start in 2 hours' },
   { id: 'preset-4', label: '+7.5hr', type: 'relative', value: 450, description: 'Start in 7.5 hours' },
   { id: 'preset-5', label: '5:00 AM', type: 'absolute', value: '05:00', description: 'Next 5:00 AM' },
   { id: 'preset-6', label: '5:30 AM', type: 'absolute', value: '05:30', description: 'Next 5:30 AM' },
   { id: 'preset-7', label: '6:00 AM', type: 'absolute', value: '06:00', description: 'Next 6:00 AM' },
-  { id: 'preset-8', label: '6:30 AM', type: 'absolute', value: '06:30', description: 'Next 6:30 AM' }
+  { id: 'preset-8', label: '6:30 AM', type: 'absolute', value: '06:30', description: 'Next 6:30 AM' },
+  { id: 'preset-9', label: '7:00 AM', type: 'absolute', value: '07:00', description: 'Next 7:00 AM' },
+  { id: 'preset-10', label: '7:30 AM', type: 'absolute', value: '07:30', description: 'Next 7:30 AM' }
 ]
 
 // Mock scenarios for testing different states
