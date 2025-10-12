@@ -124,96 +124,122 @@ storage/bin/cron-wrapper.sh              # Cron execution wrapper ✅
 - All repository pattern bugs fixed and tested
 - Ready for frontend development with stable, secure API foundation
 
-**Phase 2.1 Progress:**
-- ✅ **Frontend Foundation Complete**: React + TypeScript + Vite project structure
+### ✅ **Phase 2.1: Frontend Foundation - COMPLETE**
+- ✅ **Frontend Foundation**: React 19 + TypeScript + Vite project structure
 - ✅ **Node Version Management**: Volta configured for automatic Node 22.19.0/npm 11.6.0 switching
-- ✅ **Development Environment**: Frontend dev server running successfully with modern toolchain
-- ⏳ **Next**: Real-time dashboard implementation with API integration
+- ✅ **Component Library**: Mobile-first UI components with Tailwind CSS v4
+- ✅ **Mock Data System**: Complete development environment without backend dependency
+- ✅ **Realistic Temperature Simulation**: Frontend-side heating cycle simulation
+- ✅ **Development Scenarios**: Scenario switching for testing different states
 
-**Recent Achievements (Latest Commits):**
-- ✅ **Implemented configurable heating rate system (GitHub issue #9)**
-- ✅ **Added HeatingConfig class with admin API endpoints for heating velocity control**
-- ✅ **Enhanced CronJobBuilder to use configurable heating rates instead of hardcoded values**
-- ✅ **Comprehensive testing coverage for heating configuration system**
-- ✅ **Implemented comprehensive token-based authentication system**
-- ✅ **Added admin management APIs with proper role-based access control**
-- ✅ **Created authentication base class hierarchy for security enforcement**
-- ✅ **Built bootstrap system for initial admin token creation**
-- ✅ Fixed all test failures in HeatingManagementWorkflowTest
-- ✅ Resolved repository pattern save() method issues across all actions
-- ✅ Implemented complete management API suite with authentication
-- ✅ Added intelligent overlap prevention for heating schedules
-- ✅ Enhanced test coverage with comprehensive test suite
-- ✅ **Fixed critical test infrastructure bug causing mysterious temperature data failures**
-- ✅ **Improved test namespace organization and standardized test support classes**
-- ✅ **Enhanced test data injection system with fail-fast error handling**
-- ✅ **Resolved test data provider namespace mismatch that caused silent fallback to wrong values**
+### 🚧 **Phase 2.2: Backend Simulation Mode - IN PROGRESS** ⬅️ **CURRENT FOCUS**
 
+**Goal:** Enable full frontend-backend integration with realistic simulation based on live hardware recordings.
 
+**Core Principle:** Backend as single source of truth for operating mode. Simulation built from REAL recorded data, not theoretical physics.
 
-## 1.4 **User management APIs and system** ✅
-- **COMPLETED**: Comprehensive user management system implemented
-- **Token-based authentication**: Admin and user roles with proper access control
-- **Bootstrap system**: Initial admin token creation via master password
-- **Admin APIs**: Complete user/token management with proper authorization
-- **Authentication architecture**: Base classes enforcing security requirements
+#### **Backend Simulation Infrastructure** (Issues #28-#34)
 
+**Phase 1: Live Data Recording**
+- **#28** Create live heating cycle recording script
+  - VCR recording of all HTTP interactions
+  - Comprehensive logging with timestamps
+  - Safety prompts and abort mechanisms
+
+- **#29** Execute live heating cycle recording session
+  - Record actual hardware heating cycle (30-60 min)
+  - Capture real temperature progressions
+  - Document equipment timing
+
+- **#30** Create simulation data extraction tool
+  - Parse VCR cassettes for temperature sequences
+  - Calculate actual heating rates and variance
+  - Extract equipment response times
+
+**Phase 2: Backend Architecture**
+- **#31** Create backend mode detection system (ModeDetector)
+  - Single source of truth for mode (simulation/test/production)
+  - Centralized detection logic used by all services
+
+- **#32** Create simulation state manager with live data interpolation
+  - Load extracted live recording data
+  - Stateful temperature progression using real patterns
+  - Scenario support (idle, heating, cooling, error)
+
+- **#33** Update service factories to use ModeDetector
+  - Refactor IftttWebhookClientFactory
+  - Refactor WirelessTagClientFactory
+  - Integrate with SimulationStateManager
+
+- **#34** Add system info API endpoint for mode disclosure
+  - `GET /api/system/info` - Expose mode to frontend
+  - Mode headers in authenticated responses
+  - Optional dev simulation control endpoints
+
+#### **Frontend Integration** (Issues #35-#36)
+
+- **#35** Create frontend API service layer with authentication
+  - Axios HTTP client with interceptors
+  - Replace mock hooks with real API hooks
+  - React Query for data fetching and caching
+  - Authentication token management
+
+- **#36** Add frontend mode detection and dev UI indicators
+  - Detect backend mode from system info endpoint
+  - Simulation mode banner and status badges
+  - Optional dev controls for scenario switching
+  - Mode-aware UI features
+
+#### **Integration Testing** (Issue #37)
+
+- **#37** Integration testing: Full frontend-backend simulation mode
+  - End-to-end testing of all components
+  - Validate simulation accuracy vs live recording
+  - Performance and timing verification
+  - Safety verification (no hardware triggers)
+  - Documentation and troubleshooting guide
+
+**Key Benefits:**
+- ✅ Simulation based on **real hardware data**, not assumptions
+- ✅ Backend controls operating mode (single source of truth)
+- ✅ Frontend works identically in simulation and production
+- ✅ Safe development with no hardware risk
+- ✅ Realistic temperature progressions for testing
+
+### ⏳ **Phase 2.3: Production Features - PLANNED**
+- Real-time Dashboard with live temperature monitoring
+- Heating schedule management interface
+- Mobile-responsive Design with PWA support
+- Historical data visualization and analytics
+- WebSocket/Server-Sent Events for live updates
 
 ---
 
-## 🎯 **THEN: Phase 2 - Web Interface Foundation**
+## 📊 **Phase 2.2 Implementation Summary**
 
-*Estimated Duration: 3-4 weeks*  
-*Priority: High - Needed for usable system*
+**Simulation Project GitHub Issues:** [#28-#37](https://github.com/science/HotTubController/issues)
 
-### 2.1 **React Frontend Setup** ⚛️ ✅ **COMPLETE**
-*Completed: September 2025*
+**Total Issues:** 10 (all in "Ready to Implement" status)
 
-**✅ Implemented Project Structure:**
-```
-frontend/
-├── src/
-│   ├── components/             # Component library
-│   ├── pages/                  # Page components
-│   ├── hooks/                  # Custom React hooks
-│   ├── services/               # API clients and utilities
-│   ├── utils/                  # Helper functions
-│   └── types/                  # TypeScript type definitions
-├── public/                     # Static assets
-├── package.json               # Dependencies with Volta pinning
-└── vite.config.ts             # Vite configuration
-```
+**Implementation Approach:**
+1. Record live hardware data first (foundation)
+2. Build simulation from real data (not assumptions)
+3. Backend determines mode (single source of truth)
+4. Frontend adapts transparently to mode
+5. Full integration testing with accuracy validation
 
-**✅ Completed Features:**
-- Modern React 19 + TypeScript + Vite development environment
-- **Volta Integration**: Automatic Node 22.19.0/npm 11.6.0 version management
-- TailwindCSS for styling with Radix UI component library
-- ESLint + Prettier configured for code quality
-- Development server running successfully
+**Expected Timeline:** 2-3 weeks
+- Week 1: Live recording + Backend simulation infrastructure
+- Week 2: Frontend integration + Testing
+- Week 3: Validation + Documentation
 
-**⏳ Next Phase 2.2 Features:**
-- Real-time temperature monitoring dashboard
-- Heating schedule management interface
-- Mobile-responsive design (PWA capabilities)
-- Authentication and secure API communication
-
-
-### 2.2 **Real-time Communication** 📡
-*Duration: 3-4 days*
-
-**Backend additions:**
-- WebSocket/Server-Sent Events for live temperature updates
-- Real-time heating status notifications
-- Equipment status monitoring
-
-### 2.3 **Historical Analytics** 📈
-*Duration: 5-7 days*
-
-**Features:**
-- Heating cycle performance tracking
-- Temperature trend visualization
-- Energy usage estimation
-- System health monitoring
+**Success Criteria:**
+- [ ] Full heating cycle recorded from live hardware
+- [ ] Simulation temperature progression matches recorded data (±5%)
+- [ ] Frontend connects to backend seamlessly
+- [ ] Mode detection works correctly
+- [ ] No hardware can be triggered in simulation mode
+- [ ] Documentation complete for simulation mode usage
 
 ---
 
