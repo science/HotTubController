@@ -5,6 +5,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use HotTub\Controllers\EquipmentController;
+use HotTub\Services\EnvLoader;
+use HotTub\Services\IftttClientFactory;
 
 // CORS headers for frontend
 header('Content-Type: application/json');
@@ -18,9 +20,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$logFile = __DIR__ . '/../logs/events.log';
-$controller = new EquipmentController($logFile);
+// Load environment configuration from .env file
+// This enables simple FTP/cPanel deployment: just copy the correct .env file
+$loader = new EnvLoader();
+$envPath = $loader->getDefaultPath();
 
+if (file_exists($envPath)) {
+    // File-based config (preferred for production deployments)
+    $config = $loader->load($envPath);
+} else {
+    // Fallback to system environment (for container/PaaS deployments)
+    $config = [
+        'APP_ENV' => $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'development',
+        'IFTTT_MODE' => $_ENV['IFTTT_MODE'] ?? getenv('IFTTT_MODE') ?: 'auto',
+        'IFTTT_WEBHOOK_KEY' => $_ENV['IFTTT_WEBHOOK_KEY'] ?? getenv('IFTTT_WEBHOOK_KEY') ?: null,
+    ];
+}
+
+// Paths
+$logFile = __DIR__ . '/../logs/events.log';
+
+// Create IFTTT client via factory
+// The factory uses php://stderr by default for console visibility
+$factory = new IftttClientFactory($config, $logFile);
+$iftttClient = $factory->create($config['IFTTT_MODE'] ?? 'auto');
+
+// Create controller with IFTTT client
+$controller = new EquipmentController($logFile, $iftttClient);
+
+// Route the request
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'];
 

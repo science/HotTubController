@@ -2,3 +2,10 @@
 /composer.phar
 /.phpunit.cache/
 /logs/*.log
+
+# Environment files with secrets - NEVER commit these
+.env
+!.env.example
+
+# Config files that may contain real keys - staging and production templates only
+# (development and testing configs are safe to commit as they use stub mode)
