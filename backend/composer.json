@@ -1,0 +1,24 @@
+{
+    "name": "hot-tub/controller-api",
+    "description": "Hot Tub Controller Backend API",
+    "type": "project",
+    "require": {
+        "php": ">=8.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "HotTub\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "HotTub\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    }
+}
