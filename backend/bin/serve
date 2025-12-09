@@ -1,0 +1,51 @@
+#!/bin/bash
+#
+# Start the Hot Tub Controller backend server
+# Displays configuration prominently to prevent mode confusion
+#
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+# Check if .env exists
+if [ ! -f .env ]; then
+    echo "ERROR: No .env file found!"
+    echo ""
+    echo "Create one by copying a config template:"
+    echo "  cp config/env.development .env   # For local dev (stub mode)"
+    echo "  cp config/env.staging .env       # For staging (live mode)"
+    echo ""
+    exit 1
+fi
+
+# Read configuration from .env
+APP_ENV=$(grep -E "^APP_ENV=" .env 2>/dev/null | cut -d= -f2 | tr -d ' ')
+IFTTT_MODE=$(grep -E "^IFTTT_MODE=" .env 2>/dev/null | cut -d= -f2 | tr -d ' ')
+
+# Determine display style based on mode
+if [ "$IFTTT_MODE" = "live" ]; then
+    MODE_DISPLAY=">>> LIVE - REAL HARDWARE <<<"
+    WARN_MSG="API calls WILL trigger real IFTTT webhooks!"
+else
+    MODE_DISPLAY="stub (simulated)"
+    WARN_MSG="API calls are simulated - safe for testing"
+fi
+
+# Display boot banner
+echo ""
+echo "=========================================="
+echo "  HOT TUB CONTROLLER BACKEND"
+echo "=========================================="
+echo "  Environment:  ${APP_ENV:-unknown}"
+echo "  IFTTT Mode:   ${MODE_DISPLAY}"
+echo ""
+echo "  ${WARN_MSG}"
+echo "=========================================="
+echo ""
+echo "Starting server at http://localhost:8080"
+echo "Press Ctrl+C to stop"
+echo ""
+
+# Start PHP built-in server
+php -S localhost:8080 -t public

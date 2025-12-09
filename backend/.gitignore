@@ -7,5 +7,7 @@
 .env
 !.env.example
 
-# Config files that may contain real keys - staging and production templates only
+# Config files that may contain real keys - staging and production have real API keys
 # (development and testing configs are safe to commit as they use stub mode)
+config/env.staging
+config/env.production
