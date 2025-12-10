@@ -10,26 +10,8 @@ use HotTub\Services\EnvLoader;
 use HotTub\Services\IftttClientFactory;
 use HotTub\Services\AuthService;
 use HotTub\Middleware\AuthMiddleware;
-
-// CORS headers for frontend
-header('Content-Type: application/json');
-$allowedOrigins = ['http://localhost:5173', 'https://misuse.org'];
-$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-if (in_array($origin, $allowedOrigins, true)) {
-    header('Access-Control-Allow-Origin: ' . $origin);
-} elseif ($origin === '') {
-    // Same-origin requests don't have Origin header
-    header('Access-Control-Allow-Origin: https://misuse.org');
-}
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
-header('Access-Control-Allow-Credentials: true');
-
-// Handle preflight
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
+use HotTub\Middleware\CorsMiddleware;
+use HotTub\Routing\Router;
 
 // Load environment configuration from .env file
 // This enables simple FTP/cPanel deployment: just copy the correct .env file
@@ -48,6 +30,20 @@ if (file_exists($envPath)) {
     ];
 }
 
+// CORS middleware
+$allowedOrigins = ['http://localhost:5173', 'https://misuse.org'];
+$cors = new CorsMiddleware($allowedOrigins);
+
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$method = $_SERVER['REQUEST_METHOD'];
+
+// Handle CORS headers and preflight
+$corsResult = $cors->handle($origin, $method);
+if ($corsResult !== null) {
+    http_response_code($corsResult['status']);
+    exit;
+}
+
 // Paths
 $logFile = __DIR__ . '/../logs/events.log';
 
@@ -57,16 +53,14 @@ $authMiddleware = new AuthMiddleware($authService);
 $authController = new AuthController($authService);
 
 // Create IFTTT client via factory
-// The factory uses php://stderr by default for console visibility
 $factory = new IftttClientFactory($config, $logFile);
 $iftttClient = $factory->create($config['IFTTT_MODE'] ?? 'auto');
 
 // Create controller with IFTTT client
 $equipmentController = new EquipmentController($logFile, $iftttClient);
 
-// Route the request
+// Parse request URI
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$method = $_SERVER['REQUEST_METHOD'];
 
 // Strip base path for subdirectory deployments (e.g., /tub/backend/public)
 $scriptName = dirname($_SERVER['SCRIPT_NAME']);
@@ -81,43 +75,27 @@ if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
 }
 $cookies = $_COOKIE;
 
-// Helper to require auth for protected routes
-$requireAuth = function () use ($authMiddleware, $headers, $cookies): ?array {
-    return $authMiddleware->requireAuth($headers, $cookies);
-};
+// Auth middleware for protected routes
+$requireAuth = fn() => $authMiddleware->requireAuth($headers, $cookies);
 
-// Helper to get current user
-$getUser = function () use ($authMiddleware, $headers, $cookies): ?array {
-    return $authMiddleware->authenticate($headers, $cookies);
-};
+// Configure routes
+$router = new Router();
 
-// Route based on path and method
-$response = match (true) {
-    // Public routes
-    $uri === '/api/health' && $method === 'GET'
-        => $equipmentController->health(),
+// Public routes
+$router->get('/api/health', fn() => $equipmentController->health());
 
-    // Auth routes (public)
-    $uri === '/api/auth/login' && $method === 'POST'
-        => handleLogin($authController),
-    $uri === '/api/auth/logout' && $method === 'POST'
-        => handleLogout($authController),
-    $uri === '/api/auth/me' && $method === 'GET'
-        => handleMe($authController, $headers, $cookies),
+// Auth routes
+$router->post('/api/auth/login', fn() => handleLogin($authController));
+$router->post('/api/auth/logout', fn() => handleLogout($authController));
+$router->get('/api/auth/me', fn() => handleMe($authController, $headers, $cookies));
 
-    // Protected equipment routes
-    $uri === '/api/equipment/heater/on' && $method === 'POST'
-        => $requireAuth() ?? $equipmentController->heaterOn(),
-    $uri === '/api/equipment/heater/off' && $method === 'POST'
-        => $requireAuth() ?? $equipmentController->heaterOff(),
-    $uri === '/api/equipment/pump/run' && $method === 'POST'
-        => $requireAuth() ?? $equipmentController->pumpRun(),
+// Protected equipment routes (with auth middleware)
+$router->post('/api/equipment/heater/on', fn() => $equipmentController->heaterOn(), $requireAuth);
+$router->post('/api/equipment/heater/off', fn() => $equipmentController->heaterOff(), $requireAuth);
+$router->post('/api/equipment/pump/run', fn() => $equipmentController->pumpRun(), $requireAuth);
 
-    default => [
-        'status' => 404,
-        'body' => ['error' => 'Not found'],
-    ],
-};
+// Dispatch request
+$response = $router->dispatch($method, $uri);
 
 http_response_code($response['status']);
 echo json_encode($response['body']);
