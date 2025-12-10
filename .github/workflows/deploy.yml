@@ -1,0 +1,92 @@
+name: Deploy to cPanel
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Install PHP dependencies (production only)
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          composer install --no-dev --optimize-autoloader
+
+      # Build frontend
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+      # Generate backend .env from secrets
+      - name: Create backend .env
+        run: |
+          cat > backend/.env << 'EOF'
+          APP_ENV=production
+          IFTTT_MODE=live
+          IFTTT_WEBHOOK_KEY=${{ secrets.IFTTT_WEBHOOK_KEY }}
+          AUTH_ADMIN_USERNAME=${{ secrets.AUTH_ADMIN_USERNAME }}
+          AUTH_ADMIN_PASSWORD=${{ secrets.AUTH_ADMIN_PASSWORD }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          JWT_EXPIRY_HOURS=${{ secrets.JWT_EXPIRY_HOURS }}
+          EOF
+
+      # Deploy backend via FTP
+      - name: Deploy backend to cPanel
+        uses: SamKirkland/FTP-Deploy-Action@v4
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
+          local-dir: ./backend/
+          server-dir: /public_html/hot-tub/backend/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/tests/**
+            **/config/env.*
+            **/.env.example
+            **/phpunit.xml
+
+      # Deploy frontend via FTP
+      - name: Deploy frontend to cPanel
+        uses: SamKirkland/FTP-Deploy-Action@v4
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
+          local-dir: ./frontend/build/
+          server-dir: /public_html/hot-tub/
+          state-name: .ftp-deploy-sync-state-frontend.json
+          exclude: |
+            **/.git*
+            **/.git*/**
