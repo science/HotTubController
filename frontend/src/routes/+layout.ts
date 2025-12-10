@@ -7,6 +7,7 @@ export const ssr = false;
 
 export const load: LayoutLoad = async ({ url, fetch }) => {
 	const loginPath = `${base}/login`;
+	const apiBase = `${base}/backend/public`;
 
 	// Skip auth check for login page
 	if (url.pathname === loginPath) {
@@ -14,7 +15,7 @@ export const load: LayoutLoad = async ({ url, fetch }) => {
 	}
 
 	try {
-		const response = await fetch(`${base}/api/auth/me`, {
+		const response = await fetch(`${apiBase}/api/auth/me`, {
 			credentials: 'include'
 		});
 

@@ -7,8 +7,11 @@ export interface ApiResponse {
 	duration?: number;
 }
 
+// API base path - backend is at {base}/backend/public
+const API_BASE = `${base}/backend/public`;
+
 async function post(endpoint: string): Promise<ApiResponse> {
-	const response = await fetch(`${base}${endpoint}`, {
+	const response = await fetch(`${API_BASE}${endpoint}`, {
 		method: 'POST',
 		credentials: 'include'
 	});

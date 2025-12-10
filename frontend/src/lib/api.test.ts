@@ -15,7 +15,7 @@ describe('API Client', () => {
 
 		const result = await api.heaterOn();
 
-		expect(mockFetch).toHaveBeenCalledWith('/api/equipment/heater/on', { method: 'POST', credentials: 'include' });
+		expect(mockFetch).toHaveBeenCalledWith('/backend/public/api/equipment/heater/on', { method: 'POST', credentials: 'include' });
 		expect(result.success).toBe(true);
 		expect(result.action).toBe('heater_on');
 	});
@@ -29,7 +29,7 @@ describe('API Client', () => {
 
 		const result = await api.heaterOff();
 
-		expect(mockFetch).toHaveBeenCalledWith('/api/equipment/heater/off', { method: 'POST', credentials: 'include' });
+		expect(mockFetch).toHaveBeenCalledWith('/backend/public/api/equipment/heater/off', { method: 'POST', credentials: 'include' });
 		expect(result.success).toBe(true);
 		expect(result.action).toBe('heater_off');
 	});
@@ -43,7 +43,7 @@ describe('API Client', () => {
 
 		const result = await api.pumpRun();
 
-		expect(mockFetch).toHaveBeenCalledWith('/api/equipment/pump/run', { method: 'POST', credentials: 'include' });
+		expect(mockFetch).toHaveBeenCalledWith('/backend/public/api/equipment/pump/run', { method: 'POST', credentials: 'include' });
 		expect(result.success).toBe(true);
 		expect(result.action).toBe('pump_run');
 		expect(result.duration).toBe(7200);

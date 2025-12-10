@@ -1,10 +1,7 @@
 # Hot Tub Controller Frontend - Apache/LiteSpeed URL Rewriting
-# Handles SPA routing and API proxy
+# Handles SPA routing for client-side navigation
 
 RewriteEngine On
-
-# Proxy /api/* requests to backend
-RewriteRule ^api/(.*)$ backend/public/api/$1 [L]
 
 # If the request is for a real file or directory, serve it directly
 RewriteCond %{REQUEST_FILENAME} !-f

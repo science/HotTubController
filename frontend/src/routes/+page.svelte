@@ -26,7 +26,7 @@
 
 	async function handleLogout() {
 		try {
-			await fetch(`${base}/api/auth/logout`, {
+			await fetch(`${base}/backend/public/api/auth/logout`, {
 				method: 'POST',
 				credentials: 'include'
 			});

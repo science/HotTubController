@@ -20,8 +20,8 @@ let error = $state<string | null>(null);
 // Derived state
 const isAuthenticated = $derived(user !== null);
 
-// API base URL - uses SvelteKit base path
-const API_BASE = base;
+// API base URL - backend is at {base}/backend/public
+const API_BASE = `${base}/backend/public`;
 
 export async function login(username: string, password: string): Promise<boolean> {
 	isLoading = true;
