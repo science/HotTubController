@@ -6,9 +6,10 @@ export default defineConfig({
 	plugins: [sveltekit(), tailwindcss()],
 	server: {
 		proxy: {
-			'/api': {
+			'/tub/backend/public/api': {
 				target: 'http://localhost:8080',
 				changeOrigin: true,
+				rewrite: (path) => path.replace(/^\/tub\/backend\/public/, ''),
 			},
 		},
 	},

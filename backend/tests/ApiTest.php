@@ -100,7 +100,7 @@ class ApiTest extends TestCase
         // Verify IFTTT was triggered
         rewind($this->consoleOutput);
         $consoleContents = stream_get_contents($this->consoleOutput);
-        $this->assertStringContainsString('pump-run-2hr', $consoleContents);
+        $this->assertStringContainsString('cycle_hot_tub_ionizer', $consoleContents);
     }
 
     public function testHeaterOnLogsToEventLog(): void

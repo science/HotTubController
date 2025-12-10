@@ -56,7 +56,7 @@ npm run check            # TypeScript/Svelte type checking
 - `GET /api/health` - Health check with IFTTT mode status
 - `POST /api/equipment/heater/on` - Trigger IFTTT `hot-tub-heat-on`
 - `POST /api/equipment/heater/off` - Trigger IFTTT `hot-tub-heat-off`
-- `POST /api/equipment/pump/run` - Trigger IFTTT `pump-run-2hr`
+- `POST /api/equipment/pump/run` - Trigger IFTTT `cycle_hot_tub_ionizer`
 
 ## Development Methodology: TDD Red/Green
 

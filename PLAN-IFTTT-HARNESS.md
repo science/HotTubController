@@ -116,7 +116,7 @@ Based on archived implementation, these are the IFTTT events:
 |--------|-----------------|-------------|
 | Heater ON | `hot-tub-heat-on` | Starts pump → waits → activates heater |
 | Heater OFF | `hot-tub-heat-off` | Stops heater → pump cooling → stops pump |
-| Pump Run | `pump-run-2hr` | Runs pump for 2 hours (new event) |
+| Pump Run | `cycle_hot_tub_ionizer` | Runs pump for 2 hours |
 
 ## File Structure
 

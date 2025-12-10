@@ -99,14 +99,14 @@ class EquipmentController
     /**
      * Run the pump for 2 hours.
      *
-     * Triggers the IFTTT pump-run-2hr event which
+     * Triggers the IFTTT cycle_hot_tub_ionizer event which
      * activates the circulation pump for 2 hours.
      */
     public function pumpRun(): array
     {
         $timestamp = date('c');
         $duration = 7200; // 2 hours in seconds
-        $success = $this->iftttClient->trigger('pump-run-2hr');
+        $success = $this->iftttClient->trigger('cycle_hot_tub_ionizer');
 
         $this->logger->log('pump_run', [
             'duration' => $duration,
