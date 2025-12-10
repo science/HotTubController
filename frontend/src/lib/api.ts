@@ -1,3 +1,5 @@
+import { base } from '$app/paths';
+
 export interface ApiResponse {
 	success: boolean;
 	action: string;
@@ -6,7 +8,7 @@ export interface ApiResponse {
 }
 
 async function post(endpoint: string): Promise<ApiResponse> {
-	const response = await fetch(endpoint, {
+	const response = await fetch(`${base}${endpoint}`, {
 		method: 'POST',
 		credentials: 'include'
 	});

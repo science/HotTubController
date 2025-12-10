@@ -1,3 +1,5 @@
+import { base } from '$app/paths';
+
 export interface User {
 	username: string;
 	role: string;
@@ -18,8 +20,8 @@ let error = $state<string | null>(null);
 // Derived state
 const isAuthenticated = $derived(user !== null);
 
-// API base URL - empty for same-origin requests via proxy
-const API_BASE = '';
+// API base URL - uses SvelteKit base path
+const API_BASE = base;
 
 export async function login(username: string, password: string): Promise<boolean> {
 	isLoading = true;

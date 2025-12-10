@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { login, getError, clearError } from '$lib/stores/auth.svelte';
 
 	let username = $state('');
@@ -16,7 +17,7 @@
 		const success = await login(username, password);
 
 		if (success) {
-			goto('/');
+			goto(base || '/');
 		}
 
 		isSubmitting = false;

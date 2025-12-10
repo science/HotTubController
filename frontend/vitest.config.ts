@@ -9,6 +9,7 @@ export default defineConfig({
 		globals: true,
 		alias: {
 			'$lib': '/src/lib',
+			'$app/paths': '/src/test/mocks/app-paths.ts',
 		},
 	},
 	resolve: {

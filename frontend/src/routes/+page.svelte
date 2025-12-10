@@ -2,6 +2,7 @@
 	import ControlButton from '$lib/components/ControlButton.svelte';
 	import { api } from '$lib/api';
 	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 
 	let { data } = $props();
 
@@ -13,7 +14,7 @@
 			status = { message: successMsg, type: 'success' };
 		} catch (e) {
 			if (e instanceof Error && e.message === 'Unauthorized') {
-				goto('/login');
+				goto(`${base}/login`);
 				return;
 			}
 			status = { message: 'Action failed. Try again.', type: 'error' };
@@ -25,14 +26,14 @@
 
 	async function handleLogout() {
 		try {
-			await fetch('/api/auth/logout', {
+			await fetch(`${base}/api/auth/logout`, {
 				method: 'POST',
 				credentials: 'include'
 			});
 		} catch (e) {
 			// Ignore errors
 		}
-		goto('/login');
+		goto(`${base}/login`);
 	}
 </script>
 
