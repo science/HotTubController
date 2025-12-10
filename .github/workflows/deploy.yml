@@ -65,8 +65,9 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ftps
           port: 21
+          security: loose
           local-dir: ./backend/
-          server-dir: /public_html/hot-tub/backend/
+          server-dir: /public_html/hot_tub/backend/
           exclude: |
             **/.git*
             **/.git*/**
@@ -84,8 +85,9 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ftps
           port: 21
+          security: loose
           local-dir: ./frontend/build/
-          server-dir: /public_html/hot-tub/
+          server-dir: /public_html/hot_tub/
           state-name: .ftp-deploy-sync-state-frontend.json
           exclude: |
             **/.git*
