@@ -13,7 +13,14 @@ use HotTub\Middleware\AuthMiddleware;
 
 // CORS headers for frontend
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: http://localhost:5173');
+$allowedOrigins = ['http://localhost:5173', 'https://misuse.org'];
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if (in_array($origin, $allowedOrigins, true)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+} elseif ($origin === '') {
+    // Same-origin requests don't have Origin header
+    header('Access-Control-Allow-Origin: https://misuse.org');
+}
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Access-Control-Allow-Credentials: true');
@@ -60,6 +67,12 @@ $equipmentController = new EquipmentController($logFile, $iftttClient);
 // Route the request
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'];
+
+// Strip base path for subdirectory deployments (e.g., /tub/backend/public)
+$scriptName = dirname($_SERVER['SCRIPT_NAME']);
+if ($scriptName !== '/' && str_starts_with($uri, $scriptName)) {
+    $uri = substr($uri, strlen($scriptName)) ?: '/';
+}
 
 // Get headers and cookies for auth
 $headers = [];
