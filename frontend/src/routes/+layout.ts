@@ -1,5 +1,9 @@
 import type { LayoutLoad } from './$types';
 
+// Static adapter: disable SSR, enable prerendering for SPA mode
+export const prerender = true;
+export const ssr = false;
+
 export const load: LayoutLoad = async ({ url, fetch }) => {
 	// Skip auth check for login page
 	if (url.pathname === '/login') {
