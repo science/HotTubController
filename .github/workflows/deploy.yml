@@ -67,7 +67,7 @@ jobs:
           port: 21
           security: loose
           local-dir: ./backend/
-          server-dir: /public_html/hot_tub/backend/
+          server-dir: /public_html/tub/backend/
           exclude: |
             **/.git*
             **/.git*/**
@@ -87,7 +87,7 @@ jobs:
           port: 21
           security: loose
           local-dir: ./frontend/build/
-          server-dir: /public_html/hot_tub/
+          server-dir: /public_html/tub/
           state-name: .ftp-deploy-sync-state-frontend.json
           exclude: |
             **/.git*
