@@ -3,6 +3,9 @@
 	import { schedulerConfig } from '$lib/config';
 	import { onDestroy } from 'svelte';
 
+	// Export loadJobs function for parent components to trigger refresh
+	export { loadJobs };
+
 	let jobs = $state<ScheduledJob[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);

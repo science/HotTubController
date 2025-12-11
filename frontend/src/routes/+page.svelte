@@ -1,5 +1,6 @@
 <script lang="ts">
-	import ControlButton from '$lib/components/ControlButton.svelte';
+	import CompactControlButton from '$lib/components/CompactControlButton.svelte';
+	import QuickSchedulePanel from '$lib/components/QuickSchedulePanel.svelte';
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte';
 	import { api } from '$lib/api';
 	import { goto } from '$app/navigation';
@@ -8,6 +9,7 @@
 	let { data } = $props();
 
 	let status = $state<{ message: string; type: 'success' | 'error' } | null>(null);
+	let schedulePanel = $state<{ loadJobs: () => Promise<void> } | null>(null);
 
 	async function handleAction(action: () => Promise<unknown>, successMsg: string) {
 		try {
@@ -36,6 +38,18 @@
 		}
 		goto(`${base}/login`);
 	}
+
+	function handleQuickScheduled(result: { success: boolean; message: string }) {
+		status = {
+			message: result.message,
+			type: result.success ? 'success' : 'error'
+		};
+		setTimeout(() => {
+			status = null;
+		}, 3000);
+		// Refresh the schedule panel to show the new job
+		schedulePanel?.loadJobs();
+	}
 </script>
 
 <div class="min-h-screen bg-slate-900 p-4 flex flex-col">
@@ -54,33 +68,37 @@
 		{/if}
 	</header>
 
-	<main class="flex-1 flex flex-col gap-4 max-w-md mx-auto w-full">
-		<div class="grid grid-cols-2 gap-4">
-			<ControlButton
-				label="Heater ON"
+	<main class="flex-1 flex flex-col gap-3 max-w-md mx-auto w-full">
+		<!-- Compact Primary Controls -->
+		<div class="grid grid-cols-3 gap-2">
+			<CompactControlButton
+				label="ON"
 				icon="flame"
 				variant="primary"
 				tooltip="Turn on the hot tub heater"
 				onClick={() => handleAction(api.heaterOn, 'Heater turned ON')}
 			/>
-			<ControlButton
-				label="Heater OFF"
+			<CompactControlButton
+				label="OFF"
 				icon="flame-off"
 				variant="secondary"
 				tooltip="Turn off the hot tub heater"
 				onClick={() => handleAction(api.heaterOff, 'Heater turned OFF')}
 			/>
+			<CompactControlButton
+				label="PUMP"
+				icon="refresh"
+				variant="tertiary"
+				tooltip="Run the circulation pump for 2 hours"
+				onClick={() => handleAction(api.pumpRun, 'Pump running for 2 hours')}
+			/>
 		</div>
 
-		<ControlButton
-			label="Run Pump"
-			icon="refresh"
-			variant="tertiary"
-			tooltip="Run the circulation pump for 2 hours"
-			onClick={() => handleAction(api.pumpRun, 'Pump running for 2 hours')}
-		/>
+		<!-- Quick Schedule Buttons -->
+		<QuickSchedulePanel onScheduled={handleQuickScheduled} />
 
-		<SchedulePanel />
+		<!-- Full Schedule Panel -->
+		<SchedulePanel bind:this={schedulePanel} />
 	</main>
 
 	<footer class="mt-6 text-center">
