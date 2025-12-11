@@ -97,10 +97,17 @@ class SchedulerService
     /**
      * List all pending scheduled jobs.
      *
+     * Also cleans up any orphaned crontab entries (crontab entries without
+     * corresponding job files). This can happen if a job file is manually
+     * deleted, or due to a crash during job execution.
+     *
      * @return array<array{jobId: string, action: string, scheduledTime: string, createdAt: string}>
      */
     public function listJobs(): array
     {
+        // First, clean up any orphaned crontab entries
+        $this->cleanupOrphanedCrontabEntries();
+
         $jobs = [];
         $pattern = $this->jobsDir . '/job-*.json';
 
@@ -129,6 +136,32 @@ class SchedulerService
         });
 
         return $jobs;
+    }
+
+    /**
+     * Clean up orphaned crontab entries that don't have corresponding job files.
+     *
+     * An orphan can occur if:
+     * 1. A job file was manually deleted
+     * 2. cron-runner.sh crashed after removing cron but before deleting the job file (unlikely)
+     * 3. Prior installation left stale entries
+     */
+    private function cleanupOrphanedCrontabEntries(): void
+    {
+        $entries = $this->crontabAdapter->listEntries();
+
+        foreach ($entries as $entry) {
+            // Extract job ID from HOTTUB: comment pattern
+            if (preg_match('/HOTTUB:(job-[a-f0-9]+)/', $entry, $matches)) {
+                $jobId = $matches[1];
+                $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+
+                // If no job file exists, this is an orphaned crontab entry
+                if (!file_exists($jobFile)) {
+                    $this->crontabAdapter->removeByPattern('HOTTUB:' . $jobId);
+                }
+            }
+        }
     }
 
     /**

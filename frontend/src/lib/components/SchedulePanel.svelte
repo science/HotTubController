@@ -1,7 +1,16 @@
 <script lang="ts">
 	import { api, type ScheduledJob } from '$lib/api';
 	import { schedulerConfig } from '$lib/config';
+	import {
+		getAutoHeatOffEnabled,
+		setAutoHeatOffEnabled,
+		getAutoHeatOffMinutes,
+		setAutoHeatOffMinutes,
+		calculateHeatOffTime,
+		AUTO_HEAT_OFF_DEFAULTS
+	} from '$lib/autoHeatOff';
 	import { onDestroy } from 'svelte';
+	import { RefreshCw } from 'lucide-svelte';
 
 	// Export loadJobs function for parent components to trigger refresh
 	export { loadJobs };
@@ -11,10 +20,18 @@
 	let error = $state<string | null>(null);
 	let success = $state<string | null>(null);
 
+	// Refresh button tooltip state
+	let showRefreshTooltip = $state(false);
+	let refreshPressTimer: ReturnType<typeof setTimeout> | null = null;
+
 	// Form state
 	let selectedAction = $state('heater-on');
 	let scheduledDate = $state('');
 	let scheduledTime = $state('');
+
+	// Auto heat-off state (loaded from localStorage)
+	let autoHeatOffEnabled = $state(getAutoHeatOffEnabled());
+	let autoHeatOffMinutes = $state(getAutoHeatOffMinutes());
 
 	// Auto-refresh timers for pending jobs
 	const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -124,6 +141,23 @@
 		return `${sign}${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 	}
 
+	function handleAutoHeatOffToggle(event: Event) {
+		const target = event.target as HTMLInputElement;
+		autoHeatOffEnabled = target.checked;
+		setAutoHeatOffEnabled(target.checked);
+	}
+
+	function handleAutoHeatOffMinutesChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const value = parseInt(target.value, 10);
+		if (!isNaN(value)) {
+			autoHeatOffMinutes = value;
+			setAutoHeatOffMinutes(value);
+			// Update display with clamped value
+			autoHeatOffMinutes = getAutoHeatOffMinutes();
+		}
+	}
+
 	async function handleSchedule() {
 		if (!scheduledDate || !scheduledTime) {
 			error = 'Please select date and time';
@@ -137,7 +171,26 @@
 		try {
 			const scheduledDateTime = `${scheduledDate}T${scheduledTime}:00${getTimezoneOffset()}`;
 			await api.scheduleJob(selectedAction, scheduledDateTime);
-			success = 'Job scheduled successfully!';
+
+			// If auto heat-off is enabled and action is heater-on, schedule heater-off too
+			if (autoHeatOffEnabled && selectedAction === 'heater-on') {
+				const heatOffTime = calculateHeatOffTime(scheduledDateTime, autoHeatOffMinutes);
+				await api.scheduleJob('heater-off', heatOffTime);
+
+				// Format times for success message
+				const onTime = new Date(scheduledDateTime).toLocaleTimeString(undefined, {
+					hour: 'numeric',
+					minute: '2-digit'
+				});
+				const offTime = new Date(heatOffTime).toLocaleTimeString(undefined, {
+					hour: 'numeric',
+					minute: '2-digit'
+				});
+				success = `Scheduled heater-on at ${onTime} and auto heat-off at ${offTime}`;
+			} else {
+				success = 'Job scheduled successfully!';
+			}
+
 			await loadJobs();
 
 			// Clear success after 3 seconds
@@ -157,6 +210,29 @@
 			await loadJobs();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to cancel job';
+		}
+	}
+
+	async function handleRefresh() {
+		if (showRefreshTooltip) return;
+		await loadJobs();
+	}
+
+	function handleRefreshPressStart() {
+		refreshPressTimer = setTimeout(() => {
+			showRefreshTooltip = true;
+		}, 500);
+	}
+
+	function handleRefreshPressEnd() {
+		if (refreshPressTimer) {
+			clearTimeout(refreshPressTimer);
+			refreshPressTimer = null;
+		}
+		if (showRefreshTooltip) {
+			setTimeout(() => {
+				showRefreshTooltip = false;
+			}, 100);
 		}
 	}
 
@@ -243,9 +319,37 @@
 	{/if}
 
 	<!-- Scheduled Jobs List -->
-	{#if jobs.length > 0}
-		<div class="border-t border-slate-700 pt-4">
-			<h3 class="text-sm font-medium text-slate-400 mb-2">Pending Jobs</h3>
+	<div class="border-t border-slate-700 pt-4">
+		<div class="flex items-center justify-between mb-2">
+			<h3 class="text-sm font-medium text-slate-400">Pending Jobs</h3>
+			<div class="relative">
+				<button
+					type="button"
+					aria-label="Refresh pending jobs"
+					onclick={handleRefresh}
+					onmousedown={handleRefreshPressStart}
+					onmouseup={handleRefreshPressEnd}
+					onmouseleave={handleRefreshPressEnd}
+					ontouchstart={handleRefreshPressStart}
+					ontouchend={handleRefreshPressEnd}
+					ontouchcancel={handleRefreshPressEnd}
+					class="p-1 text-slate-400 hover:text-slate-300 transition-colors rounded"
+				>
+					<RefreshCw class="w-4 h-4" />
+				</button>
+				{#if showRefreshTooltip}
+					<div
+						class="absolute bottom-full right-0 mb-2 px-2 py-1 bg-slate-700 text-slate-100 text-xs rounded shadow-lg whitespace-nowrap z-10"
+					>
+						Refresh pending jobs
+						<div
+							class="absolute top-full right-2 border-4 border-transparent border-t-slate-700"
+						></div>
+					</div>
+				{/if}
+			</div>
+		</div>
+		{#if jobs.length > 0}
 			<ul class="space-y-2">
 				{#each jobs as job (job.jobId)}
 					<li class="flex items-center justify-between bg-slate-700/50 rounded-lg px-3 py-2">
@@ -262,8 +366,42 @@
 					</li>
 				{/each}
 			</ul>
+		{:else}
+			<p class="text-slate-500 text-sm text-center py-2">No scheduled jobs</p>
+		{/if}
+	</div>
+
+	<!-- Auto Heat Off Configuration -->
+	<div class="border-t border-slate-700 pt-4 mt-4">
+		<h3 class="text-sm font-medium text-slate-400 mb-3">Auto Heat Off</h3>
+		<div class="space-y-3">
+			<label class="flex items-center gap-2 cursor-pointer">
+				<input
+					type="checkbox"
+					checked={autoHeatOffEnabled}
+					onchange={handleAutoHeatOffToggle}
+					class="w-4 h-4 rounded border-slate-500 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-800"
+				/>
+				<span class="text-slate-200 text-sm">Enable auto heat-off</span>
+			</label>
+
+			<div class="flex items-center gap-2">
+				<label for="autoHeatOffMinutes" class="text-slate-400 text-sm">Turn off after</label>
+				<input
+					type="number"
+					id="autoHeatOffMinutes"
+					value={autoHeatOffMinutes}
+					onblur={handleAutoHeatOffMinutesChange}
+					min={AUTO_HEAT_OFF_DEFAULTS.minMinutes}
+					max={AUTO_HEAT_OFF_DEFAULTS.maxMinutes}
+					class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+				/>
+				<span class="text-slate-400 text-sm">minutes</span>
+			</div>
+
+			<p class="text-slate-500 text-xs">
+				Automatically schedules heater-off when you schedule heater-on
+			</p>
 		</div>
-	{:else}
-		<p class="text-slate-500 text-sm text-center py-2">No scheduled jobs</p>
-	{/if}
+	</div>
 </div>

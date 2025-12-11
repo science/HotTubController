@@ -2,12 +2,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import QuickSchedulePanel from './QuickSchedulePanel.svelte';
 import * as api from '$lib/api';
+import * as autoHeatOff from '$lib/autoHeatOff';
 
 // Mock the api module
 vi.mock('$lib/api', () => ({
 	api: {
 		scheduleJob: vi.fn()
 	}
+}));
+
+// Mock autoHeatOff module
+vi.mock('$lib/autoHeatOff', () => ({
+	getAutoHeatOffEnabled: vi.fn(() => false),
+	getAutoHeatOffMinutes: vi.fn(() => 150),
+	calculateHeatOffTime: vi.fn((time: string, minutes: number) => {
+		// Simple mock: add 2.5 hours to the time
+		return '2025-12-12T08:30:00+00:00';
+	})
 }));
 
 describe('QuickSchedulePanel', () => {
@@ -140,6 +151,80 @@ describe('QuickSchedulePanel', () => {
 				action: 'heater-on',
 				scheduledTime: '2025-12-12T06:00:00+00:00',
 				createdAt: '2025-12-11T10:00:00+00:00'
+			});
+		});
+	});
+
+	describe('auto heat-off integration', () => {
+		beforeEach(() => {
+			// Reset to real timers for these tests
+			vi.useRealTimers();
+			vi.clearAllMocks();
+		});
+
+		it('creates only heater-on job when auto heat-off is disabled', async () => {
+			vi.mocked(autoHeatOff.getAutoHeatOffEnabled).mockReturnValue(false);
+			vi.mocked(api.api.scheduleJob).mockResolvedValue({
+				jobId: 'job-123',
+				action: 'heater-on',
+				scheduledTime: '2025-12-12T06:00:00+00:00',
+				createdAt: '2025-12-11T10:00:00+00:00'
+			});
+
+			render(QuickSchedulePanel);
+			const button = screen.getByRole('button', { name: '6am' });
+			await fireEvent.click(button);
+
+			await waitFor(() => {
+				expect(api.api.scheduleJob).toHaveBeenCalledTimes(1);
+			});
+			expect(api.api.scheduleJob).toHaveBeenCalledWith('heater-on', expect.any(String));
+		});
+
+		it('creates both heater-on and heater-off jobs when auto heat-off is enabled', async () => {
+			vi.mocked(autoHeatOff.getAutoHeatOffEnabled).mockReturnValue(true);
+			vi.mocked(autoHeatOff.getAutoHeatOffMinutes).mockReturnValue(150);
+			vi.mocked(api.api.scheduleJob).mockResolvedValue({
+				jobId: 'job-123',
+				action: 'heater-on',
+				scheduledTime: '2025-12-12T06:00:00+00:00',
+				createdAt: '2025-12-11T10:00:00+00:00'
+			});
+
+			render(QuickSchedulePanel);
+			const button = screen.getByRole('button', { name: '6am' });
+			await fireEvent.click(button);
+
+			await waitFor(() => {
+				expect(api.api.scheduleJob).toHaveBeenCalledTimes(2);
+			});
+
+			// First call is heater-on
+			expect(api.api.scheduleJob).toHaveBeenNthCalledWith(1, 'heater-on', expect.any(String));
+			// Second call is heater-off
+			expect(api.api.scheduleJob).toHaveBeenNthCalledWith(2, 'heater-off', expect.any(String));
+		});
+
+		it('calls onScheduled with combined message when auto heat-off creates both jobs', async () => {
+			const onScheduled = vi.fn();
+			vi.mocked(autoHeatOff.getAutoHeatOffEnabled).mockReturnValue(true);
+			vi.mocked(autoHeatOff.getAutoHeatOffMinutes).mockReturnValue(150);
+			vi.mocked(api.api.scheduleJob).mockResolvedValue({
+				jobId: 'job-123',
+				action: 'heater-on',
+				scheduledTime: '2025-12-12T06:00:00+00:00',
+				createdAt: '2025-12-11T10:00:00+00:00'
+			});
+
+			render(QuickSchedulePanel, { props: { onScheduled } });
+			const button = screen.getByRole('button', { name: '6am' });
+			await fireEvent.click(button);
+
+			await waitFor(() => {
+				expect(onScheduled).toHaveBeenCalledWith({
+					success: true,
+					message: expect.stringContaining('auto')
+				});
 			});
 		});
 	});

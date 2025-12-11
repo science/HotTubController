@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { api } from '$lib/api';
 	import { getScheduleTime, QUICK_SCHEDULE_OPTIONS } from '$lib/scheduleUtils';
+	import {
+		getAutoHeatOffEnabled,
+		getAutoHeatOffMinutes,
+		calculateHeatOffTime
+	} from '$lib/autoHeatOff';
 
 	interface Props {
 		onScheduled?: (result: { success: boolean; message: string }) => void;
@@ -25,10 +30,29 @@
 				minute: '2-digit'
 			});
 
-			onScheduled?.({
-				success: true,
-				message: `Heat scheduled for ${timeStr}`
-			});
+			// Check if auto heat-off is enabled and schedule heater-off
+			const autoHeatOffEnabled = getAutoHeatOffEnabled();
+			if (autoHeatOffEnabled) {
+				const autoHeatOffMinutes = getAutoHeatOffMinutes();
+				const heatOffTime = calculateHeatOffTime(scheduledTime, autoHeatOffMinutes);
+				await api.scheduleJob('heater-off', heatOffTime);
+
+				const offDate = new Date(heatOffTime);
+				const offTimeStr = offDate.toLocaleTimeString(undefined, {
+					hour: 'numeric',
+					minute: '2-digit'
+				});
+
+				onScheduled?.({
+					success: true,
+					message: `Heat scheduled for ${timeStr}, auto off at ${offTimeStr}`
+				});
+			} else {
+				onScheduled?.({
+					success: true,
+					message: `Heat scheduled for ${timeStr}`
+				});
+			}
 		} catch (e) {
 			onScheduled?.({
 				success: false,

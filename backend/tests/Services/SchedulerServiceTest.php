@@ -199,6 +199,36 @@ class SchedulerServiceTest extends TestCase
         $this->assertEquals('heater-off', $jobs[1]['action']);
     }
 
+    public function testListJobsCleansUpOrphanedCrontabEntries(): void
+    {
+        // Simulate an orphaned crontab entry (crontab entry exists but no job file)
+        // This can happen if:
+        // 1. Job file was manually deleted
+        // 2. Crash during cron-runner.sh execution
+        // 3. Prior installation left stale entries
+        $orphanedJobId = 'job-deadbeef';  // Use hex characters like real job IDs
+        $orphanedCronEntry = "30 6 11 12 * '/path/to/cron-runner.sh' '$orphanedJobId' # HOTTUB:$orphanedJobId";
+        $this->crontabAdapter->addEntry($orphanedCronEntry);
+
+        // Create a legitimate job (this one has both crontab entry and job file)
+        $result = $this->scheduler->scheduleJob('heater-on', '2030-12-11T07:30:00');
+
+        // Before calling listJobs, we have 2 crontab entries
+        $this->assertCount(2, $this->crontabAdapter->listEntries());
+
+        // listJobs should detect the orphan and clean it up
+        $jobs = $this->scheduler->listJobs();
+
+        // Should only return the legitimate job
+        $this->assertCount(1, $jobs);
+        $this->assertEquals($result['jobId'], $jobs[0]['jobId']);
+
+        // The orphaned crontab entry should have been removed
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+        $this->assertStringNotContainsString($orphanedJobId, $entries[0]);
+    }
+
     // ========== cancelJob Tests ==========
 
     public function testCancelJobRemovesCrontabEntry(): void
