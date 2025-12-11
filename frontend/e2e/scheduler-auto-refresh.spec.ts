@@ -15,8 +15,12 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Scheduler Integration', () => {
 	test.beforeEach(async ({ page }) => {
-		// Log in first (app is served at /tub base path)
+		// Disable auto heat-off to ensure predictable test behavior
+		// (default is enabled, which creates 2 jobs for heater-on and changes success message)
 		await page.goto('/tub/login');
+		await page.evaluate(() => {
+			localStorage.setItem('hotTubAutoHeatOff', 'false');
+		});
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.click('button[type="submit"]');

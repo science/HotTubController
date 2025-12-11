@@ -10,8 +10,11 @@ test.describe('Mobile Header Layout', () => {
 		// Set mobile viewport
 		await page.setViewportSize({ width: 375, height: 667 });
 
-		// Login
+		// Disable auto heat-off to ensure predictable test behavior
 		await page.goto('/tub/login');
+		await page.evaluate(() => {
+			localStorage.setItem('hotTubAutoHeatOff', 'false');
+		});
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.click('button[type="submit"]');
