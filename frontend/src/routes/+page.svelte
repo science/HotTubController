@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ControlButton from '$lib/components/ControlButton.svelte';
+	import SchedulePanel from '$lib/components/SchedulePanel.svelte';
 	import { api } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -78,6 +79,8 @@
 			tooltip="Run the circulation pump for 2 hours"
 			onClick={() => handleAction(api.pumpRun, 'Pump running for 2 hours')}
 		/>
+
+		<SchedulePanel />
 	</main>
 
 	<footer class="mt-6 text-center">

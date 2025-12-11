@@ -7,6 +7,17 @@ export interface ApiResponse {
 	duration?: number;
 }
 
+export interface ScheduledJob {
+	jobId: string;
+	action: string;
+	scheduledTime: string;
+	createdAt: string;
+}
+
+export interface ScheduleListResponse {
+	jobs: ScheduledJob[];
+}
+
 // API base path - backend is at {base}/backend/public
 const API_BASE = `${base}/backend/public`;
 
@@ -24,8 +35,61 @@ async function post(endpoint: string): Promise<ApiResponse> {
 	return response.json();
 }
 
+async function postJson<T>(endpoint: string, data: object): Promise<T> {
+	const response = await fetch(`${API_BASE}${endpoint}`, {
+		method: 'POST',
+		credentials: 'include',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(data)
+	});
+	if (!response.ok) {
+		if (response.status === 401) {
+			throw new Error('Unauthorized');
+		}
+		const errorBody = await response.json().catch(() => ({}));
+		throw new Error(errorBody.error || 'Request failed');
+	}
+	return response.json();
+}
+
+async function get<T>(endpoint: string): Promise<T> {
+	const response = await fetch(`${API_BASE}${endpoint}`, {
+		method: 'GET',
+		credentials: 'include'
+	});
+	if (!response.ok) {
+		if (response.status === 401) {
+			throw new Error('Unauthorized');
+		}
+		throw new Error('Request failed');
+	}
+	return response.json();
+}
+
+async function del(endpoint: string): Promise<{ success: boolean }> {
+	const response = await fetch(`${API_BASE}${endpoint}`, {
+		method: 'DELETE',
+		credentials: 'include'
+	});
+	if (!response.ok) {
+		if (response.status === 401) {
+			throw new Error('Unauthorized');
+		}
+		throw new Error('Request failed');
+	}
+	return response.json();
+}
+
 export const api = {
 	heaterOn: () => post('/api/equipment/heater/on'),
 	heaterOff: () => post('/api/equipment/heater/off'),
-	pumpRun: () => post('/api/equipment/pump/run')
+	pumpRun: () => post('/api/equipment/pump/run'),
+
+	// Schedule endpoints
+	scheduleJob: (action: string, scheduledTime: string) =>
+		postJson<ScheduledJob>('/api/schedule', { action, scheduledTime }),
+	listScheduledJobs: () => get<ScheduleListResponse>('/api/schedule'),
+	cancelScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}`)
 };

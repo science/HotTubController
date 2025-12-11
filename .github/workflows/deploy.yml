@@ -56,6 +56,10 @@ jobs:
           JWT_EXPIRY_HOURS=${{ secrets.JWT_EXPIRY_HOURS }}
           EOF
 
+      # Generate CRON_JWT for scheduled job authentication
+      - name: Generate CRON JWT
+        run: php backend/bin/generate-cron-jwt.php
+
       # Deploy backend via FTP
       - name: Deploy backend to cPanel
         uses: SamKirkland/FTP-Deploy-Action@v4.3.6
