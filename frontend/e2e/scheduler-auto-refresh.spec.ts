@@ -1,159 +1,224 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * E2E tests for the scheduler auto-refresh feature.
+ * E2E tests for scheduler functionality.
  *
- * Test configuration uses shorter timer windows:
- * - VITE_MAX_TIMER_WINDOW_MS = 90000 (90 seconds) - jobs within 90s get immediate timers
- * - VITE_RECHECK_INTERVAL_MS = 30000 (30 seconds) - sliding window recheck every 30s
- * - VITE_REFRESH_BUFFER_MS = 5000 (5 seconds) - wait 5s after scheduled time
+ * Note: Timer-based auto-refresh behavior (sliding window, refresh on job completion)
+ * is thoroughly tested in unit tests (SchedulePanel.test.ts) using Vitest fake timers.
  *
- * Note: HTML time input has minute resolution (HH:MM), so minimum scheduling
- * granularity is 1 minute. Tests are designed around this constraint.
+ * These E2E tests focus on:
+ * - Frontend-backend integration
+ * - API request correctness
+ * - UI state management
+ * - Error handling
  */
 
-test.describe('Scheduler Auto-Refresh', () => {
+test.describe('Scheduler Integration', () => {
 	test.beforeEach(async ({ page }) => {
-		// Log in first
-		await page.goto('/login');
+		// Log in first (app is served at /tub base path)
+		await page.goto('/tub/login');
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.click('button[type="submit"]');
 
 		// Wait for redirect to main page
-		await expect(page.locator('h1')).toContainText('HOT TUB CONTROL');
+		await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 10000 });
 
 		// Clean up any existing scheduled jobs from previous test runs
-		// by cancelling all visible jobs
-		const cancelButtons = page.locator('button:has-text("Cancel")');
-		const count = await cancelButtons.count();
-		for (let i = 0; i < count; i++) {
+		const cancelButtons = page.locator('ul li button:has-text("Cancel")');
+		let count = await cancelButtons.count();
+		while (count > 0) {
 			await cancelButtons.first().click();
-			await page.waitForTimeout(500);
+			await page.waitForTimeout(300);
+			count = await cancelButtons.count();
 		}
 	});
 
-	test('can schedule a job and see it in pending list', async ({ page }) => {
-		// Schedule a job for 2 minutes from now
-		const futureTime = new Date(Date.now() + 2 * 60 * 1000);
-		const dateStr = futureTime.toISOString().split('T')[0];
-		const timeStr = futureTime.toTimeString().slice(0, 5);
+	test('schedule job makes correct API call and updates UI', async ({ page }) => {
+		// Monitor API calls
+		const apiCalls: { url: string; method: string; body: string }[] = [];
+		await page.route('**/api/schedule', async (route) => {
+			apiCalls.push({
+				url: route.request().url(),
+				method: route.request().method(),
+				body: route.request().postData() || '',
+			});
+			await route.continue();
+		});
+
+		// Schedule a job for 2 days from now
+		const futureDate = new Date();
+		futureDate.setDate(futureDate.getDate() + 2);
+		const dateStr = futureDate.toISOString().split('T')[0];
 
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#date', dateStr);
-		await page.fill('#time', timeStr);
+		await page.fill('#time', '14:30');
 		await page.click('button:has-text("Schedule")');
 
-		// Verify success message
+		// Verify success
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
 
-		// Verify job appears in pending list
-		await expect(page.locator('h3:has-text("Pending Jobs")')).toBeVisible();
-		await expect(page.locator('li').filter({ hasText: 'Heater ON' })).toBeVisible();
+		// Verify POST request was made
+		const postCall = apiCalls.find((c) => c.method === 'POST');
+		expect(postCall).toBeDefined();
+		expect(postCall!.body).toContain('heater-on');
+		expect(postCall!.body).toContain('14:30');
+
+		// Verify job appears in UI
+		await expect(page.locator('ul li').filter({ hasText: 'Heater ON' })).toBeVisible();
+
+		// Clean up
+		await page.locator('ul li').filter({ hasText: 'Heater ON' }).first().locator('button:has-text("Cancel")').click();
 	});
 
-	test('cancelling a job removes it from the list', async ({ page }) => {
-		// Schedule a job
-		const futureTime = new Date(Date.now() + 5 * 60 * 1000);
-		const dateStr = futureTime.toISOString().split('T')[0];
-		const timeStr = futureTime.toTimeString().slice(0, 5);
+	test('cancel job makes correct API call and removes from UI', async ({ page }) => {
+		// First, schedule a job
+		const futureDate = new Date();
+		futureDate.setDate(futureDate.getDate() + 2);
+		const dateStr = futureDate.toISOString().split('T')[0];
+
+		await page.selectOption('#action', 'pump-run');
+		await page.fill('#date', dateStr);
+		await page.fill('#time', '09:00');
+		await page.click('button:has-text("Schedule")');
+		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
+
+		// Monitor DELETE calls
+		let deleteCallMade = false;
+		await page.route('**/api/schedule/*', async (route) => {
+			if (route.request().method() === 'DELETE') {
+				deleteCallMade = true;
+			}
+			await route.continue();
+		});
+
+		// Get the job item
+		const jobItem = page.locator('ul li').filter({ hasText: 'Run Pump' }).first();
+		await expect(jobItem).toBeVisible();
+
+		// Cancel it
+		await jobItem.locator('button:has-text("Cancel")').click();
+
+		// Verify DELETE was called
+		await page.waitForTimeout(500);
+		expect(deleteCallMade).toBe(true);
+
+		// Verify job is removed from UI
+		await expect(page.locator('text=No scheduled jobs')).toBeVisible({ timeout: 5000 });
+	});
+
+	test('list jobs loads on page load', async ({ page }) => {
+		// Schedule a job first
+		const futureDate = new Date();
+		futureDate.setDate(futureDate.getDate() + 3);
+		const dateStr = futureDate.toISOString().split('T')[0];
 
 		await page.selectOption('#action', 'heater-off');
 		await page.fill('#date', dateStr);
-		await page.fill('#time', timeStr);
+		await page.fill('#time', '18:00');
 		await page.click('button:has-text("Schedule")');
-
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
-		await expect(page.locator('li').filter({ hasText: 'Heater OFF' })).toBeVisible();
 
-		// Cancel the job
-		await page.locator('li').filter({ hasText: 'Heater OFF' }).locator('button:has-text("Cancel")').click();
-
-		// Verify job is removed
-		await expect(page.locator('li').filter({ hasText: 'Heater OFF' })).not.toBeVisible({ timeout: 5000 });
-	});
-
-	test('frontend makes refresh API call when timer fires', async ({ page }) => {
-		// This test verifies the timer mechanism by monitoring API calls
-		// Schedule a job 1 minute from now (inside the 90s timer window)
-
-		const futureTime = new Date(Date.now() + 60 * 1000);
-		const dateStr = futureTime.toISOString().split('T')[0];
-		const timeStr = futureTime.toTimeString().slice(0, 5);
-
-		// Set up API call monitoring
-		let refreshCallCount = 0;
+		// Monitor GET calls on a fresh page load
+		let getCallMade = false;
 		await page.route('**/api/schedule', async (route) => {
 			if (route.request().method() === 'GET') {
-				refreshCallCount++;
+				getCallMade = true;
 			}
 			await route.continue();
 		});
 
-		// Schedule the job
-		await page.selectOption('#action', 'pump-run');
-		await page.fill('#date', dateStr);
-		await page.fill('#time', timeStr);
-		await page.click('button:has-text("Schedule")');
+		// Reload the page
+		await page.reload();
+		await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 10000 });
 
-		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
+		// Verify GET was called
+		expect(getCallMade).toBe(true);
 
-		// Record initial refresh count (includes the refresh after scheduling)
-		const initialCount = refreshCallCount;
+		// Verify job persisted and is visible
+		await expect(page.locator('ul li').filter({ hasText: 'Heater OFF' })).toBeVisible();
 
-		// Wait for the timer to fire (1 min scheduled + 5 sec buffer + margin)
-		// The timer should fire ~65 seconds after scheduling
-		await page.waitForTimeout(70000);
+		// Clean up
+		await page.locator('ul li').filter({ hasText: 'Heater OFF' }).first().locator('button:has-text("Cancel")').click();
+	});
 
-		// Verify additional refresh calls were made
-		expect(refreshCallCount).toBeGreaterThan(initialCount);
+	test('displays correct action labels in job list', async ({ page }) => {
+		const futureDate = new Date();
+		futureDate.setDate(futureDate.getDate() + 5);
+		const dateStr = futureDate.toISOString().split('T')[0];
 
-		// Clean up - cancel the job
-		const cancelBtn = page.locator('li').filter({ hasText: 'Run Pump' }).locator('button:has-text("Cancel")');
-		if (await cancelBtn.isVisible()) {
-			await cancelBtn.click();
+		// Schedule each action type
+		const actions = [
+			{ value: 'heater-on', label: 'Heater ON' },
+			{ value: 'heater-off', label: 'Heater OFF' },
+			{ value: 'pump-run', label: 'Run Pump' },
+		];
+
+		for (let i = 0; i < actions.length; i++) {
+			await page.selectOption('#action', actions[i].value);
+			await page.fill('#date', dateStr);
+			await page.fill('#time', `${10 + i}:00`);
+			await page.click('button:has-text("Schedule")');
+			await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
+			await page.waitForTimeout(300);
+		}
+
+		// Verify all labels appear correctly
+		for (const action of actions) {
+			await expect(page.locator('ul li').filter({ hasText: action.label })).toBeVisible();
+		}
+
+		// Clean up all
+		for (let i = 0; i < 3; i++) {
+			await page.locator('ul li button:has-text("Cancel")').first().click();
+			await page.waitForTimeout(300);
 		}
 	});
 
-	test('sliding window recheck promotes far-future jobs', async ({ page }) => {
-		// Schedule a job 2.5 minutes from now (150 seconds)
-		// With 90s window, this is initially OUTSIDE the timer window
-		// At T=30 (first recheck), job is 120s away - still outside
-		// At T=60 (second recheck), job is 90s away - NOW inside, timer set
-		// At T=150+5=155, timer fires
-
-		const futureTime = new Date(Date.now() + 150 * 1000); // 2.5 minutes
-		const dateStr = futureTime.toISOString().split('T')[0];
-		const timeStr = futureTime.toTimeString().slice(0, 5);
-
-		let refreshCallCount = 0;
-		await page.route('**/api/schedule', async (route) => {
-			if (route.request().method() === 'GET') {
-				refreshCallCount++;
-			}
-			await route.continue();
-		});
+	test('rejects scheduling job in the past', async ({ page }) => {
+		// Try to schedule a job for yesterday
+		const yesterday = new Date();
+		yesterday.setDate(yesterday.getDate() - 1);
+		const dateStr = yesterday.toISOString().split('T')[0];
 
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#date', dateStr);
-		await page.fill('#time', timeStr);
+		await page.fill('#time', '10:00');
 		await page.click('button:has-text("Schedule")');
 
+		// Verify error message appears
+		await expect(page.locator('text=past')).toBeVisible({ timeout: 5000 });
+	});
+
+	test('scheduled jobs sort by time', async ({ page }) => {
+		const futureDate = new Date();
+		futureDate.setDate(futureDate.getDate() + 7);
+		const dateStr = futureDate.toISOString().split('T')[0];
+
+		// Schedule jobs in reverse order
+		await page.selectOption('#action', 'pump-run');
+		await page.fill('#date', dateStr);
+		await page.fill('#time', '18:00'); // Later
+		await page.click('button:has-text("Schedule")');
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
+		await page.waitForTimeout(300);
 
-		const initialCount = refreshCallCount;
+		await page.selectOption('#action', 'heater-on');
+		await page.fill('#date', dateStr);
+		await page.fill('#time', '08:00'); // Earlier
+		await page.click('button:has-text("Schedule")');
+		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
+		await page.waitForTimeout(300);
 
-		// Wait for the full cycle: sliding window promotion + timer fire
-		// ~155 seconds + margin
-		await page.waitForTimeout(165000);
-
-		// Verify refresh calls happened (from the timer that was set after promotion)
-		expect(refreshCallCount).toBeGreaterThan(initialCount);
+		// Verify the first job in the list is the earlier one (Heater ON at 08:00)
+		const firstJobText = await page.locator('ul li').first().textContent();
+		expect(firstJobText).toContain('Heater ON');
+		expect(firstJobText).toContain('8:00');
 
 		// Clean up
-		const cancelBtn = page.locator('li').filter({ hasText: 'Heater ON' }).locator('button:has-text("Cancel")');
-		if (await cancelBtn.isVisible()) {
-			await cancelBtn.click();
-		}
+		await page.locator('ul li button:has-text("Cancel")').first().click();
+		await page.waitForTimeout(300);
+		await page.locator('ul li button:has-text("Cancel")').first().click();
 	});
 });

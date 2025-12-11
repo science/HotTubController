@@ -3,13 +3,11 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Playwright E2E test configuration.
  *
- * Timer settings for testing (shorter than production):
- * - VITE_MAX_TIMER_WINDOW_MS = 90000 (90 seconds) - jobs within 90s get immediate timers
- * - VITE_RECHECK_INTERVAL_MS = 30000 (30 seconds) - sliding window recheck every 30s
- * - VITE_REFRESH_BUFFER_MS = 5000 (5 seconds) - wait 5s after scheduled time before refresh
+ * These tests focus on frontend-backend integration, API correctness, and UI behavior.
+ * Timer-based auto-refresh behavior (sliding window, refresh on job completion) is
+ * tested in unit tests (SchedulePanel.test.ts) using Vitest fake timers.
  *
- * Note: HTML time input only has minute resolution (HH:MM), so tests must schedule
- * jobs at least 1 minute in the future.
+ * Note: The frontend is served at /tub base path.
  */
 export default defineConfig({
 	testDir: './e2e',
@@ -18,7 +16,7 @@ export default defineConfig({
 	retries: process.env.CI ? 2 : 0,
 	workers: 1,
 	reporter: [['html'], ['list']],
-	timeout: 180000, // 3 minute timeout for scheduler tests (jobs need time to "execute")
+	timeout: 30000, // 30 second timeout (timer behavior tested in unit tests)
 	use: {
 		baseURL: 'http://localhost:5174',
 		trace: 'on-first-retry',
@@ -38,16 +36,11 @@ export default defineConfig({
 			timeout: 10000,
 		},
 		{
-			// Frontend dev server with test config (shorter timer windows)
+			// Frontend dev server
 			command: 'npm run dev -- --port 5174',
-			url: 'http://localhost:5174',
+			url: 'http://localhost:5174/tub',
 			reuseExistingServer: !process.env.CI,
 			timeout: 30000,
-			env: {
-				VITE_REFRESH_BUFFER_MS: '5000', // 5 seconds
-				VITE_MAX_TIMER_WINDOW_MS: '90000', // 90 seconds
-				VITE_RECHECK_INTERVAL_MS: '30000', // 30 seconds
-			},
 		},
 	],
 });
