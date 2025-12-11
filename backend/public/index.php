@@ -6,9 +6,12 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use HotTub\Controllers\EquipmentController;
 use HotTub\Controllers\AuthController;
+use HotTub\Controllers\ScheduleController;
 use HotTub\Services\EnvLoader;
 use HotTub\Services\IftttClientFactory;
 use HotTub\Services\AuthService;
+use HotTub\Services\SchedulerService;
+use HotTub\Services\CrontabAdapter;
 use HotTub\Middleware\AuthMiddleware;
 use HotTub\Middleware\CorsMiddleware;
 use HotTub\Routing\Router;
@@ -59,6 +62,24 @@ $iftttClient = $factory->create($config['IFTTT_MODE'] ?? 'auto');
 // Create controller with IFTTT client
 $equipmentController = new EquipmentController($logFile, $iftttClient);
 
+// Create scheduler service and controller
+$jobsDir = __DIR__ . '/../storage/scheduled-jobs';
+$cronRunnerPath = __DIR__ . '/../storage/bin/cron-runner.sh';
+
+// Construct API base URL from request
+$protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$scriptDir = dirname($_SERVER['SCRIPT_NAME']);
+$apiBaseUrl = $protocol . '://' . $host . $scriptDir;
+
+$schedulerService = new SchedulerService(
+    $jobsDir,
+    $cronRunnerPath,
+    $apiBaseUrl,
+    new CrontabAdapter()
+);
+$scheduleController = new ScheduleController($schedulerService);
+
 // Parse request URI
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
@@ -93,6 +114,11 @@ $router->get('/api/auth/me', fn() => handleMe($authController, $headers, $cookie
 $router->post('/api/equipment/heater/on', fn() => $equipmentController->heaterOn(), $requireAuth);
 $router->post('/api/equipment/heater/off', fn() => $equipmentController->heaterOff(), $requireAuth);
 $router->post('/api/equipment/pump/run', fn() => $equipmentController->pumpRun(), $requireAuth);
+
+// Protected schedule routes (with auth middleware)
+$router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireAuth);
+$router->get('/api/schedule', fn() => $scheduleController->list(), $requireAuth);
+$router->delete('/api/schedule/{id}', fn($params) => $scheduleController->cancel($params['id']), $requireAuth);
 
 // Dispatch request
 $response = $router->dispatch($method, $uri);
@@ -163,4 +189,10 @@ function handleMe(AuthController $controller, array $headers, array $cookies): a
     }
 
     return $controller->me($token);
+}
+
+function handleScheduleCreate(ScheduleController $controller): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->create($input);
 }
