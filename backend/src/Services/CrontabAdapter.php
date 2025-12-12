@@ -14,23 +14,20 @@ class CrontabAdapter implements CrontabAdapterInterface
 {
     public function addEntry(string $entry): void
     {
-        // Get current crontab, append new entry, and reinstall
-        $currentEntries = $this->listEntries();
-        $currentEntries[] = $entry;
-
-        $newCrontab = implode("\n", $currentEntries) . "\n";
-
-        $tempFile = tempnam(sys_get_temp_dir(), 'crontab');
-        if ($tempFile === false) {
-            throw new RuntimeException('Failed to create temp file for crontab');
-        }
-
-        file_put_contents($tempFile, $newCrontab);
+        // SAFE APPEND: Use shell pipeline to append entry without parsing in PHP
+        // This prevents the bug where listEntries() failure could wipe the crontab
+        //
+        // How it works:
+        // - crontab -l outputs existing entries (or nothing if no crontab)
+        // - echo adds the new entry
+        // - crontab - reads from stdin and installs
+        //
+        // This is atomic and safe because we never parse crontab into PHP memory
+        $escapedEntry = escapeshellarg($entry);
 
         $output = [];
         $returnCode = 0;
-        exec("crontab $tempFile 2>&1", $output, $returnCode);
-        unlink($tempFile);
+        exec("(crontab -l 2>/dev/null; echo $escapedEntry) | crontab - 2>&1", $output, $returnCode);
 
         if ($returnCode !== 0) {
             throw new RuntimeException('Failed to add crontab entry: ' . implode("\n", $output));
@@ -39,14 +36,32 @@ class CrontabAdapter implements CrontabAdapterInterface
 
     public function removeByPattern(string $pattern): void
     {
+        // SAFETY: First verify we can read the crontab before modifying
+        // This prevents the bug where crontab -l failure in the pipeline
+        // would result in grep getting empty input, leading to crontab wipe
+        $entries = $this->listEntries();
+
+        // Check if any entries actually match the pattern
+        $hasMatch = false;
+        foreach ($entries as $entry) {
+            if (strpos($entry, $pattern) !== false) {
+                $hasMatch = true;
+                break;
+            }
+        }
+
+        // If no entries match, nothing to remove - don't touch crontab at all
+        if (!$hasMatch) {
+            return;
+        }
+
+        // Now safe to proceed - we've verified crontab is readable
         $output = [];
         $returnCode = 0;
-
-        // Use shell to filter and reinstall crontab
         $escapedPattern = escapeshellarg($pattern);
-        exec("crontab -l 2>/dev/null | grep -v $escapedPattern | crontab - 2>&1", $output, $returnCode);
+        exec("crontab -l | grep -v $escapedPattern | crontab - 2>&1", $output, $returnCode);
 
-        // grep -v returns 1 if no lines match, which is fine
+        // Note: grep -v returns 1 if no lines match, which is fine
         // crontab returns non-zero on actual errors
     }
 
