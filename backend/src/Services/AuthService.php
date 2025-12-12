@@ -6,27 +6,28 @@ namespace HotTub\Services;
 
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
+use HotTub\Contracts\UserRepositoryInterface;
 
 class AuthService
 {
-    private string $adminUsername;
-    private string $adminPassword;
+    private UserRepositoryInterface $userRepository;
     private string $jwtSecret;
     private int $expiryHours;
 
-    public function __construct(array $config)
+    public function __construct(UserRepositoryInterface $userRepository, array $config)
     {
-        $this->adminUsername = $config['AUTH_ADMIN_USERNAME'] ?? '';
-        $this->adminPassword = $config['AUTH_ADMIN_PASSWORD'] ?? '';
+        $this->userRepository = $userRepository;
         $this->jwtSecret = $config['JWT_SECRET'] ?? '';
         $this->expiryHours = (int) ($config['JWT_EXPIRY_HOURS'] ?? 24);
     }
 
     public function login(string $username, string $password): string
     {
-        if ($username !== $this->adminUsername || $password !== $this->adminPassword) {
+        if (!$this->userRepository->verifyPassword($username, $password)) {
             throw new \InvalidArgumentException('Invalid credentials');
         }
+
+        $user = $this->userRepository->findByUsername($username);
 
         $issuedAt = time();
         $expiresAt = $issuedAt + ($this->expiryHours * 3600);
@@ -35,7 +36,7 @@ class AuthService
             'iat' => $issuedAt,
             'exp' => $expiresAt,
             'sub' => $username,
-            'role' => 'admin',
+            'role' => $user['role'],
         ];
 
         return JWT::encode($payload, $this->jwtSecret, 'HS256');

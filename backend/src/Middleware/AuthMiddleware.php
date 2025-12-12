@@ -44,6 +44,31 @@ class AuthMiddleware
         return null;
     }
 
+    public function requireAdmin(array $headers, array $cookies): ?array
+    {
+        $user = $this->authenticate($headers, $cookies);
+
+        if ($user === null) {
+            return [
+                'status' => 401,
+                'body' => [
+                    'error' => 'Authentication required',
+                ],
+            ];
+        }
+
+        if (($user['role'] ?? '') !== 'admin') {
+            return [
+                'status' => 403,
+                'body' => [
+                    'error' => 'Admin access required',
+                ],
+            ];
+        }
+
+        return null;
+    }
+
     private function extractToken(array $headers, array $cookies): ?string
     {
         // Check Authorization header first

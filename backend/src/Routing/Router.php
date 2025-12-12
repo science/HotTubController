@@ -37,6 +37,14 @@ class Router
     }
 
     /**
+     * Register a PUT route.
+     */
+    public function put(string $path, callable $handler, ?callable $middleware = null): self
+    {
+        return $this->addRoute('PUT', $path, $handler, $middleware);
+    }
+
+    /**
      * Add a route for any HTTP method.
      */
     public function addRoute(string $method, string $path, callable $handler, ?callable $middleware = null): self

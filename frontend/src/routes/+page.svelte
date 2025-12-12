@@ -53,11 +53,16 @@
 </script>
 
 <div class="min-h-screen bg-slate-900 p-4 flex flex-col">
-	<header class="text-center mb-6 relative">
+	<header class="mb-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
 		<h1 class="text-xl font-bold text-slate-100 tracking-wide">HOT TUB CONTROL</h1>
 		{#if data.user}
-			<div class="absolute top-0 right-0 flex items-center gap-2">
+			<div class="flex items-center gap-2">
 				<span class="text-slate-400 text-sm">{data.user.username}</span>
+				{#if data.user.role === 'admin'}
+					<a href="{base}/users" class="text-slate-500 hover:text-slate-300 text-sm underline">
+						Users
+					</a>
+				{/if}
 				<button
 					onclick={handleLogout}
 					class="text-slate-500 hover:text-slate-300 text-sm underline"

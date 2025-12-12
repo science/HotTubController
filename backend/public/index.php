@@ -7,9 +7,11 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use HotTub\Controllers\EquipmentController;
 use HotTub\Controllers\AuthController;
 use HotTub\Controllers\ScheduleController;
+use HotTub\Controllers\UserController;
 use HotTub\Services\EnvLoader;
 use HotTub\Services\IftttClientFactory;
 use HotTub\Services\AuthService;
+use HotTub\Services\UserRepositoryFactory;
 use HotTub\Services\SchedulerService;
 use HotTub\Services\CrontabAdapter;
 use HotTub\Middleware\AuthMiddleware;
@@ -49,11 +51,17 @@ if ($corsResult !== null) {
 
 // Paths
 $logFile = __DIR__ . '/../logs/events.log';
+$usersFile = __DIR__ . '/../storage/users/users.json';
+
+// Create user repository with bootstrap logic
+$userRepoFactory = new UserRepositoryFactory($usersFile, $config);
+$userRepository = $userRepoFactory->create();
 
 // Create services
-$authService = new AuthService($config);
+$authService = new AuthService($userRepository, $config);
 $authMiddleware = new AuthMiddleware($authService);
 $authController = new AuthController($authService);
+$userController = new UserController($userRepository);
 
 // Create IFTTT client via factory
 $factory = new IftttClientFactory($config, $logFile);
@@ -98,6 +106,7 @@ $cookies = $_COOKIE;
 
 // Auth middleware for protected routes
 $requireAuth = fn() => $authMiddleware->requireAuth($headers, $cookies);
+$requireAdmin = fn() => $authMiddleware->requireAdmin($headers, $cookies);
 
 // Configure routes
 $router = new Router();
@@ -119,6 +128,12 @@ $router->post('/api/equipment/pump/run', fn() => $equipmentController->pumpRun()
 $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireAuth);
 $router->get('/api/schedule', fn() => $scheduleController->list(), $requireAuth);
 $router->delete('/api/schedule/{id}', fn($params) => $scheduleController->cancel($params['id']), $requireAuth);
+
+// Admin-only user management routes
+$router->get('/api/users', fn() => $userController->list(), $requireAdmin);
+$router->post('/api/users', fn() => handleUserCreate($userController), $requireAdmin);
+$router->delete('/api/users/{username}', fn($params) => $userController->delete($params['username']), $requireAdmin);
+$router->put('/api/users/{username}/password', fn($params) => handleUserPasswordUpdate($userController, $params['username']), $requireAdmin);
 
 // Dispatch request
 $response = $router->dispatch($method, $uri);
@@ -195,4 +210,16 @@ function handleScheduleCreate(ScheduleController $controller): array
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->create($input);
+}
+
+function handleUserCreate(UserController $controller): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->create($input);
+}
+
+function handleUserPasswordUpdate(UserController $controller, string $username): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->updatePassword($username, $input);
 }
