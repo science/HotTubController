@@ -39,14 +39,15 @@ class SchedulerService
     private string $apiBaseUrl;
 
     /**
-     * Schedule a one-off job to execute an equipment action.
+     * Schedule a job to execute an equipment action.
      *
      * @param string $action One of: heater-on, heater-off, pump-run
-     * @param string $scheduledTime ISO 8601 datetime string
-     * @return array{jobId: string, action: string, scheduledTime: string, createdAt: string}
-     * @throws InvalidArgumentException If action is invalid or time is in the past
+     * @param string $scheduledTime ISO 8601 datetime string for one-off, or HH:MM time for recurring
+     * @param bool $recurring If true, creates a daily recurring job
+     * @return array{jobId: string, action: string, scheduledTime: string, createdAt: string, recurring: bool}
+     * @throws InvalidArgumentException If action is invalid or time is in the past (one-off only)
      */
-    public function scheduleJob(string $action, string $scheduledTime): array
+    public function scheduleJob(string $action, string $scheduledTime, bool $recurring = false): array
     {
         // Validate action
         if (!isset(self::VALID_ACTIONS[$action])) {
@@ -55,25 +56,32 @@ class SchedulerService
             );
         }
 
-        // Parse and validate scheduled time
-        $dateTime = new \DateTime($scheduledTime);
         $now = new \DateTime();
+        $createdAt = $now->format(\DateTime::ATOM);
+
+        if ($recurring) {
+            // For recurring jobs, scheduledTime is just HH:MM format
+            return $this->scheduleRecurringJob($action, $scheduledTime, $createdAt);
+        }
+
+        // Parse and validate scheduled time for one-off jobs
+        $dateTime = new \DateTime($scheduledTime);
 
         if ($dateTime <= $now) {
             throw new InvalidArgumentException('Scheduled time must be in the future, not in the past');
         }
 
-        // Generate unique job ID
+        // Generate unique job ID with job- prefix for one-off
         $jobId = 'job-' . bin2hex(random_bytes(4));
 
         // Create job data
-        $createdAt = $now->format(\DateTime::ATOM);
         $jobData = [
             'jobId' => $jobId,
             'action' => $action,
             'endpoint' => self::VALID_ACTIONS[$action],
             'apiBaseUrl' => $this->apiBaseUrl,
             'scheduledTime' => $dateTime->format(\DateTime::ATOM),
+            'recurring' => false,
             'createdAt' => $createdAt,
         ];
 
@@ -81,11 +89,11 @@ class SchedulerService
         $jobFile = $this->jobsDir . '/' . $jobId . '.json';
         file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-        // Create crontab entry with descriptive label (e.g., HOTTUB:job-xxx:ON)
+        // Create crontab entry with descriptive label (e.g., HOTTUB:job-xxx:ON:ONCE)
         $cronExpression = $this->dateToCronExpression($dateTime);
         $actionLabel = self::ACTION_LABELS[$action];
         $cronEntry = sprintf(
-            '%s %s %s # HOTTUB:%s:%s',
+            '%s %s %s # HOTTUB:%s:%s:ONCE',
             $cronExpression,
             escapeshellarg($this->cronRunnerPath),
             escapeshellarg($jobId),
@@ -99,18 +107,70 @@ class SchedulerService
             'jobId' => $jobId,
             'action' => $action,
             'scheduledTime' => $dateTime->format(\DateTime::ATOM),
+            'recurring' => false,
             'createdAt' => $createdAt,
         ];
     }
 
     /**
-     * List all pending scheduled jobs.
+     * Schedule a daily recurring job.
+     *
+     * @param string $action One of: heater-on, heater-off, pump-run
+     * @param string $time Time in HH:MM format
+     * @param string $createdAt ISO 8601 timestamp when job was created
+     * @return array{jobId: string, action: string, scheduledTime: string, createdAt: string, recurring: bool}
+     */
+    private function scheduleRecurringJob(string $action, string $time, string $createdAt): array
+    {
+        // Generate unique job ID with rec- prefix for recurring
+        $jobId = 'rec-' . bin2hex(random_bytes(4));
+
+        // Create job data
+        $jobData = [
+            'jobId' => $jobId,
+            'action' => $action,
+            'endpoint' => self::VALID_ACTIONS[$action],
+            'apiBaseUrl' => $this->apiBaseUrl,
+            'scheduledTime' => $time,
+            'recurring' => true,
+            'createdAt' => $createdAt,
+        ];
+
+        // Write job file
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+        file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        // Create crontab entry (e.g., HOTTUB:rec-xxx:ON:DAILY)
+        $cronExpression = $this->timeToCronExpression($time);
+        $actionLabel = self::ACTION_LABELS[$action];
+        $cronEntry = sprintf(
+            '%s %s %s # HOTTUB:%s:%s:DAILY',
+            $cronExpression,
+            escapeshellarg($this->cronRunnerPath),
+            escapeshellarg($jobId),
+            $jobId,
+            $actionLabel
+        );
+
+        $this->crontabAdapter->addEntry($cronEntry);
+
+        return [
+            'jobId' => $jobId,
+            'action' => $action,
+            'scheduledTime' => $time,
+            'recurring' => true,
+            'createdAt' => $createdAt,
+        ];
+    }
+
+    /**
+     * List all pending scheduled jobs (both one-off and recurring).
      *
      * Also cleans up any orphaned crontab entries (crontab entries without
      * corresponding job files). This can happen if a job file is manually
      * deleted, or due to a crash during job execution.
      *
-     * @return array<array{jobId: string, action: string, scheduledTime: string, createdAt: string}>
+     * @return array<array{jobId: string, action: string, scheduledTime: string, createdAt: string, recurring: bool}>
      */
     public function listJobs(): array
     {
@@ -118,25 +178,33 @@ class SchedulerService
         $this->cleanupOrphanedCrontabEntries();
 
         $jobs = [];
-        $pattern = $this->jobsDir . '/job-*.json';
 
-        foreach (glob($pattern) ?: [] as $file) {
-            $content = file_get_contents($file);
-            if ($content === false) {
-                continue;
+        // Get both one-off (job-*) and recurring (rec-*) job files
+        $patterns = [
+            $this->jobsDir . '/job-*.json',
+            $this->jobsDir . '/rec-*.json',
+        ];
+
+        foreach ($patterns as $pattern) {
+            foreach (glob($pattern) ?: [] as $file) {
+                $content = file_get_contents($file);
+                if ($content === false) {
+                    continue;
+                }
+
+                $jobData = json_decode($content, true);
+                if (!is_array($jobData)) {
+                    continue;
+                }
+
+                $jobs[] = [
+                    'jobId' => $jobData['jobId'] ?? basename($file, '.json'),
+                    'action' => $jobData['action'] ?? 'unknown',
+                    'scheduledTime' => $jobData['scheduledTime'] ?? '',
+                    'createdAt' => $jobData['createdAt'] ?? '',
+                    'recurring' => $jobData['recurring'] ?? false,
+                ];
             }
-
-            $jobData = json_decode($content, true);
-            if (!is_array($jobData)) {
-                continue;
-            }
-
-            $jobs[] = [
-                'jobId' => $jobData['jobId'] ?? basename($file, '.json'),
-                'action' => $jobData['action'] ?? 'unknown',
-                'scheduledTime' => $jobData['scheduledTime'] ?? '',
-                'createdAt' => $jobData['createdAt'] ?? '',
-            ];
         }
 
         // Sort by scheduled time ascending
@@ -160,8 +228,8 @@ class SchedulerService
         $entries = $this->crontabAdapter->listEntries();
 
         foreach ($entries as $entry) {
-            // Extract job ID from HOTTUB: comment pattern
-            if (preg_match('/HOTTUB:(job-[a-f0-9]+)/', $entry, $matches)) {
+            // Extract job ID from HOTTUB: comment pattern (handles both job- and rec- prefixes)
+            if (preg_match('/HOTTUB:((?:job|rec)-[a-f0-9]+)/', $entry, $matches)) {
                 $jobId = $matches[1];
                 $jobFile = $this->jobsDir . '/' . $jobId . '.json';
 
@@ -195,7 +263,7 @@ class SchedulerService
     }
 
     /**
-     * Convert a DateTime to cron expression.
+     * Convert a DateTime to cron expression for one-off jobs.
      * Format: minute hour day month *
      */
     private function dateToCronExpression(\DateTime $dateTime): string
@@ -207,5 +275,19 @@ class SchedulerService
             (int) $dateTime->format('j'), // day of month (no leading zero)
             (int) $dateTime->format('n')  // month (no leading zero)
         );
+    }
+
+    /**
+     * Convert a time string to cron expression for recurring daily jobs.
+     * Input: "HH:MM" (e.g., "06:30" or "18:00")
+     * Output: "minute hour * * *" (runs every day at that time)
+     */
+    private function timeToCronExpression(string $time): string
+    {
+        $parts = explode(':', $time);
+        $hour = (int) $parts[0];
+        $minute = (int) ($parts[1] ?? 0);
+
+        return sprintf('%d %d * * *', $minute, $hour);
     }
 }

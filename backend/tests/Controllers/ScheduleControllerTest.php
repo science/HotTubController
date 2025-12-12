@@ -101,6 +101,58 @@ class ScheduleControllerTest extends TestCase
         $this->assertArrayHasKey('error', $response['body']);
     }
 
+    // ========== Recurring Job Tests ==========
+
+    public function testCreateRecurringJobReturns201(): void
+    {
+        $response = $this->controller->create([
+            'action' => 'heater-on',
+            'scheduledTime' => '06:30',
+            'recurring' => true,
+        ]);
+
+        $this->assertEquals(201, $response['status']);
+        $this->assertArrayHasKey('jobId', $response['body']);
+        $this->assertStringStartsWith('rec-', $response['body']['jobId']);
+        $this->assertTrue($response['body']['recurring']);
+    }
+
+    public function testCreateOneOffJobReturnsRecurringFalse(): void
+    {
+        $response = $this->controller->create([
+            'action' => 'heater-on',
+            'scheduledTime' => '2030-12-11T06:30:00',
+        ]);
+
+        $this->assertEquals(201, $response['status']);
+        $this->assertArrayHasKey('recurring', $response['body']);
+        $this->assertFalse($response['body']['recurring']);
+    }
+
+    public function testListIncludesRecurringFlag(): void
+    {
+        // Create one-off and recurring jobs
+        $this->controller->create([
+            'action' => 'heater-on',
+            'scheduledTime' => '2030-12-11T06:30:00',
+        ]);
+        $this->controller->create([
+            'action' => 'heater-off',
+            'scheduledTime' => '18:00',
+            'recurring' => true,
+        ]);
+
+        $response = $this->controller->list();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertCount(2, $response['body']['jobs']);
+
+        // Check that recurring flag is present on all jobs
+        foreach ($response['body']['jobs'] as $job) {
+            $this->assertArrayHasKey('recurring', $job);
+        }
+    }
+
     // ========== GET /api/schedule Tests ==========
 
     public function testListReturnsJobsArray(): void

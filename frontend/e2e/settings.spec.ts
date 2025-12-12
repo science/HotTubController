@@ -12,7 +12,7 @@ test.describe('Settings Panel Feature', () => {
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.click('button[type="submit"]');
-		await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 10000 });
+		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 	});
 
 	test.describe('Settings Panel Display', () => {
@@ -36,7 +36,7 @@ test.describe('Settings Panel Feature', () => {
 
 	test.describe('Settings Panel Position', () => {
 		test('settings panel is below the Schedule panel', async ({ page }) => {
-			const scheduleHeading = page.getByRole('heading', { name: 'Schedule' });
+			const scheduleHeading = page.getByRole('heading', { name: 'Schedule', exact: true });
 			const settingsHeading = page.getByRole('heading', { name: 'Settings' });
 
 			await expect(scheduleHeading).toBeVisible({ timeout: 10000 });

@@ -141,6 +141,73 @@ class SchedulerServiceTest extends TestCase
         $this->assertStringContainsString('30 6 11 12', $entries[0]); // 06:30 in PST
     }
 
+    // ========== Recurring Job Tests ==========
+
+    public function testScheduleRecurringJobCreatesDailyCronExpression(): void
+    {
+        // Recurring jobs should use * * * for day, month, day-of-week (daily at same time)
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+        $this->assertStringContainsString('30 6 * * *', $entries[0]); // minute hour * * *
+    }
+
+    public function testScheduleRecurringJobUsesRecPrefix(): void
+    {
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $this->assertStringStartsWith('rec-', $result['jobId']);
+    }
+
+    public function testScheduleRecurringJobIncludesDailySuffix(): void
+    {
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertStringContainsString(':DAILY', $entries[0]);
+        $this->assertStringContainsString('HOTTUB:' . $result['jobId'] . ':ON:DAILY', $entries[0]);
+    }
+
+    public function testScheduleOneOffJobIncludesOnceSuffix(): void
+    {
+        $result = $this->scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertStringContainsString(':ONCE', $entries[0]);
+        $this->assertStringContainsString('HOTTUB:' . $result['jobId'] . ':ON:ONCE', $entries[0]);
+    }
+
+    public function testScheduleRecurringJobStoresTimeOnly(): void
+    {
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $this->assertEquals('06:30', $result['scheduledTime']);
+        $this->assertTrue($result['recurring']);
+
+        // Verify job file also has time-only
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+        $this->assertEquals('06:30', $jobData['scheduledTime']);
+        $this->assertTrue($jobData['recurring']);
+    }
+
+    public function testScheduleRecurringJobReturnsRecurringFlag(): void
+    {
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $this->assertArrayHasKey('recurring', $result);
+        $this->assertTrue($result['recurring']);
+    }
+
+    public function testScheduleOneOffJobReturnsRecurringFlagFalse(): void
+    {
+        $result = $this->scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        $this->assertArrayHasKey('recurring', $result);
+        $this->assertFalse($result['recurring']);
+    }
+
     public function testScheduleJobGeneratesUniqueJobIds(): void
     {
         $result1 = $this->scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
@@ -209,6 +276,36 @@ class SchedulerServiceTest extends TestCase
         $this->assertCount(2, $jobs);
     }
 
+    public function testListJobsReturnsBothOneOffAndRecurringJobs(): void
+    {
+        $this->scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00'); // one-off
+        $this->scheduler->scheduleJob('heater-off', '18:00', recurring: true); // recurring
+
+        $jobs = $this->scheduler->listJobs();
+
+        $this->assertCount(2, $jobs);
+    }
+
+    public function testListJobsIncludesRecurringFlag(): void
+    {
+        $this->scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00'); // one-off
+        $this->scheduler->scheduleJob('heater-off', '18:00', recurring: true); // recurring
+
+        $jobs = $this->scheduler->listJobs();
+
+        // Find the one-off job
+        $oneOff = array_filter($jobs, fn($j) => str_starts_with($j['jobId'], 'job-'));
+        $oneOff = array_values($oneOff)[0];
+        $this->assertArrayHasKey('recurring', $oneOff);
+        $this->assertFalse($oneOff['recurring']);
+
+        // Find the recurring job
+        $recurring = array_filter($jobs, fn($j) => str_starts_with($j['jobId'], 'rec-'));
+        $recurring = array_values($recurring)[0];
+        $this->assertArrayHasKey('recurring', $recurring);
+        $this->assertTrue($recurring['recurring']);
+    }
+
     public function testListJobsSortsByScheduledTime(): void
     {
         $this->scheduler->scheduleJob('heater-off', '2030-12-12T18:00:00'); // Later
@@ -229,11 +326,37 @@ class SchedulerServiceTest extends TestCase
         // 2. Crash during cron-runner.sh execution
         // 3. Prior installation left stale entries
         $orphanedJobId = 'job-deadbeef';  // Use hex characters like real job IDs
-        $orphanedCronEntry = "30 6 11 12 * '/path/to/cron-runner.sh' '$orphanedJobId' # HOTTUB:$orphanedJobId:ON";
+        $orphanedCronEntry = "30 6 11 12 * '/path/to/cron-runner.sh' '$orphanedJobId' # HOTTUB:$orphanedJobId:ON:ONCE";
         $this->crontabAdapter->addEntry($orphanedCronEntry);
 
         // Create a legitimate job (this one has both crontab entry and job file)
         $result = $this->scheduler->scheduleJob('heater-on', '2030-12-11T07:30:00');
+
+        // Before calling listJobs, we have 2 crontab entries
+        $this->assertCount(2, $this->crontabAdapter->listEntries());
+
+        // listJobs should detect the orphan and clean it up
+        $jobs = $this->scheduler->listJobs();
+
+        // Should only return the legitimate job
+        $this->assertCount(1, $jobs);
+        $this->assertEquals($result['jobId'], $jobs[0]['jobId']);
+
+        // The orphaned crontab entry should have been removed
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+        $this->assertStringNotContainsString($orphanedJobId, $entries[0]);
+    }
+
+    public function testListJobsCleansUpOrphanedRecurringCrontabEntries(): void
+    {
+        // Orphaned recurring job entry
+        $orphanedJobId = 'rec-deadbeef';
+        $orphanedCronEntry = "30 6 * * * '/path/to/cron-runner.sh' '$orphanedJobId' # HOTTUB:$orphanedJobId:ON:DAILY";
+        $this->crontabAdapter->addEntry($orphanedCronEntry);
+
+        // Create a legitimate recurring job
+        $result = $this->scheduler->scheduleJob('heater-on', '07:30', recurring: true);
 
         // Before calling listJobs, we have 2 crontab entries
         $this->assertCount(2, $this->crontabAdapter->listEntries());
@@ -280,6 +403,20 @@ class SchedulerServiceTest extends TestCase
         $this->expectExceptionMessage('not found');
 
         $this->scheduler->cancelJob('job-nonexistent');
+    }
+
+    public function testCancelRecurringJob(): void
+    {
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+        $this->assertCount(1, $this->crontabAdapter->listEntries());
+
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $this->assertFileExists($jobFile);
+
+        $this->scheduler->cancelJob($result['jobId']);
+
+        $this->assertCount(0, $this->crontabAdapter->listEntries());
+        $this->assertFileDoesNotExist($jobFile);
     }
 }
 

@@ -56,7 +56,8 @@ describe('QuickSchedulePanel', () => {
 				jobId: 'job-123',
 				action: 'heater-on',
 				scheduledTime: '2025-12-12T06:00:00+00:00',
-				createdAt: '2025-12-11T10:00:00+00:00'
+				createdAt: '2025-12-11T10:00:00+00:00',
+				recurring: false
 			});
 
 			render(QuickSchedulePanel);
@@ -75,7 +76,8 @@ describe('QuickSchedulePanel', () => {
 				jobId: 'job-123',
 				action: 'heater-on',
 				scheduledTime: '2025-12-11T17:30:00+00:00',
-				createdAt: '2025-12-11T10:00:00+00:00'
+				createdAt: '2025-12-11T10:00:00+00:00',
+				recurring: false
 			});
 
 			render(QuickSchedulePanel);
@@ -97,7 +99,8 @@ describe('QuickSchedulePanel', () => {
 				jobId: 'job-123',
 				action: 'heater-on',
 				scheduledTime: '2025-12-12T06:00:00+00:00',
-				createdAt: '2025-12-11T10:00:00+00:00'
+				createdAt: '2025-12-11T10:00:00+00:00',
+				recurring: false
 			});
 
 			render(QuickSchedulePanel, { props: { onScheduled } });
@@ -168,7 +171,8 @@ describe('QuickSchedulePanel', () => {
 				jobId: 'job-123',
 				action: 'heater-on',
 				scheduledTime: '2025-12-12T06:00:00+00:00',
-				createdAt: '2025-12-11T10:00:00+00:00'
+				createdAt: '2025-12-11T10:00:00+00:00',
+				recurring: false
 			});
 
 			render(QuickSchedulePanel);
@@ -188,7 +192,8 @@ describe('QuickSchedulePanel', () => {
 				jobId: 'job-123',
 				action: 'heater-on',
 				scheduledTime: '2025-12-12T06:00:00+00:00',
-				createdAt: '2025-12-11T10:00:00+00:00'
+				createdAt: '2025-12-11T10:00:00+00:00',
+				recurring: false
 			});
 
 			render(QuickSchedulePanel);
@@ -213,7 +218,8 @@ describe('QuickSchedulePanel', () => {
 				jobId: 'job-123',
 				action: 'heater-on',
 				scheduledTime: '2025-12-12T06:00:00+00:00',
-				createdAt: '2025-12-11T10:00:00+00:00'
+				createdAt: '2025-12-11T10:00:00+00:00',
+				recurring: false
 			});
 
 			render(QuickSchedulePanel, { props: { onScheduled } });

@@ -31,6 +31,7 @@
 	let selectedAction = $state('heater-on');
 	let scheduledDate = $state('');
 	let scheduledTime = $state('');
+	let isRecurring = $state(false);
 
 	// Auto-refresh timers for pending jobs
 	const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -145,8 +146,12 @@
 	}
 
 	async function handleSchedule() {
-		if (!scheduledDate || !scheduledTime) {
-			error = 'Please select date and time';
+		if (!isRecurring && !scheduledDate) {
+			error = 'Please select a date';
+			return;
+		}
+		if (!scheduledTime) {
+			error = 'Please select a time';
 			return;
 		}
 
@@ -155,28 +160,50 @@
 		success = null;
 
 		try {
-			const scheduledDateTime = `${scheduledDate}T${scheduledTime}:00${getTimezoneOffset()}`;
-			await api.scheduleJob(selectedAction, scheduledDateTime);
+			if (isRecurring) {
+				// For recurring jobs, just send time (HH:MM format)
+				await api.scheduleJob(selectedAction, scheduledTime, true);
 
-			// If auto heat-off is enabled and action is heater-on, schedule heater-off too
-			const autoHeatOffEnabled = getAutoHeatOffEnabled();
-			const autoHeatOffMinutes = getAutoHeatOffMinutes();
-			if (autoHeatOffEnabled && selectedAction === 'heater-on') {
-				const heatOffTime = calculateHeatOffTime(scheduledDateTime, autoHeatOffMinutes);
-				await api.scheduleJob('heater-off', heatOffTime);
+				// If auto heat-off is enabled and action is heater-on, create paired recurring off job
+				const autoHeatOffEnabled = getAutoHeatOffEnabled();
+				const autoHeatOffMinutes = getAutoHeatOffMinutes();
+				if (autoHeatOffEnabled && selectedAction === 'heater-on') {
+					// Calculate off time by adding minutes to the time
+					const [hours, minutes] = scheduledTime.split(':').map(Number);
+					const offDate = new Date();
+					offDate.setHours(hours, minutes + autoHeatOffMinutes, 0, 0);
+					const offTimeStr = `${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}`;
+					await api.scheduleJob('heater-off', offTimeStr, true);
 
-				// Format times for success message
-				const onTime = new Date(scheduledDateTime).toLocaleTimeString(undefined, {
-					hour: 'numeric',
-					minute: '2-digit'
-				});
-				const offTime = new Date(heatOffTime).toLocaleTimeString(undefined, {
-					hour: 'numeric',
-					minute: '2-digit'
-				});
-				success = `Scheduled heater-on at ${onTime} and auto heat-off at ${offTime}`;
+					success = `Recurring: Daily heater-on at ${scheduledTime} with auto off at ${offTimeStr}`;
+				} else {
+					success = `Recurring job created: Daily at ${scheduledTime}`;
+				}
 			} else {
-				success = 'Job scheduled successfully!';
+				// One-off job with full datetime
+				const scheduledDateTime = `${scheduledDate}T${scheduledTime}:00${getTimezoneOffset()}`;
+				await api.scheduleJob(selectedAction, scheduledDateTime, false);
+
+				// If auto heat-off is enabled and action is heater-on, schedule heater-off too
+				const autoHeatOffEnabled = getAutoHeatOffEnabled();
+				const autoHeatOffMinutes = getAutoHeatOffMinutes();
+				if (autoHeatOffEnabled && selectedAction === 'heater-on') {
+					const heatOffTime = calculateHeatOffTime(scheduledDateTime, autoHeatOffMinutes);
+					await api.scheduleJob('heater-off', heatOffTime, false);
+
+					// Format times for success message
+					const onTime = new Date(scheduledDateTime).toLocaleTimeString(undefined, {
+						hour: 'numeric',
+						minute: '2-digit'
+					});
+					const offTime = new Date(heatOffTime).toLocaleTimeString(undefined, {
+						hour: 'numeric',
+						minute: '2-digit'
+					});
+					success = `Scheduled heater-on at ${onTime} and auto heat-off at ${offTime}`;
+				} else {
+					success = 'Job scheduled successfully!';
+				}
 			}
 
 			await loadJobs();
@@ -235,6 +262,21 @@
 		});
 	}
 
+	function formatRecurringTime(timeString: string): string {
+		// timeString is HH:MM format
+		const [hours, minutes] = timeString.split(':').map(Number);
+		const date = new Date();
+		date.setHours(hours, minutes, 0, 0);
+		return date.toLocaleTimeString(undefined, {
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+	}
+
+	// Computed: split jobs into recurring and one-off
+	const recurringJobs = $derived(jobs.filter((j) => j.recurring));
+	const oneOffJobs = $derived(jobs.filter((j) => !j.recurring));
+
 	function getActionLabel(action: string): string {
 		return actions.find((a) => a.value === action)?.label ?? action;
 	}
@@ -265,16 +307,18 @@
 		</div>
 
 		<div class="grid grid-cols-2 gap-2">
-			<div>
-				<label for="date" class="block text-sm text-slate-400 mb-1">Date</label>
-				<input
-					type="date"
-					id="date"
-					bind:value={scheduledDate}
-					class="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-				/>
-			</div>
-			<div>
+			{#if !isRecurring}
+				<div>
+					<label for="date" class="block text-sm text-slate-400 mb-1">Date</label>
+					<input
+						type="date"
+						id="date"
+						bind:value={scheduledDate}
+						class="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+					/>
+				</div>
+			{/if}
+			<div class={isRecurring ? 'col-span-2' : ''}>
 				<label for="time" class="block text-sm text-slate-400 mb-1">Time</label>
 				<input
 					type="time"
@@ -284,6 +328,19 @@
 				/>
 			</div>
 		</div>
+
+		<!-- Recurring checkbox -->
+		<label class="flex items-center gap-2 cursor-pointer">
+			<input
+				type="checkbox"
+				bind:checked={isRecurring}
+				class="w-4 h-4 rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-800"
+			/>
+			<span class="text-slate-300 text-sm">Recurring (daily)</span>
+		</label>
+		{#if isRecurring}
+			<p class="text-slate-500 text-xs">Runs every day at {scheduledTime || 'selected time'}</p>
+		{/if}
 
 		<button
 			onclick={handleSchedule}
@@ -306,10 +363,35 @@
 		</div>
 	{/if}
 
-	<!-- Scheduled Jobs List -->
+	<!-- Daily Schedule (Recurring Jobs) -->
+	{#if recurringJobs.length > 0}
+		<div class="border-t border-slate-700 pt-4 mb-4">
+			<div class="flex items-center justify-between mb-2">
+				<h3 class="text-sm font-medium text-slate-400">Daily Schedule</h3>
+			</div>
+			<ul class="space-y-2">
+				{#each recurringJobs as job (job.jobId)}
+					<li class="flex items-center justify-between bg-purple-900/30 border border-purple-700/50 rounded-lg px-3 py-2">
+						<div>
+							<span class="text-slate-200 font-medium">{getActionLabel(job.action)}</span>
+							<span class="text-purple-300 text-sm ml-2">Daily at {formatRecurringTime(job.scheduledTime)}</span>
+						</div>
+						<button
+							onclick={() => handleCancel(job.jobId)}
+							class="text-red-400 hover:text-red-300 text-sm font-medium"
+						>
+							Cancel
+						</button>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+
+	<!-- Upcoming Jobs (One-off) -->
 	<div class="border-t border-slate-700 pt-4">
 		<div class="flex items-center justify-between mb-2">
-			<h3 class="text-sm font-medium text-slate-400">Pending Jobs</h3>
+			<h3 class="text-sm font-medium text-slate-400">Upcoming</h3>
 			<div class="relative">
 				<button
 					type="button"
@@ -337,9 +419,9 @@
 				{/if}
 			</div>
 		</div>
-		{#if jobs.length > 0}
+		{#if oneOffJobs.length > 0}
 			<ul class="space-y-2">
-				{#each jobs as job (job.jobId)}
+				{#each oneOffJobs as job (job.jobId)}
 					<li class="flex items-center justify-between bg-slate-700/50 rounded-lg px-3 py-2">
 						<div>
 							<span class="text-slate-200 font-medium">{getActionLabel(job.action)}</span>
@@ -355,7 +437,7 @@
 				{/each}
 			</ul>
 		{:else}
-			<p class="text-slate-500 text-sm text-center py-2">No scheduled jobs</p>
+			<p class="text-slate-500 text-sm text-center py-2">No upcoming jobs</p>
 		{/if}
 	</div>
 </div>

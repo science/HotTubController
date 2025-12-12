@@ -109,7 +109,7 @@ test.describe('Scheduler Integration', () => {
 		expect(deleteCallMade).toBe(true);
 
 		// Verify job is removed from UI
-		await expect(page.locator('text=No scheduled jobs')).toBeVisible({ timeout: 5000 });
+		await expect(page.locator('text=No upcoming jobs')).toBeVisible({ timeout: 5000 });
 	});
 
 	test('list jobs loads on page load', async ({ page }) => {
