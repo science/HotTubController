@@ -19,11 +19,19 @@ _archive/          # Previous implementation for reference patterns
 ### Backend (PHP)
 ```bash
 cd backend
-composer test                           # Run all PHPUnit tests
-./vendor/bin/phpunit                    # Alternative test command
+composer test                           # Run tests (excludes live API tests)
+composer test:all                       # Run ALL tests including live API tests
+composer test:live                      # Run only live API tests
 ./vendor/bin/phpunit --filter=testName  # Run single test
 php -S localhost:8080 -t public         # Start dev server
 ```
+
+**Test Groups:**
+- Default (`composer test`): Fast tests using stubs/mocks - safe for daily development
+- Live (`composer test:live`): Tests that hit real external APIs (WirelessTag, etc.)
+- All (`composer test:all`): Full suite - **run before pushing to production**
+
+Tests tagged `@group live` are excluded by default to keep the feedback loop fast and avoid hitting external APIs unnecessarily.
 
 ### Frontend (SvelteKit)
 ```bash
@@ -52,11 +60,17 @@ npm run check            # TypeScript/Svelte type checking
   - `EnvLoader` - File-based `.env` configuration loading
   - `SchedulerService` - Creates/lists/cancels cron jobs
   - `AuthService` - JWT token validation
+  - `WirelessTagClient` - Temperature sensor readings from WirelessTag API
 - **IFTTT Client Pattern**: Uses interface (`IftttClientInterface`) with unified client:
   - `IftttClient` - Unified client with injectable HTTP layer
   - `StubHttpClient` - Simulates API calls (safe for testing)
   - `CurlHttpClient` - Makes real IFTTT webhook calls
 - **Factory**: `IftttClientFactory` - Creates appropriate client based on config
+- **WirelessTag Client Pattern**: Same strategy pattern for temperature sensor API:
+  - `WirelessTagClient` - Unified client with injectable HTTP layer
+  - `StubWirelessTagHttpClient` - Simulates sensor data (configurable temps)
+  - `CurlWirelessTagHttpClient` - Real API calls to WirelessTag cloud
+- **Factory**: `WirelessTagClientFactory` - Creates client based on mode (stub/live/auto)
 
 ### Frontend
 - **Framework**: SvelteKit with Svelte 5 runes (`$state`, `$effect`)
@@ -133,11 +147,23 @@ Set via `IFTTT_MODE` in `.env` file:
 - `live` - Use real IFTTT calls (requires `IFTTT_WEBHOOK_KEY`)
 - `auto` - Uses stub in testing environment, live if key available
 
+### WirelessTag Configuration
+Temperature sensor API uses the same mode pattern via factory:
+- `stub` - Returns simulated temperature data (configurable for testing)
+- `live` - Real API calls to WirelessTag cloud (requires `WIRELESSTAG_OAUTH_TOKEN`)
+- `auto` - Uses stub in testing environment, live if token available
+
+Required `.env` variables for live mode:
+```bash
+WIRELESSTAG_OAUTH_TOKEN=your-oauth-token
+WIRELESSTAG_DEVICE_ID=0
+```
+
 **Safety rules:**
 - Always use `IFTTT_MODE=stub` during development
 - Never commit `backend/.env` (it's gitignored)
 - Get API keys from: https://ifttt.com/maker_webhooks/settings
-- Tests automatically use stub mode
+- Tests automatically use stub mode (live tests excluded by default)
 
 ## Reference: Archived Implementation
 

@@ -65,6 +65,8 @@ jobs:
           AUTH_ADMIN_PASSWORD=${{ secrets.AUTH_ADMIN_PASSWORD }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           JWT_EXPIRY_HOURS=${{ secrets.JWT_EXPIRY_HOURS }}
+          WIRELESSTAG_OAUTH_TOKEN=${{ secrets.WIRELESSTAG_OAUTH_TOKEN }}
+          WIRELESSTAG_DEVICE_ID=${{ secrets.WIRELESSTAG_DEVICE_ID }}
           EOF
 
       # Generate CRON_JWT for scheduled job authentication

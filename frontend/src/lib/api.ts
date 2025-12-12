@@ -24,6 +24,17 @@ export interface User {
 	created_at: string;
 }
 
+export interface TemperatureData {
+	water_temp_f: number;
+	water_temp_c: number;
+	ambient_temp_f: number;
+	ambient_temp_c: number;
+	battery_voltage: number | null;
+	signal_dbm: number | null;
+	device_name: string;
+	timestamp: string;
+}
+
 export interface UserListResponse {
 	users: User[];
 }
@@ -83,7 +94,9 @@ async function get<T>(endpoint: string): Promise<T> {
 		if (response.status === 403) {
 			throw new Error('Forbidden');
 		}
-		throw new Error('Request failed');
+		// Try to extract error message from response body
+		const errorBody = await response.json().catch(() => ({}));
+		throw new Error(errorBody.error || 'Request failed');
 	}
 	return response.json();
 }
@@ -131,6 +144,9 @@ export const api = {
 	heaterOn: () => post('/api/equipment/heater/on'),
 	heaterOff: () => post('/api/equipment/heater/off'),
 	pumpRun: () => post('/api/equipment/pump/run'),
+
+	// Temperature endpoint
+	getTemperature: () => get<TemperatureData>('/api/temperature'),
 
 	// Schedule endpoints
 	scheduleJob: (action: string, scheduledTime: string) =>
