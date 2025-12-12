@@ -18,6 +18,13 @@ class SchedulerService
         'pump-run' => '/api/equipment/pump/run',
     ];
 
+    /** @var array<string, string> Human-readable labels for crontab comments */
+    private const ACTION_LABELS = [
+        'heater-on' => 'ON',
+        'heater-off' => 'OFF',
+        'pump-run' => 'PUMP',
+    ];
+
     public function __construct(
         private string $jobsDir,
         private string $cronRunnerPath,
@@ -74,14 +81,16 @@ class SchedulerService
         $jobFile = $this->jobsDir . '/' . $jobId . '.json';
         file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-        // Create crontab entry
+        // Create crontab entry with descriptive label (e.g., HOTTUB:job-xxx:ON)
         $cronExpression = $this->dateToCronExpression($dateTime);
+        $actionLabel = self::ACTION_LABELS[$action];
         $cronEntry = sprintf(
-            '%s %s %s # HOTTUB:%s',
+            '%s %s %s # HOTTUB:%s:%s',
             $cronExpression,
             escapeshellarg($this->cronRunnerPath),
             escapeshellarg($jobId),
-            $jobId
+            $jobId,
+            $actionLabel
         );
 
         $this->crontabAdapter->addEntry($cronEntry);
