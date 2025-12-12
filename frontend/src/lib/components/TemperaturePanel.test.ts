@@ -2,12 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import TemperaturePanel from './TemperaturePanel.svelte';
 import * as api from '$lib/api';
+import * as settings from '$lib/settings';
 
 // Mock the api module
 vi.mock('$lib/api', () => ({
 	api: {
 		getTemperature: vi.fn()
 	}
+}));
+
+// Mock the settings module
+vi.mock('$lib/settings', () => ({
+	getCachedTemperature: vi.fn(),
+	setCachedTemperature: vi.fn()
 }));
 
 const mockTemperatureData: api.TemperatureData = {
@@ -21,10 +28,23 @@ const mockTemperatureData: api.TemperatureData = {
 	timestamp: '2025-12-11T10:30:00Z'
 };
 
+const mockCachedData: settings.CachedTemperature = {
+	water_temp_f: 95.0,
+	water_temp_c: 35.0,
+	ambient_temp_f: 58.0,
+	ambient_temp_c: 14.4,
+	battery_voltage: 3.5,
+	signal_dbm: -60,
+	device_name: 'Hot Tub',
+	timestamp: '2025-12-11T08:00:00Z',
+	cachedAt: Date.now() - 60000 // 1 minute ago
+};
+
 describe('TemperaturePanel', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		vi.mocked(api.api.getTemperature).mockResolvedValue(mockTemperatureData);
+		vi.mocked(settings.getCachedTemperature).mockReturnValue(null);
 	});
 
 	describe('rendering', () => {
@@ -198,6 +218,97 @@ describe('TemperaturePanel', () => {
 			// Both should have whitespace-nowrap to prevent internal breaking
 			expect(waterReading?.className).toContain('whitespace-nowrap');
 			expect(ambientReading?.className).toContain('whitespace-nowrap');
+		});
+	});
+
+	describe('cache behavior', () => {
+		it('displays cached data on mount without calling API', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(mockCachedData);
+
+			render(TemperaturePanel);
+
+			// Should display cached temperature (95.0) not API temperature (98.4)
+			await waitFor(() => {
+				expect(screen.getByText(/95\.0/)).toBeTruthy();
+			});
+
+			// Should NOT have called the API
+			expect(api.api.getTemperature).not.toHaveBeenCalled();
+		});
+
+		it('calls API on mount when no cache exists', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(null);
+
+			render(TemperaturePanel);
+
+			await waitFor(() => {
+				expect(api.api.getTemperature).toHaveBeenCalledTimes(1);
+			});
+
+			// Should display API temperature
+			await waitFor(() => {
+				expect(screen.getByText(/98\.4/)).toBeTruthy();
+			});
+		});
+
+		it('updates cache when API data is fetched', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(null);
+
+			render(TemperaturePanel);
+
+			await waitFor(() => {
+				expect(settings.setCachedTemperature).toHaveBeenCalledWith(mockTemperatureData);
+			});
+		});
+
+		it('always calls API when refresh button clicked, even with cached data', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(mockCachedData);
+
+			render(TemperaturePanel);
+
+			// Wait for cached data to display
+			await waitFor(() => {
+				expect(screen.getByText(/95\.0/)).toBeTruthy();
+			});
+
+			// API should NOT have been called yet
+			expect(api.api.getTemperature).not.toHaveBeenCalled();
+
+			// Click refresh button
+			const button = screen.getByRole('button', { name: /refresh/i });
+			await fireEvent.click(button);
+
+			// Now API should be called
+			await waitFor(() => {
+				expect(api.api.getTemperature).toHaveBeenCalledTimes(1);
+			});
+
+			// Should display fresh API temperature
+			await waitFor(() => {
+				expect(screen.getByText(/98\.4/)).toBeTruthy();
+			});
+
+			// Cache should be updated with new data
+			expect(settings.setCachedTemperature).toHaveBeenCalledWith(mockTemperatureData);
+		});
+
+		it('updates cache when loadTemperature is called externally', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(mockCachedData);
+
+			const { component } = render(TemperaturePanel);
+
+			// Wait for cached data
+			await waitFor(() => {
+				expect(screen.getByText(/95\.0/)).toBeTruthy();
+			});
+
+			// Call exported loadTemperature
+			const panel = component as unknown as { loadTemperature: () => Promise<void> };
+			await panel.loadTemperature();
+
+			// Should have called API and updated cache
+			expect(api.api.getTemperature).toHaveBeenCalledTimes(1);
+			expect(settings.setCachedTemperature).toHaveBeenCalledWith(mockTemperatureData);
 		});
 	});
 });
