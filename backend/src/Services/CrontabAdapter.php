@@ -55,14 +55,44 @@ class CrontabAdapter implements CrontabAdapterInterface
         $output = [];
         $returnCode = 0;
 
-        exec('crontab -l 2>/dev/null', $output, $returnCode);
+        // Capture both stdout and stderr to distinguish between
+        // "no crontab" and actual errors
+        $descriptorspec = [
+            0 => ['pipe', 'r'],  // stdin
+            1 => ['pipe', 'w'],  // stdout
+            2 => ['pipe', 'w'],  // stderr
+        ];
 
-        // Return empty array if no crontab exists
-        if ($returnCode !== 0) {
-            return [];
+        $process = proc_open('crontab -l', $descriptorspec, $pipes);
+
+        if (!is_resource($process)) {
+            throw new RuntimeException('Failed to execute crontab -l');
         }
 
-        // Filter out empty lines
-        return array_values(array_filter($output, fn($line) => trim($line) !== ''));
+        fclose($pipes[0]);  // Close stdin
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        $returnCode = proc_close($process);
+
+        if ($returnCode !== 0) {
+            // "no crontab for user" is normal - return empty array
+            // This message varies by system, but typically contains "no crontab"
+            if (stripos($stderr, 'no crontab') !== false) {
+                return [];
+            }
+
+            // Any other error is a real problem - throw exception to prevent
+            // addEntry() from accidentally wiping the crontab
+            throw new RuntimeException(
+                'Failed to read crontab (exit code ' . $returnCode . '): ' . trim($stderr)
+            );
+        }
+
+        // Parse stdout into lines and filter empty lines
+        $lines = explode("\n", $stdout);
+        return array_values(array_filter($lines, fn($line) => trim($line) !== ''));
     }
 }

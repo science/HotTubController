@@ -73,6 +73,11 @@ jobs:
       - name: Generate CRON JWT
         run: php backend/bin/generate-cron-jwt.php
 
+      # Ensure cron-runner.sh is executable before deploy
+      # FTP doesn't preserve Unix permissions, so we need to set them explicitly
+      - name: Set executable permissions on scripts
+        run: chmod +x backend/storage/bin/cron-runner.sh
+
       # Deploy backend via FTP
       - name: Deploy backend to cPanel
         uses: SamKirkland/FTP-Deploy-Action@v4.3.6
@@ -92,6 +97,16 @@ jobs:
             **/config/env.*
             **/.env.example
             **/phpunit.xml
+
+      # Fix permissions on cron-runner.sh via FTP SITE CHMOD command
+      # Note: This may fail on some hosts that don't support SITE CHMOD
+      - name: Fix cron-runner.sh permissions via FTP
+        run: |
+          curl -k --ftp-ssl \
+            --user "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" \
+            "ftp://${{ secrets.FTP_HOST }}" \
+            -Q "SITE CHMOD 755 /public_html/tub/backend/storage/bin/cron-runner.sh" \
+            || echo "Warning: SITE CHMOD may not be supported - permissions may need manual fix"
 
       # Deploy frontend via FTP
       - name: Deploy frontend to cPanel
