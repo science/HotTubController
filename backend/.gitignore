@@ -2,6 +2,7 @@
 /composer.phar
 /.phpunit.cache/
 /logs/*.log
+/storage/logs/
 
 # Environment files with secrets - NEVER commit these
 .env
