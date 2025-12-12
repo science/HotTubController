@@ -18,6 +18,23 @@ export interface ScheduleListResponse {
 	jobs: ScheduledJob[];
 }
 
+export interface User {
+	username: string;
+	role: string;
+	created_at: string;
+}
+
+export interface UserListResponse {
+	users: User[];
+}
+
+export interface CreateUserResponse {
+	username: string;
+	password: string;
+	role: string;
+	message: string;
+}
+
 // API base path - backend is at {base}/backend/public
 const API_BASE = `${base}/backend/public`;
 
@@ -63,6 +80,9 @@ async function get<T>(endpoint: string): Promise<T> {
 		if (response.status === 401) {
 			throw new Error('Unauthorized');
 		}
+		if (response.status === 403) {
+			throw new Error('Forbidden');
+		}
 		throw new Error('Request failed');
 	}
 	return response.json();
@@ -77,7 +97,32 @@ async function del(endpoint: string): Promise<{ success: boolean }> {
 		if (response.status === 401) {
 			throw new Error('Unauthorized');
 		}
+		if (response.status === 403) {
+			throw new Error('Forbidden');
+		}
 		throw new Error('Request failed');
+	}
+	return response.json();
+}
+
+async function put<T>(endpoint: string, data: object): Promise<T> {
+	const response = await fetch(`${API_BASE}${endpoint}`, {
+		method: 'PUT',
+		credentials: 'include',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(data)
+	});
+	if (!response.ok) {
+		if (response.status === 401) {
+			throw new Error('Unauthorized');
+		}
+		if (response.status === 403) {
+			throw new Error('Forbidden');
+		}
+		const errorBody = await response.json().catch(() => ({}));
+		throw new Error(errorBody.error || 'Request failed');
 	}
 	return response.json();
 }
@@ -91,5 +136,13 @@ export const api = {
 	scheduleJob: (action: string, scheduledTime: string) =>
 		postJson<ScheduledJob>('/api/schedule', { action, scheduledTime }),
 	listScheduledJobs: () => get<ScheduleListResponse>('/api/schedule'),
-	cancelScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}`)
+	cancelScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}`),
+
+	// User management endpoints (admin only)
+	listUsers: () => get<UserListResponse>('/api/users'),
+	createUser: (username: string, password: string, role: string = 'user') =>
+		postJson<CreateUserResponse>('/api/users', { username, password, role }),
+	deleteUser: (username: string) => del(`/api/users/${username}`),
+	updateUserPassword: (username: string, password: string) =>
+		put<{ success: boolean }>(`/api/users/${username}/password`, { password })
 };

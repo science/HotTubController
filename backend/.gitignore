@@ -11,3 +11,6 @@
 # (development and testing configs are safe to commit as they use stub mode)
 config/env.staging
 config/env.production
+
+# User database - contains hashed passwords, should never be committed
+/storage/users/

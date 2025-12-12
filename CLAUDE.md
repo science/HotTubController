@@ -10,7 +10,7 @@ Hot tub controller system with a PHP backend API and SvelteKit frontend. Control
 
 ```
 backend/           # PHP API (PHPUnit tests)
-frontend/          # SvelteKit + TypeScript + Tailwind (Vitest tests)
+frontend/          # SvelteKit + TypeScript + Tailwind (Vitest unit tests, Playwright E2E)
 _archive/          # Previous implementation for reference patterns
 ```
 
@@ -28,19 +28,30 @@ php -S localhost:8080 -t public         # Start dev server
 ### Frontend (SvelteKit)
 ```bash
 cd frontend
-npm run dev              # Start dev server
+npm run dev              # Start dev server (port 5173)
 npm run build            # Production build
-npm run test             # Run Vitest tests
-npm run test:watch       # Tests in watch mode
+npm run test             # Run Vitest unit tests
+npm run test:watch       # Unit tests in watch mode
+npm run test:e2e         # Run Playwright E2E tests (auto-starts backend + frontend)
+npm run test:e2e:ui      # E2E tests with interactive UI
 npm run check            # TypeScript/Svelte type checking
 ```
+
+**E2E Testing**: Playwright tests in `frontend/e2e/` test frontend-backend integration. They auto-start servers on ports 5174 (frontend) and 8081 (backend). The frontend is served at `/tub` base path.
 
 ## Architecture
 
 ### Backend
-- **Entry point**: `public/index.php` - Simple router with CORS handling
-- **Controller**: `src/Controllers/EquipmentController.php` - Equipment control endpoints
-- **EnvLoader**: `src/Services/EnvLoader.php` - File-based configuration loading
+- **Entry point**: `public/index.php` - Router setup and dependency wiring
+- **Routing**: `src/Routing/Router.php` - Simple router with `{param}` pattern support
+- **Controllers**:
+  - `EquipmentController` - Heater/pump control via IFTTT
+  - `ScheduleController` - Scheduled job management via crontab
+  - `AuthController` - JWT-based authentication
+- **Services**:
+  - `EnvLoader` - File-based `.env` configuration loading
+  - `SchedulerService` - Creates/lists/cancels cron jobs
+  - `AuthService` - JWT token validation
 - **IFTTT Client Pattern**: Uses interface (`IftttClientInterface`) with unified client:
   - `IftttClient` - Unified client with injectable HTTP layer
   - `StubHttpClient` - Simulates API calls (safe for testing)
@@ -48,15 +59,26 @@ npm run check            # TypeScript/Svelte type checking
 - **Factory**: `IftttClientFactory` - Creates appropriate client based on config
 
 ### Frontend
-- **Framework**: SvelteKit with Svelte 5 runes (`$state`)
-- **API client**: `src/lib/api.ts` - Typed API wrapper
-- **Components**: `src/lib/components/` - Reusable UI components
+- **Framework**: SvelteKit with Svelte 5 runes (`$state`, `$effect`)
+- **Styling**: Tailwind CSS v4
+- **API client**: `src/lib/api.ts` - Typed wrapper for all backend endpoints
+- **Auth**: `src/lib/stores/auth.svelte.ts` - Reactive auth state with httpOnly cookie support
+- **Components**:
+  - `ControlButton.svelte` - Equipment control buttons
+  - `SchedulePanel.svelte` - Scheduled jobs list with auto-refresh
+  - `QuickSchedulePanel.svelte` - Quick scheduling UI
 
 ### API Endpoints
 - `GET /api/health` - Health check with IFTTT mode status
-- `POST /api/equipment/heater/on` - Trigger IFTTT `hot-tub-heat-on`
-- `POST /api/equipment/heater/off` - Trigger IFTTT `hot-tub-heat-off`
-- `POST /api/equipment/pump/run` - Trigger IFTTT `cycle_hot_tub_ionizer`
+- `POST /api/auth/login` - Login (sets httpOnly cookie)
+- `POST /api/auth/logout` - Logout (clears cookie)
+- `GET /api/auth/me` - Get current user info
+- `POST /api/equipment/heater/on` - Trigger IFTTT `hot-tub-heat-on` (auth required)
+- `POST /api/equipment/heater/off` - Trigger IFTTT `hot-tub-heat-off` (auth required)
+- `POST /api/equipment/pump/run` - Trigger IFTTT `cycle_hot_tub_ionizer` (auth required)
+- `POST /api/schedule` - Schedule a future action (auth required)
+- `GET /api/schedule` - List scheduled jobs (auth required)
+- `DELETE /api/schedule/{id}` - Cancel scheduled job (auth required)
 
 ## Development Methodology: TDD Red/Green
 

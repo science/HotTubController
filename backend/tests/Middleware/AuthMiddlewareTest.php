@@ -97,4 +97,44 @@ class AuthMiddlewareTest extends TestCase
 
         $this->assertNull($response);
     }
+
+    public function testRequireAdminReturns401WhenNotAuthenticated(): void
+    {
+        $response = $this->middleware->requireAdmin([], []);
+
+        $this->assertNotNull($response);
+        $this->assertEquals(401, $response['status']);
+        $this->assertEquals('Authentication required', $response['body']['error']);
+    }
+
+    public function testRequireAdminReturnsNullForAdminUser(): void
+    {
+        // TestAuthHelper creates an admin user, so this token is for an admin
+        $token = TestAuthHelper::getValidToken();
+        $headers = ['Authorization' => 'Bearer ' . $token];
+
+        $response = $this->middleware->requireAdmin($headers, []);
+
+        $this->assertNull($response);
+    }
+
+    public function testRequireAdminReturns403ForNonAdminUser(): void
+    {
+        // Create a regular user token
+        $userRepo = TestAuthHelper::getUserRepository();
+        // Make sure the user exists
+        if ($userRepo->findByUsername('regularuser') === null) {
+            $userRepo->create('regularuser', 'password', 'user');
+        }
+
+        $authService = TestAuthHelper::getAuthService();
+        $token = $authService->login('regularuser', 'password');
+        $headers = ['Authorization' => 'Bearer ' . $token];
+
+        $response = $this->middleware->requireAdmin($headers, []);
+
+        $this->assertNotNull($response);
+        $this->assertEquals(403, $response['status']);
+        $this->assertEquals('Admin access required', $response['body']['error']);
+    }
 }
