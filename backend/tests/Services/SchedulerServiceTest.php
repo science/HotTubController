@@ -72,6 +72,28 @@ class SchedulerServiceTest extends TestCase
         $this->assertStringContainsString('HOTTUB:', $entries[0]);
     }
 
+    public function testScheduleJobIncludesActionLabelInCrontabComment(): void
+    {
+        // Test that crontab comments include descriptive action labels for easier identification
+        $testCases = [
+            'heater-on' => ':ON',
+            'heater-off' => ':OFF',
+            'pump-run' => ':PUMP',
+        ];
+
+        foreach ($testCases as $action => $expectedLabel) {
+            $result = $this->scheduler->scheduleJob($action, '2030-12-11T06:30:00');
+            $entries = $this->crontabAdapter->listEntries();
+            $lastEntry = end($entries);
+
+            $this->assertStringContainsString(
+                'HOTTUB:' . $result['jobId'] . $expectedLabel,
+                $lastEntry,
+                "Crontab comment for '$action' should include '$expectedLabel' label"
+            );
+        }
+    }
+
     public function testScheduleJobReturnsJobDetails(): void
     {
         $scheduledTime = '2030-12-11T06:30:00';
@@ -207,7 +229,7 @@ class SchedulerServiceTest extends TestCase
         // 2. Crash during cron-runner.sh execution
         // 3. Prior installation left stale entries
         $orphanedJobId = 'job-deadbeef';  // Use hex characters like real job IDs
-        $orphanedCronEntry = "30 6 11 12 * '/path/to/cron-runner.sh' '$orphanedJobId' # HOTTUB:$orphanedJobId";
+        $orphanedCronEntry = "30 6 11 12 * '/path/to/cron-runner.sh' '$orphanedJobId' # HOTTUB:$orphanedJobId:ON";
         $this->crontabAdapter->addEntry($orphanedCronEntry);
 
         // Create a legitimate job (this one has both crontab entry and job file)
