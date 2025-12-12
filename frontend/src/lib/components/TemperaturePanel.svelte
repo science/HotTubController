@@ -3,6 +3,9 @@
 	import { RefreshCw, Thermometer, ThermometerSun } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 
+	// Export loadTemperature for parent components to trigger refresh
+	export { loadTemperature };
+
 	let temperature = $state<TemperatureData | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);

@@ -352,97 +352,7 @@ describe('SchedulePanel auto-refresh', () => {
 	});
 });
 
-describe('SchedulePanel Auto Heat Off UI', () => {
-	beforeEach(() => {
-		vi.useFakeTimers();
-		vi.clearAllMocks();
-		// Default mock returns
-		vi.mocked(api.listScheduledJobs).mockResolvedValue({ jobs: [] });
-		vi.mocked(api.scheduleJob).mockResolvedValue({ jobId: 'job-123', action: 'heater-on', scheduledTime: '2024-12-11T06:00:00-05:00', createdAt: '2024-12-10T10:00:00-05:00' });
-	});
-
-	afterEach(() => {
-		vi.useRealTimers();
-	});
-
-	it('renders Auto Heat Off section header', async () => {
-		render(SchedulePanel);
-		await waitFor(() => {
-			expect(screen.getByText('Auto Heat Off')).toBeTruthy();
-		});
-	});
-
-	it('renders checkbox with label "Enable auto heat-off"', async () => {
-		render(SchedulePanel);
-		await waitFor(() => {
-			expect(screen.getByLabelText('Enable auto heat-off')).toBeTruthy();
-		});
-	});
-
-	it('renders minutes input with label', async () => {
-		render(SchedulePanel);
-		await waitFor(() => {
-			// The label "Turn off after" is associated via htmlFor with the input id
-			expect(screen.getByRole('spinbutton')).toBeTruthy();
-		});
-	});
-
-	it('checkbox reflects getAutoHeatOffEnabled state (false)', async () => {
-		vi.mocked(autoHeatOff.getAutoHeatOffEnabled).mockReturnValue(false);
-		render(SchedulePanel);
-		await waitFor(() => {
-			const checkbox = screen.getByLabelText('Enable auto heat-off') as HTMLInputElement;
-			expect(checkbox.checked).toBe(false);
-		});
-	});
-
-	it('checkbox reflects getAutoHeatOffEnabled state (true)', async () => {
-		vi.mocked(autoHeatOff.getAutoHeatOffEnabled).mockReturnValue(true);
-		render(SchedulePanel);
-		await waitFor(() => {
-			const checkbox = screen.getByLabelText('Enable auto heat-off') as HTMLInputElement;
-			expect(checkbox.checked).toBe(true);
-		});
-	});
-
-	it('minutes input shows getAutoHeatOffMinutes value', async () => {
-		vi.mocked(autoHeatOff.getAutoHeatOffMinutes).mockReturnValue(180);
-		render(SchedulePanel);
-		await waitFor(() => {
-			const input = screen.getByRole('spinbutton') as HTMLInputElement;
-			expect(input.value).toBe('180');
-		});
-	});
-
-	it('clicking checkbox calls setAutoHeatOffEnabled', async () => {
-		vi.mocked(autoHeatOff.getAutoHeatOffEnabled).mockReturnValue(false);
-		render(SchedulePanel);
-
-		await waitFor(() => {
-			expect(screen.getByLabelText('Enable auto heat-off')).toBeTruthy();
-		});
-
-		const checkbox = screen.getByLabelText('Enable auto heat-off');
-		await fireEvent.click(checkbox);
-
-		expect(autoHeatOff.setAutoHeatOffEnabled).toHaveBeenCalledWith(true);
-	});
-
-	it('changing minutes input calls setAutoHeatOffMinutes on blur', async () => {
-		vi.mocked(autoHeatOff.getAutoHeatOffMinutes).mockReturnValue(150);
-		render(SchedulePanel);
-
-		await waitFor(() => {
-			expect(screen.getByRole('spinbutton')).toBeTruthy();
-		});
-
-		const input = screen.getByRole('spinbutton') as HTMLInputElement;
-		await fireEvent.input(input, { target: { value: '200' } });
-		await fireEvent.blur(input);
-
-		expect(autoHeatOff.setAutoHeatOffMinutes).toHaveBeenCalledWith(200);
-	});
-});
+// Auto Heat Off UI tests moved to SettingsPanel.test.ts
 
 describe('SchedulePanel paired job creation', () => {
 	beforeEach(() => {
@@ -535,6 +445,124 @@ describe('SchedulePanel paired job creation', () => {
 		});
 
 		expect(api.scheduleJob).toHaveBeenCalledWith('heater-off', expect.any(String));
+	});
+});
+
+describe('SchedulePanel heater-off completion callback', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.clearAllMocks();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('calls onHeaterOffCompleted callback when heater-off job timer fires', async () => {
+		const now = new Date();
+		const twoMinutesFromNow = new Date(now.getTime() + 2 * 60 * 1000);
+
+		const mockJobs = {
+			jobs: [
+				{
+					jobId: 'job-heater-off',
+					action: 'heater-off',
+					scheduledTime: twoMinutesFromNow.toISOString(),
+					createdAt: now.toISOString(),
+				},
+			],
+		};
+
+		const listJobsSpy = vi.mocked(api.listScheduledJobs);
+		listJobsSpy.mockResolvedValue(mockJobs);
+
+		const onHeaterOffCompleted = vi.fn();
+
+		render(SchedulePanel, { props: { onHeaterOffCompleted } });
+
+		// Wait for initial load
+		await waitFor(() => {
+			expect(listJobsSpy).toHaveBeenCalledTimes(1);
+		});
+
+		// Callback should not have been called yet
+		expect(onHeaterOffCompleted).not.toHaveBeenCalled();
+
+		// Fast forward past scheduled time + buffer (3 minutes)
+		vi.advanceTimersByTime(3 * 60 * 1000);
+
+		// Should have triggered the callback
+		await waitFor(() => {
+			expect(onHeaterOffCompleted).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	it('does not call onHeaterOffCompleted for heater-on jobs', async () => {
+		const now = new Date();
+		const twoMinutesFromNow = new Date(now.getTime() + 2 * 60 * 1000);
+
+		const mockJobs = {
+			jobs: [
+				{
+					jobId: 'job-heater-on',
+					action: 'heater-on',
+					scheduledTime: twoMinutesFromNow.toISOString(),
+					createdAt: now.toISOString(),
+				},
+			],
+		};
+
+		const listJobsSpy = vi.mocked(api.listScheduledJobs);
+		listJobsSpy.mockResolvedValue(mockJobs);
+
+		const onHeaterOffCompleted = vi.fn();
+
+		render(SchedulePanel, { props: { onHeaterOffCompleted } });
+
+		// Wait for initial load
+		await waitFor(() => {
+			expect(listJobsSpy).toHaveBeenCalledTimes(1);
+		});
+
+		// Fast forward past scheduled time + buffer
+		vi.advanceTimersByTime(3 * 60 * 1000);
+
+		// Callback should NOT be called for heater-on jobs
+		expect(onHeaterOffCompleted).not.toHaveBeenCalled();
+	});
+
+	it('works without onHeaterOffCompleted prop (optional)', async () => {
+		const now = new Date();
+		const twoMinutesFromNow = new Date(now.getTime() + 2 * 60 * 1000);
+
+		const mockJobs = {
+			jobs: [
+				{
+					jobId: 'job-heater-off-optional',
+					action: 'heater-off',
+					scheduledTime: twoMinutesFromNow.toISOString(),
+					createdAt: now.toISOString(),
+				},
+			],
+		};
+
+		const listJobsSpy = vi.mocked(api.listScheduledJobs);
+		listJobsSpy.mockResolvedValue(mockJobs);
+
+		// Render without the callback - should not throw
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(listJobsSpy).toHaveBeenCalledTimes(1);
+		});
+
+		// Fast forward past scheduled time + buffer - should not throw
+		vi.advanceTimersByTime(3 * 60 * 1000);
+
+		// If we get here without errors, the test passes
+		await waitFor(() => {
+			expect(listJobsSpy).toHaveBeenCalled();
+		});
 	});
 });
 

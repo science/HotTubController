@@ -3,15 +3,18 @@
 	import QuickSchedulePanel from '$lib/components/QuickSchedulePanel.svelte';
 	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte';
+	import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 	import { api } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { buildInfo } from '$lib/config';
+	import { getRefreshTempOnHeaterOff } from '$lib/settings';
 
 	let { data } = $props();
 
 	let status = $state<{ message: string; type: 'success' | 'error' } | null>(null);
 	let schedulePanel = $state<{ loadJobs: () => Promise<void> } | null>(null);
+	let temperaturePanel = $state<{ loadTemperature: () => Promise<void> } | null>(null);
 
 	async function handleAction(action: () => Promise<unknown>, successMsg: string) {
 		try {
@@ -51,6 +54,13 @@
 		}, 3000);
 		// Refresh the schedule panel to show the new job
 		schedulePanel?.loadJobs();
+	}
+
+	function handleHeaterOffCompleted() {
+		// Refresh temperature if setting is enabled
+		if (getRefreshTempOnHeaterOff()) {
+			temperaturePanel?.loadTemperature();
+		}
 	}
 </script>
 
@@ -105,10 +115,13 @@
 		<QuickSchedulePanel onScheduled={handleQuickScheduled} />
 
 		<!-- Temperature Display -->
-		<TemperaturePanel />
+		<TemperaturePanel bind:this={temperaturePanel} />
 
 		<!-- Full Schedule Panel -->
-		<SchedulePanel bind:this={schedulePanel} />
+		<SchedulePanel bind:this={schedulePanel} onHeaterOffCompleted={handleHeaterOffCompleted} />
+
+		<!-- Settings Panel -->
+		<SettingsPanel />
 	</main>
 
 	<footer class="mt-6 text-center">

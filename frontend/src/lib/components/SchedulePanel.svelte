@@ -3,17 +3,20 @@
 	import { schedulerConfig } from '$lib/config';
 	import {
 		getAutoHeatOffEnabled,
-		setAutoHeatOffEnabled,
 		getAutoHeatOffMinutes,
-		setAutoHeatOffMinutes,
-		calculateHeatOffTime,
-		AUTO_HEAT_OFF_DEFAULTS
+		calculateHeatOffTime
 	} from '$lib/autoHeatOff';
 	import { onDestroy } from 'svelte';
 	import { RefreshCw } from 'lucide-svelte';
 
 	// Export loadJobs function for parent components to trigger refresh
 	export { loadJobs };
+
+	// Optional callback when a heater-off job completes
+	interface Props {
+		onHeaterOffCompleted?: () => void;
+	}
+	let { onHeaterOffCompleted }: Props = $props();
 
 	let jobs = $state<ScheduledJob[]>([]);
 	let loading = $state(false);
@@ -28,10 +31,6 @@
 	let selectedAction = $state('heater-on');
 	let scheduledDate = $state('');
 	let scheduledTime = $state('');
-
-	// Auto heat-off state (loaded from localStorage)
-	let autoHeatOffEnabled = $state(getAutoHeatOffEnabled());
-	let autoHeatOffMinutes = $state(getAutoHeatOffMinutes());
 
 	// Auto-refresh timers for pending jobs
 	const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -76,6 +75,10 @@
 				const timerId = setTimeout(() => {
 					refreshTimers.delete(job.jobId);
 					loadJobs();
+					// Call callback for heater-off job completions
+					if (job.action === 'heater-off' && onHeaterOffCompleted) {
+						onHeaterOffCompleted();
+					}
 				}, delay);
 				refreshTimers.set(job.jobId, timerId);
 			}
@@ -141,23 +144,6 @@
 		return `${sign}${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 	}
 
-	function handleAutoHeatOffToggle(event: Event) {
-		const target = event.target as HTMLInputElement;
-		autoHeatOffEnabled = target.checked;
-		setAutoHeatOffEnabled(target.checked);
-	}
-
-	function handleAutoHeatOffMinutesChange(event: Event) {
-		const target = event.target as HTMLInputElement;
-		const value = parseInt(target.value, 10);
-		if (!isNaN(value)) {
-			autoHeatOffMinutes = value;
-			setAutoHeatOffMinutes(value);
-			// Update display with clamped value
-			autoHeatOffMinutes = getAutoHeatOffMinutes();
-		}
-	}
-
 	async function handleSchedule() {
 		if (!scheduledDate || !scheduledTime) {
 			error = 'Please select date and time';
@@ -173,6 +159,8 @@
 			await api.scheduleJob(selectedAction, scheduledDateTime);
 
 			// If auto heat-off is enabled and action is heater-on, schedule heater-off too
+			const autoHeatOffEnabled = getAutoHeatOffEnabled();
+			const autoHeatOffMinutes = getAutoHeatOffMinutes();
 			if (autoHeatOffEnabled && selectedAction === 'heater-on') {
 				const heatOffTime = calculateHeatOffTime(scheduledDateTime, autoHeatOffMinutes);
 				await api.scheduleJob('heater-off', heatOffTime);
@@ -369,39 +357,5 @@
 		{:else}
 			<p class="text-slate-500 text-sm text-center py-2">No scheduled jobs</p>
 		{/if}
-	</div>
-
-	<!-- Auto Heat Off Configuration -->
-	<div class="border-t border-slate-700 pt-4 mt-4">
-		<h3 class="text-sm font-medium text-slate-400 mb-3">Auto Heat Off</h3>
-		<div class="space-y-3">
-			<label class="flex items-center gap-2 cursor-pointer">
-				<input
-					type="checkbox"
-					checked={autoHeatOffEnabled}
-					onchange={handleAutoHeatOffToggle}
-					class="w-4 h-4 rounded border-slate-500 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-800"
-				/>
-				<span class="text-slate-200 text-sm">Enable auto heat-off</span>
-			</label>
-
-			<div class="flex items-center gap-2">
-				<label for="autoHeatOffMinutes" class="text-slate-400 text-sm">Turn off after</label>
-				<input
-					type="number"
-					id="autoHeatOffMinutes"
-					value={autoHeatOffMinutes}
-					onblur={handleAutoHeatOffMinutesChange}
-					min={AUTO_HEAT_OFF_DEFAULTS.minMinutes}
-					max={AUTO_HEAT_OFF_DEFAULTS.maxMinutes}
-					class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-				/>
-				<span class="text-slate-400 text-sm">minutes</span>
-			</div>
-
-			<p class="text-slate-500 text-xs">
-				Automatically schedules heater-off when you schedule heater-on
-			</p>
-		</div>
 	</div>
 </div>

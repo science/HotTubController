@@ -116,7 +116,7 @@ test.describe('Temperature Display Feature', () => {
 			await page.screenshot({ path: '/tmp/temperature-panel-ui.png', fullPage: true });
 
 			// Basic sanity check - page should have the temperature section
-			await expect(page.getByText('Temperature')).toBeVisible();
+			await expect(page.getByRole('heading', { name: 'Temperature' })).toBeVisible();
 		});
 	});
 });

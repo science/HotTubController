@@ -133,6 +133,26 @@ describe('TemperaturePanel', () => {
 		});
 	});
 
+	describe('exported loadTemperature function', () => {
+		it('exposes loadTemperature for external refresh triggering', async () => {
+			const { component } = render(TemperaturePanel);
+
+			// Wait for initial load
+			await waitFor(() => {
+				expect(api.api.getTemperature).toHaveBeenCalledTimes(1);
+			});
+
+			vi.mocked(api.api.getTemperature).mockClear();
+
+			// Call the exported function - cast to access exports
+			const panel = component as unknown as { loadTemperature: () => Promise<void> };
+			await panel.loadTemperature();
+
+			// Should have called the API again
+			expect(api.api.getTemperature).toHaveBeenCalledTimes(1);
+		});
+	});
+
 	describe('inline layout', () => {
 		it('renders temperatures in a flex container with wrap', async () => {
 			const { container } = render(TemperaturePanel);
