@@ -24,6 +24,17 @@ export interface User {
 	created_at: string;
 }
 
+export interface TemperatureData {
+	water_temp_f: number;
+	water_temp_c: number;
+	ambient_temp_f: number;
+	ambient_temp_c: number;
+	battery_voltage: number | null;
+	signal_dbm: number | null;
+	device_name: string;
+	timestamp: string;
+}
+
 export interface UserListResponse {
 	users: User[];
 }
@@ -131,6 +142,9 @@ export const api = {
 	heaterOn: () => post('/api/equipment/heater/on'),
 	heaterOff: () => post('/api/equipment/heater/off'),
 	pumpRun: () => post('/api/equipment/pump/run'),
+
+	// Temperature endpoint
+	getTemperature: () => get<TemperatureData>('/api/temperature'),
 
 	// Schedule endpoints
 	scheduleJob: (action: string, scheduledTime: string) =>

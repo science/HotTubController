@@ -20,6 +20,8 @@
         }
     },
     "scripts": {
-        "test": "phpunit"
+        "test": "phpunit",
+        "test:live": "phpunit --group=live",
+        "test:all": "phpunit --configuration=phpunit-all.xml"
     }
 }

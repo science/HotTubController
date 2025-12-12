@@ -8,8 +8,10 @@ use HotTub\Controllers\EquipmentController;
 use HotTub\Controllers\AuthController;
 use HotTub\Controllers\ScheduleController;
 use HotTub\Controllers\UserController;
+use HotTub\Controllers\TemperatureController;
 use HotTub\Services\EnvLoader;
 use HotTub\Services\IftttClientFactory;
+use HotTub\Services\WirelessTagClientFactory;
 use HotTub\Services\AuthService;
 use HotTub\Services\UserRepositoryFactory;
 use HotTub\Services\SchedulerService;
@@ -70,6 +72,11 @@ $iftttClient = $factory->create($config['IFTTT_MODE'] ?? 'auto');
 // Create controller with IFTTT client
 $equipmentController = new EquipmentController($logFile, $iftttClient);
 
+// Create WirelessTag client and temperature controller
+$wirelessTagFactory = new WirelessTagClientFactory($config);
+$wirelessTagClient = $wirelessTagFactory->create($config['WIRELESSTAG_MODE'] ?? 'auto');
+$temperatureController = new TemperatureController($wirelessTagClient);
+
 // Create scheduler service and controller
 $jobsDir = __DIR__ . '/../storage/scheduled-jobs';
 $cronRunnerPath = __DIR__ . '/../storage/bin/cron-runner.sh';
@@ -123,6 +130,9 @@ $router->get('/api/auth/me', fn() => handleMe($authController, $headers, $cookie
 $router->post('/api/equipment/heater/on', fn() => $equipmentController->heaterOn(), $requireAuth);
 $router->post('/api/equipment/heater/off', fn() => $equipmentController->heaterOff(), $requireAuth);
 $router->post('/api/equipment/pump/run', fn() => $equipmentController->pumpRun(), $requireAuth);
+
+// Protected temperature route (with auth middleware)
+$router->get('/api/temperature', fn() => $temperatureController->get(), $requireAuth);
 
 // Protected schedule routes (with auth middleware)
 $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireAuth);

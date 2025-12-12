@@ -1,6 +1,7 @@
 <script lang="ts">
 	import CompactControlButton from '$lib/components/CompactControlButton.svelte';
 	import QuickSchedulePanel from '$lib/components/QuickSchedulePanel.svelte';
+	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte';
 	import { api } from '$lib/api';
 	import { goto } from '$app/navigation';
@@ -102,6 +103,9 @@
 
 		<!-- Quick Schedule Buttons -->
 		<QuickSchedulePanel onScheduled={handleQuickScheduled} />
+
+		<!-- Temperature Display -->
+		<TemperaturePanel />
 
 		<!-- Full Schedule Panel -->
 		<SchedulePanel bind:this={schedulePanel} />

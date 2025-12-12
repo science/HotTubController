@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+    PHPUnit configuration for running ALL tests including live API tests.
+    Use this before pushing to production: composer test:all
+-->
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
          bootstrap="vendor/autoload.php"
          colors="true"
          cacheDirectory=".phpunit.cache">
     <testsuites>
-        <testsuite name="default">
+        <testsuite name="all">
             <directory>tests</directory>
         </testsuite>
     </testsuites>
-    <groups>
-        <exclude>
-            <group>live</group>
-        </exclude>
-    </groups>
+    <!-- No group exclusions - runs everything including @group live -->
 </phpunit>
