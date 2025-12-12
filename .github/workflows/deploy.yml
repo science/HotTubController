@@ -38,7 +38,18 @@ jobs:
           cd frontend
           npm ci
 
+      - name: Generate build metadata
+        id: build_date
+        run: |
+          echo "date=$(date '+%b %d, %Y')" >> $GITHUB_OUTPUT
+          echo "sha_short=$(git rev-parse --short=7 HEAD)" >> $GITHUB_OUTPUT
+
       - name: Build frontend
+        env:
+          VITE_GIT_SHA: ${{ steps.build_date.outputs.sha_short }}
+          VITE_BUILD_NUMBER: ${{ github.run_number }}
+          VITE_BUILD_DATE: ${{ steps.build_date.outputs.date }}
+          VITE_GITHUB_REPO: ${{ github.repository }}
         run: |
           cd frontend
           npm run build

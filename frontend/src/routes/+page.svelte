@@ -5,6 +5,7 @@
 	import { api } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
+	import { buildInfo } from '$lib/config';
 
 	let { data } = $props();
 
@@ -117,6 +118,18 @@
 			</div>
 		{:else}
 			<p class="text-slate-500 text-sm">Hold any button for help</p>
+		{/if}
+		{#if buildInfo.commitUrl}
+			<a
+				href={buildInfo.commitUrl}
+				target="_blank"
+				rel="noopener noreferrer"
+				class="text-slate-600 hover:text-slate-400 text-xs mt-4 block"
+			>
+				{buildInfo.version}
+			</a>
+		{:else}
+			<p class="text-slate-600 text-xs mt-4">{buildInfo.version}</p>
 		{/if}
 	</footer>
 </div>
