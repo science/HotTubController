@@ -12,8 +12,37 @@ use RuntimeException;
  */
 class CrontabAdapter implements CrontabAdapterInterface
 {
+    public function __construct(
+        private ?CrontabBackupService $backupService = null
+    ) {
+    }
+
+    /**
+     * Backup the current crontab before modification.
+     * Does nothing if no backup service is configured.
+     */
+    private function backupBeforeModify(): void
+    {
+        if ($this->backupService === null) {
+            return;
+        }
+
+        try {
+            $entries = $this->listEntries();
+            if (!empty($entries)) {
+                $content = implode("\n", $entries) . "\n";
+                $this->backupService->backup($content);
+            }
+        } catch (RuntimeException $e) {
+            // If we can't read the crontab, don't fail the backup
+            // The modification will handle errors appropriately
+        }
+    }
+
     public function addEntry(string $entry): void
     {
+        // Backup before modification
+        $this->backupBeforeModify();
         // SAFE APPEND: Use shell pipeline to append entry without parsing in PHP
         // This prevents the bug where listEntries() failure could wipe the crontab
         //
@@ -36,6 +65,9 @@ class CrontabAdapter implements CrontabAdapterInterface
 
     public function removeByPattern(string $pattern): void
     {
+        // Backup before modification
+        $this->backupBeforeModify();
+
         // SAFETY: First verify we can read the crontab before modifying
         // This prevents the bug where crontab -l failure in the pipeline
         // would result in grep getting empty input, leading to crontab wipe
