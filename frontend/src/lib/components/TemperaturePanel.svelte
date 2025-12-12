@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { api, type TemperatureData } from '$lib/api';
+	import { getCachedTemperature, setCachedTemperature } from '$lib/settings';
 	import { RefreshCw, Thermometer, ThermometerSun } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 
@@ -15,7 +16,9 @@
 		error = null;
 
 		try {
-			temperature = await api.getTemperature();
+			const data = await api.getTemperature();
+			temperature = data;
+			setCachedTemperature(data);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load temperature';
 		} finally {
@@ -28,7 +31,13 @@
 	}
 
 	onMount(() => {
-		loadTemperature();
+		const cached = getCachedTemperature();
+		if (cached) {
+			temperature = cached;
+			loading = false;
+		} else {
+			loadTemperature();
+		}
 	});
 </script>
 
