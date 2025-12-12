@@ -111,24 +111,37 @@ describe('TemperaturePanel', () => {
 			render(TemperaturePanel);
 
 			await waitFor(() => {
-				expect(screen.getByText(/failed/i)).toBeTruthy();
+				// Should display the actual error message
+				expect(screen.getByText(/Network error/i)).toBeTruthy();
 			});
 		});
 
 		it('keeps showing error after failed refresh', async () => {
-			vi.mocked(api.api.getTemperature).mockRejectedValue(new Error('Network error'));
+			vi.mocked(api.api.getTemperature).mockRejectedValue(new Error('Connection failed'));
 
 			render(TemperaturePanel);
 
 			await waitFor(() => {
-				expect(screen.getByText(/failed/i)).toBeTruthy();
+				expect(screen.getByText(/Connection failed/i)).toBeTruthy();
 			});
 
 			const button = screen.getByRole('button', { name: /refresh/i });
 			await fireEvent.click(button);
 
 			await waitFor(() => {
-				expect(screen.getByText(/failed/i)).toBeTruthy();
+				expect(screen.getByText(/Connection failed/i)).toBeTruthy();
+			});
+		});
+
+		it('shows configuration error message from backend', async () => {
+			vi.mocked(api.api.getTemperature).mockRejectedValue(
+				new Error('Temperature sensor not configured: WIRELESSTAG_OAUTH_TOKEN is missing')
+			);
+
+			render(TemperaturePanel);
+
+			await waitFor(() => {
+				expect(screen.getByText(/sensor not configured/i)).toBeTruthy();
 			});
 		});
 	});

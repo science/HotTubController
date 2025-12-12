@@ -75,7 +75,7 @@ $equipmentController = new EquipmentController($logFile, $iftttClient);
 // Create WirelessTag client and temperature controller
 $wirelessTagFactory = new WirelessTagClientFactory($config);
 $wirelessTagClient = $wirelessTagFactory->create($config['WIRELESSTAG_MODE'] ?? 'auto');
-$temperatureController = new TemperatureController($wirelessTagClient);
+$temperatureController = new TemperatureController($wirelessTagClient, $wirelessTagFactory);
 
 // Create scheduler service and controller
 $jobsDir = __DIR__ . '/../storage/scheduled-jobs';

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTub\Controllers;
 
 use HotTub\Services\WirelessTagClient;
+use HotTub\Services\WirelessTagClientFactory;
 
 /**
  * Controller for temperature sensor operations.
@@ -14,7 +15,8 @@ use HotTub\Services\WirelessTagClient;
 class TemperatureController
 {
     public function __construct(
-        private WirelessTagClient $wirelessTagClient
+        private WirelessTagClient $wirelessTagClient,
+        private ?WirelessTagClientFactory $factory = null
     ) {}
 
     /**
@@ -25,6 +27,17 @@ class TemperatureController
      */
     public function get(): array
     {
+        // Check if sensor is configured before attempting to read
+        if ($this->factory !== null && !$this->factory->isConfigured()) {
+            return [
+                'status' => 503,
+                'body' => [
+                    'error' => $this->factory->getConfigurationError(),
+                    'error_code' => 'SENSOR_NOT_CONFIGURED',
+                ],
+            ];
+        }
+
         try {
             $temp = $this->wirelessTagClient->getTemperature('0');
 

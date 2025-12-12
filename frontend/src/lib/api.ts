@@ -94,7 +94,9 @@ async function get<T>(endpoint: string): Promise<T> {
 		if (response.status === 403) {
 			throw new Error('Forbidden');
 		}
-		throw new Error('Request failed');
+		// Try to extract error message from response body
+		const errorBody = await response.json().catch(() => ({}));
+		throw new Error(errorBody.error || 'Request failed');
 	}
 	return response.json();
 }

@@ -51,8 +51,8 @@
 			Fetching temperature...
 		</div>
 	{:else if error && !temperature}
-		<div class="text-red-400 text-sm py-2">
-			Failed to load temperature
+		<div class="text-amber-400 text-sm py-2">
+			{error}
 		</div>
 	{:else if temperature}
 		<div data-testid="temperature-readings" class="flex flex-wrap gap-x-4 gap-y-1">

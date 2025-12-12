@@ -33,6 +33,45 @@ class WirelessTagClientFactory
     }
 
     /**
+     * Check if the WirelessTag sensor is properly configured.
+     *
+     * Returns true if OAuth token is present and not a placeholder value.
+     */
+    public function isConfigured(): bool
+    {
+        $token = $this->getOAuthToken();
+        if (empty($token)) {
+            return false;
+        }
+
+        // Check for placeholder values
+        $placeholders = [
+            'your-wirelesstag-oauth-token-here',
+            'your-oauth-token',
+            'placeholder',
+        ];
+
+        return !in_array(strtolower($token), $placeholders, true);
+    }
+
+    /**
+     * Get a human-readable reason why the sensor is not configured.
+     */
+    public function getConfigurationError(): ?string
+    {
+        if ($this->isConfigured()) {
+            return null;
+        }
+
+        $token = $this->getOAuthToken();
+        if (empty($token)) {
+            return 'Temperature sensor not configured: WIRELESSTAG_OAUTH_TOKEN is missing. Add it to your .env file or GitHub secrets.';
+        }
+
+        return 'Temperature sensor not configured: WIRELESSTAG_OAUTH_TOKEN appears to be a placeholder value.';
+    }
+
+    /**
      * Create a WirelessTag client based on the specified mode.
      *
      * @param string $mode 'stub', 'live', or 'auto'
