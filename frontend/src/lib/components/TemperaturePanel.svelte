@@ -10,6 +10,7 @@
 	let temperature = $state<TemperatureData | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let lastRefreshed = $state<number | null>(null);
 
 	async function loadTemperature() {
 		loading = true;
@@ -19,6 +20,11 @@
 			const data = await api.getTemperature();
 			temperature = data;
 			setCachedTemperature(data);
+			// Update lastRefreshed after cache is set (it contains cachedAt)
+			const cached = getCachedTemperature();
+			if (cached) {
+				lastRefreshed = cached.cachedAt;
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load temperature';
 		} finally {
@@ -34,25 +40,43 @@
 		const cached = getCachedTemperature();
 		if (cached) {
 			temperature = cached;
+			lastRefreshed = cached.cachedAt;
 			loading = false;
 		} else {
 			loadTemperature();
 		}
 	});
+
+	function formatLastRefreshed(timestamp: number): string {
+		const date = new Date(timestamp);
+		return date.toLocaleString(undefined, {
+			month: 'short',
+			day: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+	}
 </script>
 
 <div class="bg-slate-800/50 rounded-xl p-3 border border-slate-700">
-	<div class="flex items-center justify-between mb-2">
+	<div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-2">
 		<h3 class="text-sm font-medium text-slate-400">Temperature</h3>
-		<button
-			type="button"
-			aria-label="Refresh temperature"
-			onclick={handleRefresh}
-			disabled={loading}
-			class="p-1 text-slate-400 hover:text-slate-300 transition-colors rounded disabled:opacity-50"
-		>
-			<RefreshCw class="w-4 h-4 {loading ? 'animate-spin' : ''}" />
-		</button>
+		<div class="flex items-center gap-1.5 shrink-0">
+			{#if lastRefreshed}
+				<span data-testid="last-refreshed" class="text-xs text-slate-500">
+					{formatLastRefreshed(lastRefreshed)}
+				</span>
+			{/if}
+			<button
+				type="button"
+				aria-label="Refresh temperature"
+				onclick={handleRefresh}
+				disabled={loading}
+				class="p-1 text-slate-400 hover:text-slate-300 transition-colors rounded disabled:opacity-50"
+			>
+				<RefreshCw class="w-4 h-4 {loading ? 'animate-spin' : ''}" />
+			</button>
+		</div>
 	</div>
 
 	{#if loading && !temperature}
