@@ -1,0 +1,259 @@
+# Hot Tub Controller
+
+A web-based automation system for intelligent hot tub temperature management and equipment control. Control your hot tub heater, pump, and ionizer remotely via a mobile-friendly web interface with scheduling, temperature monitoring, and safety features.
+
+## Why Use This?
+
+If you have a hot tub without built-in smart controls, this project lets you:
+
+- **Turn heating on/off remotely** - No more walking outside in the cold to check if the tub is ready
+- **Schedule heating in advance** - Wake up to a hot tub at the perfect temperature
+- **Monitor water temperature** - Check current temperature from anywhere
+- **Automate heating cycles** - Schedule heater on, then auto-off after a set duration
+- **Run the circulation pump** - Keep water clean with scheduled ionizer/pump cycles
+
+The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it compatible with most affordable smart home equipment.
+
+## System Architecture
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Web Browser    │────▶│   PHP Backend   │────▶│  IFTTT Webhooks │
+│  (SvelteKit)    │◀────│   REST API      │     └────────┬────────┘
+└─────────────────┘     └────────┬────────┘              │
+                                 │                        ▼
+                                 │              ┌─────────────────┐
+                                 │              │ SmartLife/Tuya  │
+                                 │              │ Smart Relays    │
+                                 │              └────────┬────────┘
+                        ┌────────▼────────┐              │
+                        │  WirelessTag    │              ▼
+                        │  Temperature    │     ┌─────────────────┐
+                        │  Sensors        │     │   Hot Tub       │
+                        └─────────────────┘     │   Equipment     │
+                                                └─────────────────┘
+```
+
+## Features
+
+- **Mobile-First Web UI** - Dark-themed, responsive interface optimized for phones
+- **One-Tap Controls** - Quick buttons for heater on/off and pump activation
+- **Quick Scheduling** - Pre-configured buttons to heat "In 30 min", "In 1 hour", etc.
+- **Full Scheduler** - Create one-time or recurring heating schedules
+- **Auto Heat-Off** - Automatically schedule heater shutdown after configurable duration
+- **Temperature Display** - Real-time water and ambient temperature from WirelessTag sensors
+- **User Authentication** - JWT-based login with admin/user roles
+- **User Management** - Admin interface for creating and managing users
+- **Safety First** - Stub mode for testing without triggering real hardware
+
+## Hardware Requirements
+
+### Temperature Monitoring
+
+- **WirelessTag Outdoor Probe** - DS18B20 sensor for accurate water temperature
+  - Product: [WirelessTag Outdoor Probe Basic](https://store.wirelesstag.net/products/outdoor-probe-basic)
+- **WirelessTag Ethernet Manager** - Bridge device connecting sensors to cloud
+  - Product: [Ethernet Tag Manager](https://store.wirelesstag.net/products/ethernet-tag-manager)
+- **WirelessTag OAuth API Key** - Account authentication for temperature data
+  - See: [WirelessTag OAuth Setup](https://groups.google.com/g/wireless-sensor-tags/c/YJ0lXGJUnkY/m/RNMqU1eJAQAJ)
+
+### Equipment Control
+
+- **Smart Relay Controller** - IFTTT-compatible device for pump and heater control
+  - Compatible: SmartLife or Tuya-based smart switches/relays
+  - Example: 4-channel WiFi relay modules with smartphone app
+- **IFTTT Account** - Free tier works fine for webhook integrations
+  - Sign up: [IFTTT.com](https://ifttt.com)
+
+## IFTTT Webhook Setup
+
+The system requires IFTTT webhook events connected to SmartLife/Tuya "scenes". Since IFTTT cannot directly control individual SmartLife switches, you create scenes that IFTTT can trigger.
+
+### Required Webhooks
+
+| Webhook Event | Purpose | SmartLife Scene |
+|---------------|---------|-----------------|
+| `hot-tub-heat-on` | Start heating | Turn on pump, wait 60s, turn on heater |
+| `hot-tub-heat-off` | Stop heating | Turn off heater, wait 90s, turn off pump |
+| `cycle_hot_tub_ionizer` | Run pump/ionizer | Turn on pump for 2 hours |
+
+### SmartLife Scene Configuration
+
+**Heat On Scene (`hot-tub-heat-on`):**
+```
+1. Turn ON hot tub water pump
+2. Wait 60 seconds (allows water circulation)
+3. Turn ON hot tub heater
+```
+
+**Heat Off Scene (`hot-tub-heat-off`):**
+```
+1. Turn OFF hot tub heater
+2. Wait 90 seconds (cooling circulation)
+3. Turn OFF hot tub water pump
+```
+
+This sequencing protects heating elements by ensuring proper water flow during operation.
+
+### Creating the IFTTT Applets
+
+1. Go to [IFTTT Create](https://ifttt.com/create)
+2. **If This**: Choose "Webhooks" → "Receive a web request"
+3. **Event Name**: Enter exactly `hot-tub-heat-on` (case-sensitive)
+4. **Then That**: Choose "SmartLife" → "Activate scene"
+5. **Scene**: Select your "Heat On" scene
+6. Save and repeat for other webhooks
+
+Get your webhook key from: https://ifttt.com/maker_webhooks/settings
+
+## Quick Start
+
+### Backend Setup
+
+```bash
+cd backend
+composer install
+
+# Copy development config (uses stub mode - no real hardware triggers)
+cp config/env.development .env
+
+# For production, use:
+# cp config/env.production.example .env
+# Then edit .env to add your real API keys
+
+# Start development server
+php -S localhost:8080 -t public
+```
+
+### Frontend Setup
+
+```bash
+cd frontend
+npm install
+npm run dev    # Starts on http://localhost:5173
+```
+
+Default login: `admin` / `password` (change in production!)
+
+## Configuration
+
+All configuration is via `backend/.env`:
+
+```bash
+# Application mode
+APP_ENV=development
+
+# IFTTT webhook integration
+IFTTT_MODE=stub              # stub, live, or auto
+IFTTT_WEBHOOK_KEY=your-key   # From IFTTT Maker Webhooks settings
+
+# WirelessTag temperature sensors
+WIRELESSTAG_MODE=stub                    # stub, live, or auto
+WIRELESSTAG_OAUTH_TOKEN=your-token       # OAuth token from WirelessTag
+WIRELESSTAG_DEVICE_ID=0                  # Your hot tub sensor device ID
+
+# Authentication
+AUTH_ADMIN_USERNAME=admin
+AUTH_ADMIN_PASSWORD=change-this!
+JWT_SECRET=generate-a-secure-random-string
+```
+
+### Mode Options
+
+| Mode | Description |
+|------|-------------|
+| `stub` | Simulates API calls - safe for development/testing |
+| `live` | Makes real API calls - requires valid keys |
+| `auto` | Uses stub in test environments, live if keys are present |
+
+## Running Tests
+
+```bash
+# Backend tests (excludes live API tests)
+cd backend && composer test
+
+# All backend tests including live API tests
+cd backend && composer test:all
+
+# Frontend unit tests
+cd frontend && npm test
+
+# End-to-end tests (starts servers automatically)
+cd frontend && npm run test:e2e
+```
+
+## Project Structure
+
+```
+hot-tub-controller/
+├── backend/                 # PHP REST API
+│   ├── public/              # Web root (index.php entry point)
+│   ├── src/
+│   │   ├── Controllers/     # API endpoint handlers
+│   │   ├── Services/        # Business logic, external API clients
+│   │   ├── Middleware/      # Auth, CORS
+│   │   └── Routing/         # URL router
+│   ├── storage/             # Job files, logs, user data
+│   └── tests/               # PHPUnit tests
+│
+├── frontend/                # SvelteKit web UI
+│   ├── src/
+│   │   ├── lib/components/  # UI components
+│   │   ├── lib/stores/      # State management
+│   │   └── routes/          # Pages
+│   └── e2e/                 # Playwright E2E tests
+│
+└── CLAUDE.md                # Development guidelines
+```
+
+## API Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/health` | No | Health check |
+| POST | `/api/auth/login` | No | Login |
+| POST | `/api/auth/logout` | No | Logout |
+| GET | `/api/auth/me` | Yes | Current user info |
+| POST | `/api/equipment/heater/on` | Yes | Turn heater on |
+| POST | `/api/equipment/heater/off` | Yes | Turn heater off |
+| POST | `/api/equipment/pump/run` | Yes | Run pump (2 hours) |
+| GET | `/api/temperature` | Yes | Get current temperatures |
+| POST | `/api/schedule` | Yes | Schedule a job |
+| GET | `/api/schedule` | Yes | List scheduled jobs |
+| DELETE | `/api/schedule/{id}` | Yes | Cancel a job |
+| GET | `/api/users` | Admin | List users |
+| POST | `/api/users` | Admin | Create user |
+| DELETE | `/api/users/{username}` | Admin | Delete user |
+
+## Safety Considerations
+
+This system controls real electrical equipment. Safety features include:
+
+- **Test Mode**: Always develop with `IFTTT_MODE=stub`
+- **Equipment Sequencing**: Pump starts before heater, heater stops before pump
+- **Authentication Required**: All control endpoints require login
+- **Audit Logging**: All API requests are logged with timestamps
+
+Never deploy to production without:
+1. Changing default passwords
+2. Setting a secure JWT_SECRET
+3. Configuring HTTPS
+4. Testing equipment sequencing with your actual setup
+
+## Contributing
+
+This project uses Test-Driven Development (TDD):
+
+1. **RED**: Write a failing test first
+2. **GREEN**: Write minimal code to pass
+3. **REFACTOR**: Clean up while tests stay green
+
+See `CLAUDE.md` for detailed development guidelines.
+
+## License
+
+Licensed under the Apache License, Version 2.0.
+
+## Author
+
+Stephen Midgley

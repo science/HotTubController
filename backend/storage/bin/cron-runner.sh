@@ -121,6 +121,7 @@ HTTP_CODE=$(curl -s -w "%{http_code}" -o "$HTTP_RESPONSE" \
     -X POST "$FULL_URL" \
     -H "Authorization: Bearer $CRON_JWT" \
     -H "Content-Type: application/json" \
+    -d "" \
     --max-time 30 \
     2>&1) || HTTP_CODE="000"
 
