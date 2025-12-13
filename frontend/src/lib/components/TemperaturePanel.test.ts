@@ -221,6 +221,103 @@ describe('TemperaturePanel', () => {
 		});
 	});
 
+	describe('last refreshed time display', () => {
+		it('displays last refreshed time when cached data exists', async () => {
+			const fixedTime = new Date('2025-12-11T10:30:00').getTime();
+			vi.mocked(settings.getCachedTemperature).mockReturnValue({
+				...mockCachedData,
+				cachedAt: fixedTime
+			});
+
+			render(TemperaturePanel);
+
+			await waitFor(() => {
+				// Should display some form of the time
+				expect(screen.getByTestId('last-refreshed')).toBeTruthy();
+			});
+		});
+
+		it('updates last refreshed time when refresh button is clicked', async () => {
+			const initialTime = new Date('2025-12-11T08:00:00').getTime();
+			const newTime = new Date('2025-12-11T10:30:00').getTime();
+
+			// Start with cached data
+			vi.mocked(settings.getCachedTemperature).mockReturnValue({
+				...mockCachedData,
+				cachedAt: initialTime
+			});
+
+			render(TemperaturePanel);
+
+			// Wait for initial display
+			await waitFor(() => {
+				expect(screen.getByTestId('last-refreshed')).toBeTruthy();
+			});
+
+			const initialText = screen.getByTestId('last-refreshed').textContent;
+
+			// Mock the cache to return new time after API call
+			vi.mocked(settings.getCachedTemperature).mockReturnValue({
+				...mockTemperatureData,
+				cachedAt: newTime
+			});
+
+			// Click refresh
+			const button = screen.getByRole('button', { name: /refresh/i });
+			await fireEvent.click(button);
+
+			// Wait for API call and update
+			await waitFor(() => {
+				const newText = screen.getByTestId('last-refreshed').textContent;
+				expect(newText).not.toBe(initialText);
+			});
+		});
+
+		it('displays last refreshed time after fresh API call (no cache)', async () => {
+			const newTime = new Date('2025-12-11T10:30:00').getTime();
+
+			// No cache initially
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(null);
+
+			render(TemperaturePanel);
+
+			// After API call completes, mock cache to return data
+			vi.mocked(settings.getCachedTemperature).mockReturnValue({
+				...mockTemperatureData,
+				cachedAt: newTime
+			});
+
+			// Wait for temperature to load and last-refreshed to appear
+			await waitFor(() => {
+				expect(screen.getByTestId('last-refreshed')).toBeTruthy();
+			});
+		});
+
+		it('groups last refreshed time and refresh button together for responsive wrapping', async () => {
+			const fixedTime = new Date('2025-12-11T10:30:00').getTime();
+			vi.mocked(settings.getCachedTemperature).mockReturnValue({
+				...mockCachedData,
+				cachedAt: fixedTime
+			});
+
+			const { container } = render(TemperaturePanel);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('last-refreshed')).toBeTruthy();
+			});
+
+			// The time and button should share a common parent that won't break internally
+			const timeElement = screen.getByTestId('last-refreshed');
+			const refreshButton = screen.getByRole('button', { name: /refresh/i });
+
+			// Both should be in the same parent container
+			expect(timeElement.parentElement).toBe(refreshButton.parentElement);
+
+			// The parent should use shrink-0 to prevent breaking
+			expect(timeElement.parentElement?.className).toContain('shrink-0');
+		});
+	});
+
 	describe('cache behavior', () => {
 		it('displays cached data on mount without calling API', async () => {
 			vi.mocked(settings.getCachedTemperature).mockReturnValue(mockCachedData);

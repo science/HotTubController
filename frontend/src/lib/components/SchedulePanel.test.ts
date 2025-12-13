@@ -63,6 +63,7 @@ describe('SchedulePanel auto-refresh', () => {
 					action: 'heater-on',
 					scheduledTime: twoMinutesFromNow.toISOString(),
 					createdAt: now.toISOString(),
+					recurring: false,
 				},
 			],
 		};
@@ -104,6 +105,7 @@ describe('SchedulePanel auto-refresh', () => {
 					action: 'heater-off',
 					scheduledTime: fiveMinutesFromNow.toISOString(),
 					createdAt: now.toISOString(),
+					recurring: false,
 				},
 			],
 		};
@@ -143,6 +145,7 @@ describe('SchedulePanel auto-refresh', () => {
 					action: 'pump-run',
 					scheduledTime: twoHoursFromNow.toISOString(),
 					createdAt: now.toISOString(),
+					recurring: false,
 				},
 			],
 		};
@@ -178,6 +181,7 @@ describe('SchedulePanel auto-refresh', () => {
 					action: 'heater-on',
 					scheduledTime: oneMinuteFromNow.toISOString(),
 					createdAt: now.toISOString(),
+					recurring: false,
 				},
 			],
 		};
@@ -221,6 +225,7 @@ describe('SchedulePanel auto-refresh', () => {
 					action: 'heater-on',
 					scheduledTime: seventyFiveMinFromNow.toISOString(),
 					createdAt: now.toISOString(),
+					recurring: false,
 				},
 			],
 		};
@@ -274,6 +279,7 @@ describe('SchedulePanel auto-refresh', () => {
 					action: 'heater-on',
 					scheduledTime: seventyFiveMinFromNow.toISOString(),
 					createdAt: now.toISOString(),
+					recurring: false,
 				},
 			],
 		};
@@ -327,6 +333,7 @@ describe('SchedulePanel auto-refresh', () => {
 					action: 'pump-run',
 					scheduledTime: twoHoursFromNow.toISOString(),
 					createdAt: now.toISOString(),
+					recurring: false,
 				},
 			],
 		};
@@ -367,7 +374,8 @@ describe('SchedulePanel paired job creation', () => {
 			jobId: 'job-on',
 			action: 'heater-on',
 			scheduledTime: '2024-12-11T06:00:00-05:00',
-			createdAt: '2024-12-10T10:00:00-05:00'
+			createdAt: '2024-12-10T10:00:00-05:00',
+			recurring: false
 		});
 
 		render(SchedulePanel);
@@ -392,7 +400,8 @@ describe('SchedulePanel paired job creation', () => {
 			jobId: 'job-123',
 			action: 'heater-on',
 			scheduledTime: '2024-12-11T06:00:00-05:00',
-			createdAt: '2024-12-10T10:00:00-05:00'
+			createdAt: '2024-12-10T10:00:00-05:00',
+			recurring: false
 		});
 
 		render(SchedulePanel);
@@ -410,10 +419,10 @@ describe('SchedulePanel paired job creation', () => {
 			expect(api.scheduleJob).toHaveBeenCalledTimes(2);
 		});
 
-		// First call is heater-on
-		expect(api.scheduleJob).toHaveBeenNthCalledWith(1, 'heater-on', expect.any(String));
-		// Second call is heater-off with calculated time
-		expect(api.scheduleJob).toHaveBeenNthCalledWith(2, 'heater-off', expect.any(String));
+		// First call is heater-on (with recurring=false for one-off job)
+		expect(api.scheduleJob).toHaveBeenNthCalledWith(1, 'heater-on', expect.any(String), false);
+		// Second call is heater-off with calculated time (with recurring=false for one-off job)
+		expect(api.scheduleJob).toHaveBeenNthCalledWith(2, 'heater-off', expect.any(String), false);
 	});
 
 	it('creates only single job when auto heat-off is enabled but action is not heater-on', async () => {
@@ -422,7 +431,8 @@ describe('SchedulePanel paired job creation', () => {
 			jobId: 'job-off',
 			action: 'heater-off',
 			scheduledTime: '2024-12-11T06:00:00-05:00',
-			createdAt: '2024-12-10T10:00:00-05:00'
+			createdAt: '2024-12-10T10:00:00-05:00',
+			recurring: false
 		});
 
 		render(SchedulePanel);
@@ -444,7 +454,7 @@ describe('SchedulePanel paired job creation', () => {
 			expect(api.scheduleJob).toHaveBeenCalledTimes(1);
 		});
 
-		expect(api.scheduleJob).toHaveBeenCalledWith('heater-off', expect.any(String));
+		expect(api.scheduleJob).toHaveBeenCalledWith('heater-off', expect.any(String), false);
 	});
 });
 
@@ -469,6 +479,7 @@ describe('SchedulePanel heater-off completion callback', () => {
 					action: 'heater-off',
 					scheduledTime: twoMinutesFromNow.toISOString(),
 					createdAt: now.toISOString(),
+					recurring: false,
 				},
 			],
 		};
@@ -508,6 +519,7 @@ describe('SchedulePanel heater-off completion callback', () => {
 					action: 'heater-on',
 					scheduledTime: twoMinutesFromNow.toISOString(),
 					createdAt: now.toISOString(),
+					recurring: false,
 				},
 			],
 		};
@@ -542,6 +554,7 @@ describe('SchedulePanel heater-off completion callback', () => {
 					action: 'heater-off',
 					scheduledTime: twoMinutesFromNow.toISOString(),
 					createdAt: now.toISOString(),
+					recurring: false,
 				},
 			],
 		};
@@ -588,7 +601,8 @@ describe('SchedulePanel manual refresh button', () => {
 					jobId: 'job-123',
 					action: 'heater-on',
 					scheduledTime: '2024-12-12T06:00:00-05:00',
-					createdAt: '2024-12-11T10:00:00-05:00'
+					createdAt: '2024-12-11T10:00:00-05:00',
+					recurring: false
 				}
 			]
 		});

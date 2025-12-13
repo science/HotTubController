@@ -20,7 +20,7 @@ class ScheduleController
     /**
      * POST /api/schedule - Create a new scheduled job.
      *
-     * @param array{action?: string, scheduledTime?: string} $data Request body
+     * @param array{action?: string, scheduledTime?: string, recurring?: bool} $data Request body
      * @return array{status: int, body: array}
      */
     public function create(array $data): array
@@ -41,7 +41,8 @@ class ScheduleController
         }
 
         try {
-            $result = $this->scheduler->scheduleJob($data['action'], $data['scheduledTime']);
+            $recurring = isset($data['recurring']) && $data['recurring'] === true;
+            $result = $this->scheduler->scheduleJob($data['action'], $data['scheduledTime'], $recurring);
 
             return [
                 'status' => 201,

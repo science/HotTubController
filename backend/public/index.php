@@ -16,9 +16,14 @@ use HotTub\Services\AuthService;
 use HotTub\Services\UserRepositoryFactory;
 use HotTub\Services\SchedulerService;
 use HotTub\Services\CrontabAdapter;
+use HotTub\Services\CrontabBackupService;
+use HotTub\Services\RequestLogger;
 use HotTub\Middleware\AuthMiddleware;
 use HotTub\Middleware\CorsMiddleware;
 use HotTub\Routing\Router;
+
+// Start timing for request logging
+$requestStartTime = microtime(true);
 
 // Load environment configuration from .env file
 // This enables simple FTP/cPanel deployment: just copy the correct .env file
@@ -53,7 +58,11 @@ if ($corsResult !== null) {
 
 // Paths
 $logFile = __DIR__ . '/../logs/events.log';
+$apiLogFile = __DIR__ . '/../storage/logs/api.log';
 $usersFile = __DIR__ . '/../storage/users/users.json';
+
+// Create request logger for API audit trail
+$requestLogger = new RequestLogger($apiLogFile);
 
 // Create user repository with bootstrap logic
 $userRepoFactory = new UserRepositoryFactory($usersFile, $config);
@@ -80,6 +89,7 @@ $temperatureController = new TemperatureController($wirelessTagClient, $wireless
 // Create scheduler service and controller
 $jobsDir = __DIR__ . '/../storage/scheduled-jobs';
 $cronRunnerPath = __DIR__ . '/../storage/bin/cron-runner.sh';
+$crontabBackupDir = __DIR__ . '/../storage/crontab-backups';
 
 // Construct API base URL from request
 $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
@@ -87,11 +97,15 @@ $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 $scriptDir = dirname($_SERVER['SCRIPT_NAME']);
 $apiBaseUrl = $protocol . '://' . $host . $scriptDir;
 
+// Create crontab adapter with backup service
+$crontabBackupService = new CrontabBackupService($crontabBackupDir);
+$crontabAdapter = new CrontabAdapter($crontabBackupService);
+
 $schedulerService = new SchedulerService(
     $jobsDir,
     $cronRunnerPath,
     $apiBaseUrl,
-    new CrontabAdapter()
+    $crontabAdapter
 );
 $scheduleController = new ScheduleController($schedulerService);
 
@@ -150,6 +164,31 @@ $response = $router->dispatch($method, $uri);
 
 http_response_code($response['status']);
 echo json_encode($response['body']);
+
+// Log the request
+$responseTimeMs = (microtime(true) - $requestStartTime) * 1000;
+$clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+$errorMsg = ($response['status'] >= 400 && isset($response['body']['error']))
+    ? $response['body']['error']
+    : null;
+
+// Try to get authenticated username from auth middleware (if available)
+// Note: authenticate() returns user array on success, null on failure (no exceptions)
+$loggedUsername = null;
+$user = $authMiddleware->authenticate($headers, $cookies);
+if ($user !== null && isset($user['sub'])) {
+    $loggedUsername = $user['sub'];
+}
+
+$requestLogger->log(
+    method: $method,
+    uri: $uri,
+    statusCode: $response['status'],
+    ip: $clientIp,
+    responseTimeMs: $responseTimeMs,
+    username: $loggedUsername,
+    error: $errorMsg
+);
 
 // Auth route handlers
 function handleLogin(AuthController $controller): array

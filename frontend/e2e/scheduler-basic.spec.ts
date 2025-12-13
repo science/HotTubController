@@ -17,7 +17,7 @@ test.describe('Scheduler Basic Flow', () => {
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.click('button[type="submit"]');
-		await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 10000 });
+		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
 		// Clean up any existing scheduled jobs from previous test runs
 		const cancelButtons = page.locator('ul li button:has-text("Cancel")');
@@ -32,8 +32,8 @@ test.describe('Scheduler Basic Flow', () => {
 	test('login and view schedule panel', async ({ page }) => {
 		// Already logged in from beforeEach
 
-		// Schedule panel should show "No scheduled jobs" (we cleaned up in beforeEach)
-		await expect(page.locator('text=No scheduled jobs')).toBeVisible();
+		// Schedule panel should show "No upcoming jobs" (we cleaned up in beforeEach)
+		await expect(page.locator('text=No upcoming jobs')).toBeVisible();
 	});
 
 	test('schedule and cancel a job', async ({ page }) => {
@@ -62,6 +62,6 @@ test.describe('Scheduler Basic Flow', () => {
 		await jobItem.locator('button:has-text("Cancel")').click();
 
 		// Verify job is removed from the pending list
-		await expect(page.locator('text=No scheduled jobs')).toBeVisible({ timeout: 5000 });
+		await expect(page.locator('text=No upcoming jobs')).toBeVisible({ timeout: 5000 });
 	});
 });

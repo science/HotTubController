@@ -17,7 +17,7 @@ test.describe('Quick Schedule Feature', () => {
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.click('button[type="submit"]');
-		await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 10000 });
+		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
 		// Clean up any existing scheduled jobs from previous test runs
 		const cancelButtons = page.locator('ul li button:has-text("Cancel")');
@@ -101,7 +101,7 @@ test.describe('Quick Schedule Feature', () => {
 
 			// Clean up - cancel the job
 			await jobItem.locator('button:has-text("Cancel")').click();
-			await expect(page.locator('text=No scheduled jobs')).toBeVisible({ timeout: 5000 });
+			await expect(page.locator('text=No upcoming jobs')).toBeVisible({ timeout: 5000 });
 		});
 
 		test('clicking 6am creates a scheduled job for 6:00 AM', async ({ page }) => {

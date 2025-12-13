@@ -12,6 +12,7 @@ export interface ScheduledJob {
 	action: string;
 	scheduledTime: string;
 	createdAt: string;
+	recurring: boolean;
 }
 
 export interface ScheduleListResponse {
@@ -149,8 +150,8 @@ export const api = {
 	getTemperature: () => get<TemperatureData>('/api/temperature'),
 
 	// Schedule endpoints
-	scheduleJob: (action: string, scheduledTime: string) =>
-		postJson<ScheduledJob>('/api/schedule', { action, scheduledTime }),
+	scheduleJob: (action: string, scheduledTime: string, recurring: boolean = false) =>
+		postJson<ScheduledJob>('/api/schedule', { action, scheduledTime, recurring }),
 	listScheduledJobs: () => get<ScheduleListResponse>('/api/schedule'),
 	cancelScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}`),
 
