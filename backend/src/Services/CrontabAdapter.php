@@ -83,9 +83,63 @@ class CrontabAdapter implements CrontabAdapterInterface
     /**
      * Generate a unique temp file path for crontab operations.
      */
-    private function getTempFile(): string
+    private function getTempFile(string $suffix = ''): string
     {
-        return sys_get_temp_dir() . '/crontab_' . getmypid() . '_' . microtime(true);
+        return sys_get_temp_dir() . '/crontab_' . getmypid() . '_' . microtime(true) . $suffix;
+    }
+
+    /**
+     * Save current crontab to a temp file for diff comparison.
+     *
+     * @return string Path to temp file containing crontab snapshot
+     */
+    private function saveCrontabSnapshot(string $suffix): string
+    {
+        $tempFile = $this->getTempFile($suffix);
+        $entries = $this->listEntries();
+        $content = !empty($entries) ? implode("\n", $entries) . "\n" : '';
+        file_put_contents($tempFile, $content);
+        return $tempFile;
+    }
+
+    /**
+     * Run diff on two files and return only the changed lines.
+     *
+     * Uses unified diff format with context stripped to show only:
+     * - Lines starting with '+' (added, not including +++ header)
+     * - Lines starting with '-' (removed, not including --- header)
+     *
+     * @return array{added: string[], removed: string[]}
+     */
+    private function diffFiles(string $fileA, string $fileB): array
+    {
+        $output = [];
+        // Use diff with no context (-U0) for minimal output
+        // Exit code 0 = no diff, 1 = differences found, 2 = error
+        exec(
+            'diff -U0 ' . escapeshellarg($fileA) . ' ' . escapeshellarg($fileB) . ' 2>/dev/null',
+            $output
+        );
+
+        $added = [];
+        $removed = [];
+
+        foreach ($output as $line) {
+            // Skip headers (---, +++, @@)
+            if (str_starts_with($line, '---') || str_starts_with($line, '+++') || str_starts_with($line, '@@')) {
+                continue;
+            }
+            // Added lines start with +
+            if (str_starts_with($line, '+')) {
+                $added[] = substr($line, 1); // Remove the + prefix
+            }
+            // Removed lines start with -
+            if (str_starts_with($line, '-')) {
+                $removed[] = substr($line, 1); // Remove the - prefix
+            }
+        }
+
+        return ['added' => $added, 'removed' => $removed];
     }
 
     /**
@@ -111,21 +165,21 @@ class CrontabAdapter implements CrontabAdapterInterface
         // Backup before modification
         $this->backupBeforeModify();
 
-        // PRE: Capture state before modification
-        $entriesBefore = $this->listEntries();
+        // PRE: Save crontab snapshot for diff comparison
+        $snapshotBefore = $this->saveCrontabSnapshot('_before');
 
         // FILE-BASED APPROACH: Write to temp file, then install
         // This is required for CloudLinux CageFS compatibility where
         // pipe-based crontab commands are unreliable.
-        $tempFile = $this->getTempFile();
+        $tempFile = $this->getTempFile('_install');
+        $snapshotAfter = null;
 
         try {
-            // Write current entries to temp file
+            // Read current entries and append new entry
+            $entriesBefore = $this->listEntries();
             $content = !empty($entriesBefore)
                 ? implode("\n", $entriesBefore) . "\n"
                 : '';
-
-            // Append new entry
             $content .= $entry . "\n";
 
             if (file_put_contents($tempFile, $content) === false) {
@@ -135,70 +189,68 @@ class CrontabAdapter implements CrontabAdapterInterface
             // Install from file
             $this->installFromFile($tempFile);
 
+            // POST: Save crontab snapshot and verify via diff
+            $snapshotAfter = $this->saveCrontabSnapshot('_after');
+            $this->verifyAdditionViaDiff($snapshotBefore, $snapshotAfter, $entry);
+
         } finally {
-            // Always clean up temp file
-            if (file_exists($tempFile)) {
-                @unlink($tempFile);
+            // Always clean up temp files
+            @unlink($tempFile);
+            @unlink($snapshotBefore);
+            if ($snapshotAfter !== null) {
+                @unlink($snapshotAfter);
             }
         }
-
-        // POST: Verify the modification was correct
-        $entriesAfter = $this->listEntries();
-        $this->verifyAddition($entriesBefore, $entriesAfter, $entry);
     }
 
     /**
-     * Verify that addEntry() only added the expected entry.
+     * Verify addEntry() via external diff command.
+     *
+     * Uses Unix diff to compare before/after snapshots. This is more reliable
+     * than PHP array comparisons because:
+     * 1. External tool verification (not PHP checking its own work)
+     * 2. Battle-tested diff utility
+     * 3. Diff output is excellent forensic evidence
      */
-    private function verifyAddition(array $before, array $after, string $addedEntry): void
+    private function verifyAdditionViaDiff(string $fileBefore, string $fileAfter, string $expectedEntry): void
     {
-        // Expected: after should have exactly one more entry than before
-        $expectedCount = count($before) + 1;
-        $actualCount = count($after);
+        $diff = $this->diffFiles($fileBefore, $fileAfter);
 
-        if ($actualCount !== $expectedCount) {
-            $this->logCritical('CRONTAB_ADD_COUNT_MISMATCH', [
+        // For addEntry: expect exactly one added line, zero removed lines
+        $addedCount = count($diff['added']);
+        $removedCount = count($diff['removed']);
+
+        // Check for unexpected removals
+        if ($removedCount > 0) {
+            $this->logCritical('CRONTAB_ADD_UNEXPECTED_REMOVAL', [
                 'operation' => 'addEntry',
-                'added_entry' => $addedEntry,
-                'before_count' => count($before),
-                'after_count' => $actualCount,
-                'expected_count' => $expectedCount,
-                'entries_before' => $before,
-                'entries_after' => $after,
+                'expected_entry' => $expectedEntry,
+                'unexpected_removed' => $diff['removed'],
+                'diff_added' => $diff['added'],
             ]);
             return;
         }
 
-        // Verify the new entry is present
-        $found = false;
-        foreach ($after as $entry) {
-            if ($entry === $addedEntry) {
-                $found = true;
-                break;
-            }
-        }
-
-        if (!$found) {
-            $this->logCritical('CRONTAB_ADD_ENTRY_MISSING', [
+        // Check we added exactly one line
+        if ($addedCount !== 1) {
+            $this->logCritical('CRONTAB_ADD_WRONG_COUNT', [
                 'operation' => 'addEntry',
-                'added_entry' => $addedEntry,
-                'entries_after' => $after,
+                'expected_entry' => $expectedEntry,
+                'expected_added_count' => 1,
+                'actual_added_count' => $addedCount,
+                'diff_added' => $diff['added'],
             ]);
             return;
         }
 
-        // Verify all previous entries are still present
-        foreach ($before as $oldEntry) {
-            if (!in_array($oldEntry, $after, true)) {
-                $this->logCritical('CRONTAB_ADD_LOST_ENTRY', [
-                    'operation' => 'addEntry',
-                    'added_entry' => $addedEntry,
-                    'lost_entry' => $oldEntry,
-                    'entries_before' => $before,
-                    'entries_after' => $after,
-                ]);
-                return;
-            }
+        // Check the added line matches what we expected
+        $actualAdded = $diff['added'][0];
+        if ($actualAdded !== $expectedEntry) {
+            $this->logCritical('CRONTAB_ADD_WRONG_ENTRY', [
+                'operation' => 'addEntry',
+                'expected_entry' => $expectedEntry,
+                'actual_added' => $actualAdded,
+            ]);
         }
     }
 
@@ -207,28 +259,29 @@ class CrontabAdapter implements CrontabAdapterInterface
         // Backup before modification
         $this->backupBeforeModify();
 
-        // PRE: Capture state and identify entries to remove
+        // Identify entries to remove before taking snapshot
         $entriesBefore = $this->listEntries();
-
-        // Identify which entries match the pattern
-        $entriesToKeep = [];
-        $entriesToRemove = [];
-
-        foreach ($entriesBefore as $entry) {
-            if (strpos($entry, $pattern) !== false) {
-                $entriesToRemove[] = $entry;
-            } else {
-                $entriesToKeep[] = $entry;
-            }
-        }
+        $entriesToRemove = array_filter(
+            $entriesBefore,
+            fn($entry) => strpos($entry, $pattern) !== false
+        );
 
         // If no entries match, nothing to remove - don't touch crontab at all
         if (empty($entriesToRemove)) {
             return;
         }
 
+        $entriesToKeep = array_filter(
+            $entriesBefore,
+            fn($entry) => strpos($entry, $pattern) === false
+        );
+
+        // PRE: Save crontab snapshot for diff comparison
+        $snapshotBefore = $this->saveCrontabSnapshot('_before');
+
         // FILE-BASED APPROACH: Write filtered entries to temp file, then install
-        $tempFile = $this->getTempFile();
+        $tempFile = $this->getTempFile('_install');
+        $snapshotAfter = null;
 
         try {
             // Write entries to keep (or empty string if none)
@@ -251,69 +304,70 @@ class CrontabAdapter implements CrontabAdapterInterface
                 $this->installFromFile($tempFile);
             }
 
+            // POST: Save crontab snapshot and verify via diff
+            $snapshotAfter = $this->saveCrontabSnapshot('_after');
+            $this->verifyRemovalViaDiff($snapshotBefore, $snapshotAfter, $pattern, array_values($entriesToRemove));
+
         } finally {
-            // Always clean up temp file
-            if (file_exists($tempFile)) {
-                @unlink($tempFile);
+            // Always clean up temp files
+            @unlink($tempFile);
+            @unlink($snapshotBefore);
+            if ($snapshotAfter !== null) {
+                @unlink($snapshotAfter);
             }
         }
-
-        // POST: Verify the modification was correct
-        $entriesAfter = $this->listEntries();
-        $this->verifyRemoval($entriesBefore, $entriesAfter, $pattern, $entriesToRemove, $entriesToKeep);
     }
 
     /**
-     * Verify that removeByPattern() only removed the expected entries.
+     * Verify removeByPattern() via external diff command.
+     *
+     * Uses Unix diff to compare before/after snapshots. Expected result:
+     * - Only removed lines (no additions)
+     * - All removed lines must match the pattern
      */
-    private function verifyRemoval(
-        array $before,
-        array $after,
+    private function verifyRemovalViaDiff(
+        string $fileBefore,
+        string $fileAfter,
         string $pattern,
-        array $expectedRemoved,
-        array $expectedKept
+        array $expectedRemoved
     ): void {
-        // Verify count matches expected
-        $expectedCount = count($expectedKept);
-        $actualCount = count($after);
+        $diff = $this->diffFiles($fileBefore, $fileAfter);
 
-        if ($actualCount !== $expectedCount) {
-            $this->logCritical('CRONTAB_REMOVE_COUNT_MISMATCH', [
+        // For removeByPattern: expect zero added lines
+        if (!empty($diff['added'])) {
+            $this->logCritical('CRONTAB_REMOVE_UNEXPECTED_ADDITION', [
                 'operation' => 'removeByPattern',
                 'pattern' => $pattern,
-                'before_count' => count($before),
-                'after_count' => $actualCount,
-                'expected_count' => $expectedCount,
-                'expected_removed' => $expectedRemoved,
-                'expected_kept' => $expectedKept,
-                'entries_after' => $after,
+                'unexpected_added' => $diff['added'],
+                'diff_removed' => $diff['removed'],
             ]);
             return;
         }
 
-        // Verify all expected-kept entries are still present
-        foreach ($expectedKept as $entry) {
-            if (!in_array($entry, $after, true)) {
-                $this->logCritical('CRONTAB_REMOVE_LOST_ENTRY', [
-                    'operation' => 'removeByPattern',
-                    'pattern' => $pattern,
-                    'lost_entry' => $entry,
-                    'expected_kept' => $expectedKept,
-                    'entries_after' => $after,
-                ]);
-                return;
-            }
+        // Verify removed count matches expected
+        $removedCount = count($diff['removed']);
+        $expectedCount = count($expectedRemoved);
+
+        if ($removedCount !== $expectedCount) {
+            $this->logCritical('CRONTAB_REMOVE_WRONG_COUNT', [
+                'operation' => 'removeByPattern',
+                'pattern' => $pattern,
+                'expected_removed_count' => $expectedCount,
+                'actual_removed_count' => $removedCount,
+                'expected_removed' => $expectedRemoved,
+                'diff_removed' => $diff['removed'],
+            ]);
+            return;
         }
 
-        // Verify all expected-removed entries are actually gone
-        foreach ($expectedRemoved as $entry) {
-            if (in_array($entry, $after, true)) {
-                $this->logCritical('CRONTAB_REMOVE_STILL_PRESENT', [
+        // Verify each removed line matches pattern (extra safety check)
+        foreach ($diff['removed'] as $removedLine) {
+            if (strpos($removedLine, $pattern) === false) {
+                $this->logCritical('CRONTAB_REMOVE_WRONG_ENTRY', [
                     'operation' => 'removeByPattern',
                     'pattern' => $pattern,
-                    'still_present' => $entry,
-                    'expected_removed' => $expectedRemoved,
-                    'entries_after' => $after,
+                    'removed_without_pattern' => $removedLine,
+                    'diff_removed' => $diff['removed'],
                 ]);
                 return;
             }
