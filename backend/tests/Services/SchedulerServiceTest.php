@@ -63,11 +63,28 @@ class SchedulerServiceTest extends TestCase
 
     public function testScheduleJobAddsCrontabEntry(): void
     {
-        $result = $this->scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+        // Use a time with explicit timezone to ensure consistent results
+        // The cron will be scheduled in system timezone
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+        $inputTime = '2030-12-11T06:30:00+00:00'; // UTC input
+
+        $result = $this->scheduler->scheduleJob('heater-on', $inputTime);
 
         $entries = $this->crontabAdapter->listEntries();
         $this->assertCount(1, $entries);
-        $this->assertStringContainsString('30 6 11 12', $entries[0]); // minute hour day month
+
+        // Calculate expected cron time based on system timezone
+        $expected = new \DateTime($inputTime);
+        $expected->setTimezone(new \DateTimeZone($systemTz));
+        $expectedCronTime = sprintf(
+            '%d %d %d %d',
+            (int) $expected->format('i'),
+            (int) $expected->format('G'),
+            (int) $expected->format('j'),
+            (int) $expected->format('n')
+        );
+
+        $this->assertStringContainsString($expectedCronTime, $entries[0], "Cron should be in system timezone ($systemTz)");
         $this->assertStringContainsString($result['jobId'], $entries[0]);
         $this->assertStringContainsString('HOTTUB:', $entries[0]);
     }
@@ -134,11 +151,193 @@ class SchedulerServiceTest extends TestCase
         // Should accept the time (it's in the future)
         $this->assertArrayHasKey('jobId', $result);
 
-        // The cron should be scheduled for the local time from the input
-        // (assuming server cron runs in the same timezone as the user)
+        // Cron runs in server-local time. We need to verify the cron expression
+        // is correct for the server's SYSTEM timezone, not the client's.
+        // 06:30 PST (UTC-8) = 14:30 UTC
+        // The cron expression should be generated in system timezone
         $entries = $this->crontabAdapter->listEntries();
         $this->assertCount(1, $entries);
-        $this->assertStringContainsString('30 6 11 12', $entries[0]); // 06:30 in PST
+
+        // The system timezone determines what the cron hour should be
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+        $utcTime = new \DateTime('2030-12-11T14:30:00', new \DateTimeZone('UTC'));
+        $utcTime->setTimezone(new \DateTimeZone($systemTz));
+        $expectedHour = (int) $utcTime->format('G');
+        $expectedMinute = (int) $utcTime->format('i');
+        $expectedDay = (int) $utcTime->format('j');
+        $expectedMonth = (int) $utcTime->format('n');
+
+        $expectedCronTime = sprintf('%d %d %d %d', $expectedMinute, $expectedHour, $expectedDay, $expectedMonth);
+        $this->assertStringContainsString($expectedCronTime, $entries[0], "Cron should be in system timezone ($systemTz)");
+    }
+
+    /**
+     * Test that timezone conversion works correctly when client and server are in different timezones.
+     *
+     * This is the core timezone bug test:
+     * - Client in Los Angeles (PST/UTC-8) schedules 6:30 AM local time
+     * - Cron should run at the equivalent time in the SYSTEM timezone
+     *
+     * NOTE: Uses actual system timezone, not PHP's default timezone,
+     * because cron runs in the OS timezone.
+     */
+    public function testScheduleJobConvertsClientTimezoneToServerTimezoneForCron(): void
+    {
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+
+        // Client in Los Angeles (UTC-8) wants 6:30 AM their time on Dec 11
+        // 6:30 AM PST = 14:30 UTC
+        $clientTime = '2030-12-11T06:30:00-08:00';
+
+        $result = $this->scheduler->scheduleJob('heater-on', $clientTime);
+
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+
+        // Calculate expected cron time in system timezone
+        $expected = new \DateTime($clientTime);
+        $expected->setTimezone(new \DateTimeZone($systemTz));
+        $expectedCronTime = sprintf(
+            '%d %d %d %d',
+            (int) $expected->format('i'),
+            (int) $expected->format('G'),
+            (int) $expected->format('j'),
+            (int) $expected->format('n')
+        );
+
+        $this->assertStringContainsString(
+            $expectedCronTime,
+            $entries[0],
+            "Cron should run at {$expected->format('g:i A')} system time ($systemTz), which equals 6:30 AM client time (PST)"
+        );
+    }
+
+    /**
+     * Test timezone conversion across day boundaries.
+     *
+     * Client schedules 11:30 PM PST on Dec 10 = 7:30 AM UTC Dec 11
+     * The cron time depends on system timezone, which may or may not cross a day boundary.
+     */
+    public function testScheduleJobHandlesTimezoneDayBoundary(): void
+    {
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+
+        // Client in PST (UTC-8) schedules 11:30 PM Dec 10
+        // 23:30 PST Dec 10 = 07:30 UTC Dec 11
+        $clientTime = '2030-12-10T23:30:00-08:00';
+
+        $result = $this->scheduler->scheduleJob('heater-on', $clientTime);
+
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+
+        // Calculate expected cron time in system timezone
+        $expected = new \DateTime($clientTime);
+        $expected->setTimezone(new \DateTimeZone($systemTz));
+        $expectedCronTime = sprintf(
+            '%d %d %d %d',
+            (int) $expected->format('i'),
+            (int) $expected->format('G'),
+            (int) $expected->format('j'),
+            (int) $expected->format('n')
+        );
+
+        $this->assertStringContainsString(
+            $expectedCronTime,
+            $entries[0],
+            "Cron should run at {$expected->format('g:i A')} on {$expected->format('M j')} system time ($systemTz) when client scheduled 11:30 PM Dec 10 PST"
+        );
+    }
+
+    /**
+     * Test that API returns times in UTC for consistent client display.
+     */
+    public function testScheduleJobReturnsTimeInUtc(): void
+    {
+        // Client sends time with offset
+        $clientTime = '2030-12-11T06:30:00-08:00';
+
+        $result = $this->scheduler->scheduleJob('heater-on', $clientTime);
+
+        // The scheduledTime should be returned in UTC (with +00:00 or Z suffix)
+        $this->assertStringContainsString(
+            '2030-12-11T14:30:00',
+            $result['scheduledTime'],
+            'scheduledTime should be converted to UTC (14:30 UTC = 06:30 PST)'
+        );
+
+        // Should end with UTC indicator
+        $this->assertTrue(
+            str_ends_with($result['scheduledTime'], '+00:00') ||
+            str_ends_with($result['scheduledTime'], 'Z'),
+            'scheduledTime should have UTC timezone indicator'
+        );
+    }
+
+    /**
+     * Test that recurring jobs with timezone offset return UTC time.
+     *
+     * New behavior: Recurring jobs accept "HH:MM+/-HH:MM" format and return UTC.
+     */
+    public function testScheduleRecurringJobWithTimezoneReturnsUtcTime(): void
+    {
+        // Recurring job with timezone offset: 6:30 AM Pacific = 14:30 UTC
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30-08:00', recurring: true);
+
+        // Should return time in UTC format
+        $this->assertEquals('14:30:00+00:00', $result['scheduledTime']);
+        $this->assertTrue($result['recurring']);
+    }
+
+    /**
+     * Test that recurring jobs convert to system timezone for cron.
+     *
+     * NOTE: Uses actual system timezone, not PHP's default timezone,
+     * because cron runs in the OS timezone.
+     */
+    public function testScheduleRecurringJobConvertsToServerTimezoneForCron(): void
+    {
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+
+        // Client in Pacific (UTC-8) wants 6:30 AM their time
+        // 6:30 AM PST = 14:30 UTC
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30-08:00', recurring: true);
+
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+
+        // Calculate expected cron time in system timezone
+        // Use reference date for conversion (same as TimeConverter)
+        $expected = new \DateTime('2030-01-01T06:30:00-08:00');
+        $expected->setTimezone(new \DateTimeZone($systemTz));
+        $expectedCronTime = sprintf(
+            '%d %d * * *',
+            (int) $expected->format('i'),
+            (int) $expected->format('G')
+        );
+
+        $this->assertStringContainsString(
+            $expectedCronTime,
+            $entries[0],
+            "Recurring cron should be {$expected->format('g:i A')} system time ($systemTz) when client is Pacific"
+        );
+    }
+
+    /**
+     * Test backward compatibility: bare HH:MM format still works (assumes server timezone).
+     */
+    public function testScheduleRecurringJobBareTimeAssumesServerTimezone(): void
+    {
+        // For backward compatibility, bare "06:30" should work and assume server timezone
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        // Should store as server-local time (no UTC conversion)
+        $this->assertEquals('06:30', $result['scheduledTime']);
+        $this->assertTrue($result['recurring']);
+
+        // Cron should be 6:30 server time
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertStringContainsString('30 6 * * *', $entries[0]);
     }
 
     // ========== Recurring Job Tests ==========
@@ -146,6 +345,7 @@ class SchedulerServiceTest extends TestCase
     public function testScheduleRecurringJobCreatesDailyCronExpression(): void
     {
         // Recurring jobs should use * * * for day, month, day-of-week (daily at same time)
+        // Using bare time format for backward compatibility test
         $result = $this->scheduler->scheduleJob('heater-on', '06:30', recurring: true);
 
         $entries = $this->crontabAdapter->listEntries();
