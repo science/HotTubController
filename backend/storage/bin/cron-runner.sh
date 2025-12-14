@@ -66,10 +66,35 @@ fi
 # ============================================================
 # STEP 1: REMOVE SELF FROM CRONTAB (one-off jobs only)
 # This MUST happen first to prevent orphaned crons if script crashes later
+#
+# IMPORTANT: Uses file-based crontab manipulation instead of pipes.
+# This is required for compatibility with CloudLinux CageFS where
+# pipe-based crontab commands are unreliable.
 # ============================================================
 if [ "$IS_RECURRING" != "true" ]; then
     log "Removing from crontab"
-    (crontab -l 2>/dev/null | grep -v "HOTTUB:$JOB_ID" | crontab -) || true
+
+    CRON_TEMPFILE=$(mktemp)
+
+    # Read current crontab to temp file (ignore error if no crontab)
+    crontab -l > "$CRON_TEMPFILE" 2>/dev/null || true
+
+    # Check if temp file has content and contains our job
+    if [ -s "$CRON_TEMPFILE" ] && grep -q "HOTTUB:$JOB_ID" "$CRON_TEMPFILE"; then
+        # Filter out our entry
+        grep -v "HOTTUB:$JOB_ID" "$CRON_TEMPFILE" > "${CRON_TEMPFILE}.new" || true
+
+        # Install filtered crontab (or remove if empty)
+        if [ -s "${CRON_TEMPFILE}.new" ]; then
+            crontab "${CRON_TEMPFILE}.new" 2>/dev/null || log "WARNING: Failed to update crontab"
+        else
+            crontab -r 2>/dev/null || true
+        fi
+
+        rm -f "${CRON_TEMPFILE}.new"
+    fi
+
+    rm -f "$CRON_TEMPFILE"
 fi
 
 # ============================================================
