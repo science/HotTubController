@@ -161,8 +161,10 @@
 
 		try {
 			if (isRecurring) {
-				// For recurring jobs, just send time (HH:MM format)
-				await api.scheduleJob(selectedAction, scheduledTime, true);
+				// For recurring jobs, send time with timezone offset (HH:MM+/-HH:MM format)
+				// This ensures the server schedules the job at the correct local time
+				const timeWithOffset = `${scheduledTime}${getTimezoneOffset()}`;
+				await api.scheduleJob(selectedAction, timeWithOffset, true);
 
 				// If auto heat-off is enabled and action is heater-on, create paired recurring off job
 				const autoHeatOffEnabled = getAutoHeatOffEnabled();
@@ -172,10 +174,10 @@
 					const [hours, minutes] = scheduledTime.split(':').map(Number);
 					const offDate = new Date();
 					offDate.setHours(hours, minutes + autoHeatOffMinutes, 0, 0);
-					const offTimeStr = `${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}`;
+					const offTimeStr = `${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}${getTimezoneOffset()}`;
 					await api.scheduleJob('heater-off', offTimeStr, true);
 
-					success = `Recurring: Daily heater-on at ${scheduledTime} with auto off at ${offTimeStr}`;
+					success = `Recurring: Daily heater-on at ${scheduledTime} with auto off at ${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}`;
 				} else {
 					success = `Recurring job created: Daily at ${scheduledTime}`;
 				}
@@ -263,7 +265,22 @@
 	}
 
 	function formatRecurringTime(timeString: string): string {
-		// timeString is HH:MM format
+		// Handle two formats:
+		// 1. New UTC format: "14:30:00+00:00" (from timezone-aware scheduling)
+		// 2. Legacy format: "06:30" (bare time, backward compatible)
+
+		if (timeString.includes('+') || timeString.includes('Z')) {
+			// New format: UTC time with offset indicator
+			// Parse as ISO datetime using a reference date, then convert to local
+			const refDate = `2030-01-01T${timeString}`;
+			const date = new Date(refDate);
+			return date.toLocaleTimeString(undefined, {
+				hour: 'numeric',
+				minute: '2-digit'
+			});
+		}
+
+		// Legacy format: bare HH:MM (assumes server timezone)
 		const [hours, minutes] = timeString.split(':').map(Number);
 		const date = new Date();
 		date.setHours(hours, minutes, 0, 0);

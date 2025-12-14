@@ -25,18 +25,21 @@ class SchedulerService
         'pump-run' => 'PUMP',
     ];
 
+    private string $apiBaseUrl;
+    private TimeConverter $timeConverter;
+
     public function __construct(
         private string $jobsDir,
         private string $cronRunnerPath,
         string $apiBaseUrl,
-        private CrontabAdapterInterface $crontabAdapter
+        private CrontabAdapterInterface $crontabAdapter,
+        ?TimeConverter $timeConverter = null
     ) {
         // Normalize apiBaseUrl by stripping trailing slashes to prevent double-slash URLs
         // when concatenating with endpoints like '/api/equipment/heater/on'
         $this->apiBaseUrl = rtrim($apiBaseUrl, '/');
+        $this->timeConverter = $timeConverter ?? new TimeConverter();
     }
-
-    private string $apiBaseUrl;
 
     /**
      * Schedule a job to execute an equipment action.
@@ -65,22 +68,31 @@ class SchedulerService
         }
 
         // Parse and validate scheduled time for one-off jobs
+        // The input may include a timezone offset from the client (e.g., "2030-12-11T06:30:00-08:00")
         $dateTime = new \DateTime($scheduledTime);
 
         if ($dateTime <= $now) {
             throw new InvalidArgumentException('Scheduled time must be in the future, not in the past');
         }
 
+        // Use TimeConverter for consistent timezone handling
+        // Convert to UTC for storage (industry standard for APIs)
+        $utcDateTime = $this->timeConverter->toUtc($scheduledTime);
+
+        // Convert to server-local timezone for cron scheduling
+        // Cron runs in the server's local timezone, so we must schedule accordingly
+        $serverDateTime = $this->timeConverter->toServerTimezone($scheduledTime);
+
         // Generate unique job ID with job- prefix for one-off
         $jobId = 'job-' . bin2hex(random_bytes(4));
 
-        // Create job data
+        // Create job data (store time in UTC)
         $jobData = [
             'jobId' => $jobId,
             'action' => $action,
             'endpoint' => self::VALID_ACTIONS[$action],
             'apiBaseUrl' => $this->apiBaseUrl,
-            'scheduledTime' => $dateTime->format(\DateTime::ATOM),
+            'scheduledTime' => $utcDateTime->format(\DateTime::ATOM),
             'recurring' => false,
             'createdAt' => $createdAt,
         ];
@@ -90,7 +102,8 @@ class SchedulerService
         file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         // Create crontab entry with descriptive label (e.g., HOTTUB:job-xxx:ON:ONCE)
-        $cronExpression = $this->dateToCronExpression($dateTime);
+        // Use server-local time for cron expression since cron runs in server timezone
+        $cronExpression = $this->dateToCronExpression($serverDateTime);
         $actionLabel = self::ACTION_LABELS[$action];
         $cronEntry = sprintf(
             '%s %s %s # HOTTUB:%s:%s:ONCE',
@@ -106,7 +119,7 @@ class SchedulerService
         return [
             'jobId' => $jobId,
             'action' => $action,
-            'scheduledTime' => $dateTime->format(\DateTime::ATOM),
+            'scheduledTime' => $utcDateTime->format(\DateTime::ATOM),
             'recurring' => false,
             'createdAt' => $createdAt,
         ];
@@ -115,8 +128,12 @@ class SchedulerService
     /**
      * Schedule a daily recurring job.
      *
+     * Supports two formats for $time:
+     * - "HH:MM" (bare) - assumes server timezone (backward compatible)
+     * - "HH:MM+/-HH:MM" (with offset) - converts to server timezone for cron, UTC for storage
+     *
      * @param string $action One of: heater-on, heater-off, pump-run
-     * @param string $time Time in HH:MM format
+     * @param string $time Time in HH:MM or HH:MM+/-HH:MM format
      * @param string $createdAt ISO 8601 timestamp when job was created
      * @return array{jobId: string, action: string, scheduledTime: string, createdAt: string, recurring: bool}
      */
@@ -125,13 +142,28 @@ class SchedulerService
         // Generate unique job ID with rec- prefix for recurring
         $jobId = 'rec-' . bin2hex(random_bytes(4));
 
+        // Check if time includes timezone offset (HH:MM+/-HH:MM format)
+        $hasTimezoneOffset = preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $time);
+
+        if ($hasTimezoneOffset) {
+            // New format: time with timezone offset
+            // Convert to UTC for storage, server-local for cron
+            $storedTime = $this->timeConverter->formatTimeUtc($time);
+            $serverDateTime = $this->timeConverter->parseTimeWithOffset($time, toServerTz: true);
+            $cronExpression = $this->dateTimeToCronExpression($serverDateTime);
+        } else {
+            // Legacy format: bare HH:MM (assumes server timezone)
+            $storedTime = $time;
+            $cronExpression = $this->timeToCronExpression($time);
+        }
+
         // Create job data
         $jobData = [
             'jobId' => $jobId,
             'action' => $action,
             'endpoint' => self::VALID_ACTIONS[$action],
             'apiBaseUrl' => $this->apiBaseUrl,
-            'scheduledTime' => $time,
+            'scheduledTime' => $storedTime,
             'recurring' => true,
             'createdAt' => $createdAt,
         ];
@@ -141,7 +173,6 @@ class SchedulerService
         file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         // Create crontab entry (e.g., HOTTUB:rec-xxx:ON:DAILY)
-        $cronExpression = $this->timeToCronExpression($time);
         $actionLabel = self::ACTION_LABELS[$action];
         $cronEntry = sprintf(
             '%s %s %s # HOTTUB:%s:%s:DAILY',
@@ -157,10 +188,23 @@ class SchedulerService
         return [
             'jobId' => $jobId,
             'action' => $action,
-            'scheduledTime' => $time,
+            'scheduledTime' => $storedTime,
             'recurring' => true,
             'createdAt' => $createdAt,
         ];
+    }
+
+    /**
+     * Convert a DateTime to cron expression for recurring daily jobs.
+     * Output: "minute hour * * *" (runs every day at that time)
+     */
+    private function dateTimeToCronExpression(\DateTime $dateTime): string
+    {
+        return sprintf(
+            '%d %d * * *',
+            (int) $dateTime->format('i'), // minute
+            (int) $dateTime->format('G')  // hour (24-hour)
+        );
     }
 
     /**

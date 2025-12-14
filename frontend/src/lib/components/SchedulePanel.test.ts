@@ -359,6 +359,55 @@ describe('SchedulePanel auto-refresh', () => {
 	});
 });
 
+describe('SchedulePanel recurring job timezone', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({ jobs: [] });
+		vi.mocked(autoHeatOff.getAutoHeatOffEnabled).mockReturnValue(false);
+	});
+
+	it('sends timezone offset with recurring job time', async () => {
+		vi.mocked(api.scheduleJob).mockResolvedValue({
+			jobId: 'rec-123',
+			action: 'heater-on',
+			scheduledTime: '14:30:00+00:00', // UTC time returned from backend
+			createdAt: '2024-12-10T10:00:00+00:00',
+			recurring: true
+		});
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByRole('button', { name: /schedule/i })).toBeTruthy();
+		});
+
+		// Check the recurring checkbox
+		const recurringCheckbox = screen.getByRole('checkbox', { name: /recurring/i });
+		await fireEvent.click(recurringCheckbox);
+
+		// Set time to 06:30
+		const timeInput = screen.getByLabelText('Time') as HTMLInputElement;
+		await fireEvent.change(timeInput, { target: { value: '06:30' } });
+
+		// Click schedule button
+		const scheduleBtn = screen.getByRole('button', { name: /schedule/i });
+		await fireEvent.click(scheduleBtn);
+
+		await waitFor(() => {
+			expect(api.scheduleJob).toHaveBeenCalledTimes(1);
+		});
+
+		// The time should include timezone offset (e.g., "06:30-08:00" for PST)
+		// We can't know the exact offset since it depends on the test environment,
+		// but we verify the format includes an offset
+		const [action, time, recurring] = vi.mocked(api.scheduleJob).mock.calls[0];
+		expect(action).toBe('heater-on');
+		expect(recurring).toBe(true);
+		// Time should match pattern HH:MM+HH:MM or HH:MM-HH:MM
+		expect(time).toMatch(/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+	});
+});
+
 // Auto Heat Off UI tests moved to SettingsPanel.test.ts
 
 describe('SchedulePanel paired job creation', () => {
@@ -573,6 +622,142 @@ describe('SchedulePanel heater-off completion callback', () => {
 		vi.advanceTimersByTime(3 * 60 * 1000);
 
 		// If we get here without errors, the test passes
+		await waitFor(() => {
+			expect(listJobsSpy).toHaveBeenCalled();
+		});
+	});
+});
+
+describe('SchedulePanel UTC timezone handling', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.clearAllMocks();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('correctly parses UTC times with +00:00 offset', async () => {
+		// Set up a known current time
+		const now = new Date();
+		vi.setSystemTime(now);
+
+		// Create a job scheduled 5 minutes from now in UTC
+		const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
+		// API returns UTC time with +00:00 offset
+		const utcScheduledTime = fiveMinutesFromNow.toISOString().replace('Z', '+00:00');
+
+		const mockJobs = {
+			jobs: [
+				{
+					jobId: 'job-utc-test',
+					action: 'heater-on',
+					scheduledTime: utcScheduledTime,
+					createdAt: now.toISOString().replace('Z', '+00:00'),
+					recurring: false,
+				},
+			],
+		};
+
+		const listJobsSpy = vi.mocked(api.listScheduledJobs);
+		listJobsSpy.mockResolvedValue(mockJobs);
+
+		render(SchedulePanel);
+
+		// Wait for initial load
+		await waitFor(() => {
+			expect(listJobsSpy).toHaveBeenCalledTimes(1);
+		});
+
+		listJobsSpy.mockClear();
+
+		// Timer should fire at scheduled time + 60s buffer = 6 minutes total
+		vi.advanceTimersByTime(6 * 60 * 1000);
+
+		// Should trigger a refresh proving UTC was parsed correctly
+		await waitFor(() => {
+			expect(listJobsSpy).toHaveBeenCalled();
+		});
+	});
+
+	it('correctly parses UTC times with Z suffix', async () => {
+		const now = new Date();
+		vi.setSystemTime(now);
+
+		// Create a job scheduled 5 minutes from now
+		const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
+		// API returns UTC with Z suffix
+		const utcScheduledTime = fiveMinutesFromNow.toISOString(); // ends with Z
+
+		const mockJobs = {
+			jobs: [
+				{
+					jobId: 'job-utc-z-test',
+					action: 'heater-off',
+					scheduledTime: utcScheduledTime,
+					createdAt: now.toISOString(),
+					recurring: false,
+				},
+			],
+		};
+
+		const listJobsSpy = vi.mocked(api.listScheduledJobs);
+		listJobsSpy.mockResolvedValue(mockJobs);
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(listJobsSpy).toHaveBeenCalledTimes(1);
+		});
+
+		listJobsSpy.mockClear();
+
+		// Timer should fire at scheduled time + 60s buffer = 6 minutes total
+		vi.advanceTimersByTime(6 * 60 * 1000);
+
+		// Should trigger a refresh proving UTC (Z suffix) was parsed correctly
+		await waitFor(() => {
+			expect(listJobsSpy).toHaveBeenCalled();
+		});
+	});
+
+	it('correctly calculates timer delay from UTC scheduled time', async () => {
+		// Set current time
+		const now = new Date();
+		vi.setSystemTime(now);
+
+		// Schedule a job 2 minutes from now in UTC
+		const twoMinutesFromNowUtc = new Date(now.getTime() + 2 * 60 * 1000);
+		const utcTimeString = twoMinutesFromNowUtc.toISOString(); // Returns UTC string with Z suffix
+
+		const mockJobs = {
+			jobs: [
+				{
+					jobId: 'job-timer-calc',
+					action: 'heater-on',
+					scheduledTime: utcTimeString,
+					createdAt: now.toISOString(),
+					recurring: false,
+				},
+			],
+		};
+
+		const listJobsSpy = vi.mocked(api.listScheduledJobs);
+		listJobsSpy.mockResolvedValue(mockJobs);
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(listJobsSpy).toHaveBeenCalledTimes(1);
+		});
+
+		listJobsSpy.mockClear();
+
+		// Timer should fire at scheduled time + 60s buffer = 3 minutes total
+		vi.advanceTimersByTime(3 * 60 * 1000);
+
+		// Should trigger a refresh
 		await waitFor(() => {
 			expect(listJobsSpy).toHaveBeenCalled();
 		});
