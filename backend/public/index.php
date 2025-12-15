@@ -17,6 +17,7 @@ use HotTub\Services\UserRepositoryFactory;
 use HotTub\Services\SchedulerService;
 use HotTub\Services\CrontabAdapter;
 use HotTub\Services\CrontabBackupService;
+use HotTub\Services\HealthchecksClientFactory;
 use HotTub\Services\RequestLogger;
 use HotTub\Middleware\AuthMiddleware;
 use HotTub\Middleware\CorsMiddleware;
@@ -101,11 +102,17 @@ $apiBaseUrl = $protocol . '://' . $host . $scriptDir;
 $crontabBackupService = new CrontabBackupService($crontabBackupDir);
 $crontabAdapter = new CrontabAdapter($crontabBackupService);
 
+// Create Healthchecks.io client for job monitoring (feature flag: disabled if no API key)
+$healthchecksFactory = new HealthchecksClientFactory($config);
+$healthchecksClient = $healthchecksFactory->create();
+
 $schedulerService = new SchedulerService(
     $jobsDir,
     $cronRunnerPath,
     $apiBaseUrl,
-    $crontabAdapter
+    $crontabAdapter,
+    null, // TimeConverter (use default)
+    $healthchecksClient
 );
 $scheduleController = new ScheduleController($schedulerService);
 

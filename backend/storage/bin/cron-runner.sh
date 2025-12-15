@@ -13,7 +13,8 @@
 #   "jobId": "job-abc123" or "rec-abc123",
 #   "endpoint": "/api/equipment/heater/on",
 #   "apiBaseUrl": "https://example.com/tub/backend/public",
-#   "recurring": false or true
+#   "recurring": false or true,
+#   "healthcheckUuid": "uuid-here" (optional, for monitoring)
 # }
 
 set -euo pipefail
@@ -160,7 +161,36 @@ else
 fi
 
 # ============================================================
-# STEP 5: Delete job file (one-off jobs only)
+# STEP 5: Delete health check on SUCCESS (if configured)
+# This prevents the monitoring alert from firing since the job ran successfully.
+# On failure, we intentionally don't delete - the check will timeout and alert.
+# ============================================================
+if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+    # Parse healthcheckUuid from job file (no jq dependency)
+    HEALTHCHECK_UUID=$(grep -o '"healthcheckUuid"[[:space:]]*:[[:space:]]*"[^"]*"' "$JOB_FILE" 2>/dev/null | sed 's/.*:.*"\([^"]*\)"/\1/' || true)
+
+    # Read Healthchecks.io API key from .env (optional - monitoring may not be configured)
+    HEALTHCHECKS_KEY=$(grep '^HEALTHCHECKS_IO_KEY=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '\r\n' || true)
+
+    if [ -n "$HEALTHCHECK_UUID" ] && [ -n "$HEALTHCHECKS_KEY" ]; then
+        log "Deleting health check: $HEALTHCHECK_UUID"
+
+        HC_DELETE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X DELETE "https://healthchecks.io/api/v3/checks/$HEALTHCHECK_UUID" \
+            -H "X-Api-Key: $HEALTHCHECKS_KEY" \
+            --max-time 10 \
+            2>&1) || HC_DELETE_CODE="000"
+
+        if [ "$HC_DELETE_CODE" = "200" ]; then
+            log "Health check deleted successfully"
+        else
+            log "WARNING: Failed to delete health check (HTTP $HC_DELETE_CODE)"
+        fi
+    fi
+fi
+
+# ============================================================
+# STEP 6: Delete job file (one-off jobs only)
 # Recurring jobs keep their job file for the next execution
 # ============================================================
 if [ "$IS_RECURRING" != "true" ]; then
@@ -169,7 +199,7 @@ if [ "$IS_RECURRING" != "true" ]; then
 fi
 
 # ============================================================
-# STEP 6: Log completion
+# STEP 7: Log completion
 # ============================================================
 log "Execution complete (HTTP $HTTP_CODE)"
 
