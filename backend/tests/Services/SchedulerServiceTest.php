@@ -730,6 +730,187 @@ class SchedulerServiceTest extends TestCase
         $this->assertStringContainsString('HOTTUB:', $entries[3]);
     }
 
+    // ========== Healthchecks.io Integration Tests ==========
+
+    public function testScheduleJobCreatesHealthCheckWhenEnabled(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null, // TimeConverter
+            $healthchecksClient
+        );
+
+        $scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        $checks = $healthchecksClient->getCreatedChecks();
+        $this->assertCount(1, $checks, 'Should create one health check');
+        $this->assertStringContainsString('job-', $checks[0]['name']);
+    }
+
+    public function testScheduleJobPingsHealthCheckToArm(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        $pinged = $healthchecksClient->getPingedUrls();
+        $this->assertCount(1, $pinged, 'Should ping health check once to arm it');
+        $this->assertStringContainsString('hc-ping.com', $pinged[0]);
+    }
+
+    public function testScheduleJobStoresHealthCheckUuidInJobFile(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        $this->assertArrayHasKey('healthcheckUuid', $jobData);
+        $this->assertEquals('mock-uuid-0', $jobData['healthcheckUuid']);
+    }
+
+    public function testScheduleJobWorksWhenHealthchecksDisabled(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: false);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        // Job should still be created successfully
+        $this->assertArrayHasKey('jobId', $result);
+
+        // Job file should NOT have healthcheckUuid (or it should be null)
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+        $this->assertTrue(
+            !isset($jobData['healthcheckUuid']) || $jobData['healthcheckUuid'] === null,
+            'Job file should not have healthcheckUuid when monitoring disabled'
+        );
+
+        // No API calls should be made
+        $this->assertEmpty($healthchecksClient->getCreatedChecks());
+        $this->assertEmpty($healthchecksClient->getPingedUrls());
+    }
+
+    public function testScheduleJobContinuesWhenHealthchecksFails(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $healthchecksClient->setShouldFailCreate(true);
+
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        // Job should still be created even if healthchecks fails
+        $result = $scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        $this->assertArrayHasKey('jobId', $result);
+
+        // Cron should still be scheduled
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+        $this->assertStringContainsString('HOTTUB:', $entries[0]);
+    }
+
+    public function testScheduleJobCalculatesCorrectTimeout(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        // Schedule a job 2 hours from now
+        $twoHoursFromNow = (new \DateTime())->modify('+2 hours');
+        $scheduler->scheduleJob('heater-on', $twoHoursFromNow->format(\DateTime::ATOM));
+
+        $checks = $healthchecksClient->getCreatedChecks();
+        $this->assertCount(1, $checks);
+
+        // Timeout should be approximately 2 hours (7200s) + grace buffer
+        // We allow some variance for execution time
+        $timeout = $checks[0]['timeout'];
+        $this->assertGreaterThan(7100, $timeout, 'Timeout should be at least ~2 hours');
+        $this->assertLessThan(9000, $timeout, 'Timeout should not be excessively long');
+    }
+
+    public function testScheduleJobWithoutHealthchecksClientStillWorks(): void
+    {
+        // Test backward compatibility: no healthchecks client = works as before
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        $this->assertArrayHasKey('jobId', $result);
+
+        // Cron should be scheduled
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+    }
+
+    public function testCancelJobDeletesHealthCheck(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+        $scheduler->cancelJob($result['jobId']);
+
+        $deleted = $healthchecksClient->getDeletedUuids();
+        $this->assertCount(1, $deleted);
+        $this->assertEquals('mock-uuid-0', $deleted[0]);
+    }
+
     // ========== Bug Reproduction Test ==========
 
     /**
@@ -900,5 +1081,88 @@ class RealisticMockCrontabAdapter implements CrontabAdapterInterface
             return [];
         }
         return $this->entries;
+    }
+}
+
+/**
+ * Mock Healthchecks.io client for testing SchedulerService integration.
+ */
+class MockHealthchecksClient implements \HotTub\Contracts\HealthchecksClientInterface
+{
+    private bool $enabled;
+    private array $createdChecks = [];
+    private array $pingedUrls = [];
+    private array $deletedUuids = [];
+    private bool $shouldFailCreate = false;
+
+    public function __construct(bool $enabled = true)
+    {
+        $this->enabled = $enabled;
+    }
+
+    public function isEnabled(): bool
+    {
+        return $this->enabled;
+    }
+
+    public function setShouldFailCreate(bool $fail): void
+    {
+        $this->shouldFailCreate = $fail;
+    }
+
+    public function createCheck(string $name, int $timeout, int $grace, ?string $channels = null): ?array
+    {
+        if ($this->shouldFailCreate) {
+            return null;
+        }
+
+        $uuid = 'mock-uuid-' . count($this->createdChecks);
+        $pingUrl = 'https://hc-ping.com/' . $uuid;
+
+        $this->createdChecks[] = [
+            'name' => $name,
+            'timeout' => $timeout,
+            'grace' => $grace,
+            'channels' => $channels,
+        ];
+
+        return [
+            'uuid' => $uuid,
+            'ping_url' => $pingUrl,
+            'status' => 'new',
+        ];
+    }
+
+    public function ping(string $pingUrl): bool
+    {
+        $this->pingedUrls[] = $pingUrl;
+        return true;
+    }
+
+    public function delete(string $uuid): bool
+    {
+        $this->deletedUuids[] = $uuid;
+        return true;
+    }
+
+    public function getCheck(string $uuid): ?array
+    {
+        return null;
+    }
+
+    // Test helpers
+    public function getCreatedChecks(): array
+    {
+        return $this->createdChecks;
+    }
+
+    public function getPingedUrls(): array
+    {
+        return $this->pingedUrls;
+    }
+
+    public function getDeletedUuids(): array
+    {
+        return $this->deletedUuids;
     }
 }

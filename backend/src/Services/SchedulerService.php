@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTub\Services;
 
 use HotTub\Contracts\CrontabAdapterInterface;
+use HotTub\Contracts\HealthchecksClientInterface;
 use InvalidArgumentException;
 
 /**
@@ -25,20 +26,26 @@ class SchedulerService
         'pump-run' => 'PUMP',
     ];
 
+    /** Default grace period for health checks (30 minutes) */
+    private const HEALTHCHECK_GRACE_SECONDS = 1800;
+
     private string $apiBaseUrl;
     private TimeConverter $timeConverter;
+    private ?HealthchecksClientInterface $healthchecksClient;
 
     public function __construct(
         private string $jobsDir,
         private string $cronRunnerPath,
         string $apiBaseUrl,
         private CrontabAdapterInterface $crontabAdapter,
-        ?TimeConverter $timeConverter = null
+        ?TimeConverter $timeConverter = null,
+        ?HealthchecksClientInterface $healthchecksClient = null
     ) {
         // Normalize apiBaseUrl by stripping trailing slashes to prevent double-slash URLs
         // when concatenating with endpoints like '/api/equipment/heater/on'
         $this->apiBaseUrl = rtrim($apiBaseUrl, '/');
         $this->timeConverter = $timeConverter ?? new TimeConverter();
+        $this->healthchecksClient = $healthchecksClient;
     }
 
     /**
@@ -86,6 +93,9 @@ class SchedulerService
         // Generate unique job ID with job- prefix for one-off
         $jobId = 'job-' . bin2hex(random_bytes(4));
 
+        // Create health check if monitoring is enabled
+        $healthcheckUuid = $this->createHealthCheck($jobId, $utcDateTime);
+
         // Create job data (store time in UTC)
         $jobData = [
             'jobId' => $jobId,
@@ -96,6 +106,11 @@ class SchedulerService
             'recurring' => false,
             'createdAt' => $createdAt,
         ];
+
+        // Add health check UUID if monitoring is enabled
+        if ($healthcheckUuid !== null) {
+            $jobData['healthcheckUuid'] = $healthcheckUuid;
+        }
 
         // Write job file
         $jobFile = $this->jobsDir . '/' . $jobId . '.json';
@@ -299,7 +314,16 @@ class SchedulerService
             throw new InvalidArgumentException('Job not found: ' . $jobId);
         }
 
-        // Remove from crontab first
+        // Read job data to get health check UUID before deleting
+        $jobData = json_decode(file_get_contents($jobFile), true);
+        $healthcheckUuid = $jobData['healthcheckUuid'] ?? null;
+
+        // Delete health check if it exists
+        if ($healthcheckUuid !== null && $this->healthchecksClient !== null) {
+            $this->healthchecksClient->delete($healthcheckUuid);
+        }
+
+        // Remove from crontab
         $this->crontabAdapter->removeByPattern('HOTTUB:' . $jobId);
 
         // Delete job file
@@ -333,5 +357,53 @@ class SchedulerService
         $minute = (int) ($parts[1] ?? 0);
 
         return sprintf('%d %d * * *', $minute, $hour);
+    }
+
+    /**
+     * Create a health check for job monitoring.
+     *
+     * Creates a Healthchecks.io check that will alert if the job doesn't
+     * execute by the scheduled time + grace period.
+     *
+     * Architecture:
+     * 1. Create check with timeout = (scheduled_time - now) + grace
+     * 2. Ping immediately to arm the check (transitions new → up)
+     * 3. Store UUID in job file for deletion on success
+     *
+     * @param string $jobId The job ID (used as check name)
+     * @param \DateTime $scheduledTime When the job is scheduled to run (UTC)
+     * @return string|null The health check UUID, or null if monitoring disabled/failed
+     */
+    private function createHealthCheck(string $jobId, \DateTime $scheduledTime): ?string
+    {
+        // Skip if monitoring is not configured
+        if ($this->healthchecksClient === null || !$this->healthchecksClient->isEnabled()) {
+            return null;
+        }
+
+        // Calculate timeout: seconds until scheduled time + execution buffer
+        $now = new \DateTime('now', new \DateTimeZone('UTC'));
+        $secondsUntilRun = $scheduledTime->getTimestamp() - $now->getTimestamp();
+
+        // Ensure minimum timeout (API requires >= 60 seconds)
+        $timeout = max(60, $secondsUntilRun + 60); // +60s buffer for execution
+
+        // Create the health check
+        $check = $this->healthchecksClient->createCheck(
+            $jobId,
+            $timeout,
+            self::HEALTHCHECK_GRACE_SECONDS
+        );
+
+        if ($check === null) {
+            // API call failed - job continues without monitoring
+            return null;
+        }
+
+        // Ping immediately to arm the check (transitions "new" → "up")
+        // Without this ping, the check will never alert!
+        $this->healthchecksClient->ping($check['ping_url']);
+
+        return $check['uuid'];
     }
 }

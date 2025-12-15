@@ -67,6 +67,8 @@ jobs:
           JWT_EXPIRY_HOURS=${{ secrets.JWT_EXPIRY_HOURS }}
           WIRELESSTAG_OAUTH_TOKEN=${{ secrets.WIRELESSTAG_OAUTH_TOKEN }}
           WIRELESSTAG_DEVICE_ID=${{ secrets.WIRELESSTAG_DEVICE_ID }}
+          HEALTHCHECKS_IO_KEY=${{ secrets.HEALTHCHECKS_IO_KEY }}
+          HEALTHCHECKS_IO_CHANNEL=${{ secrets.HEALTHCHECKS_IO_CHANNEL }}
           EOF
 
       # Generate CRON_JWT for scheduled job authentication
