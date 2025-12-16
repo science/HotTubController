@@ -94,7 +94,11 @@ class SchedulerService
         $jobId = 'job-' . bin2hex(random_bytes(4));
 
         // Create health check if monitoring is enabled
-        $healthcheckUuid = $this->createHealthCheck($jobId, $utcDateTime);
+        // Use date-specific cron expression (e.g., "30 14 15 12 *" for 2:30pm on Dec 15)
+        $cronExpressionUtc = $this->dateToCronExpression($utcDateTime);
+        $checkName = $this->formatCheckName($jobId, $action, false);
+        $healthcheckData = $this->createHealthCheck($checkName, $cronExpressionUtc);
+        $healthcheckUuid = $healthcheckData['uuid'] ?? null;
 
         // Create job data (store time in UTC)
         $jobData = [
@@ -166,11 +170,25 @@ class SchedulerService
             $storedTime = $this->timeConverter->formatTimeUtc($time);
             $serverDateTime = $this->timeConverter->parseTimeWithOffset($time, toServerTz: true);
             $cronExpression = $this->dateTimeToCronExpression($serverDateTime);
+            // For health check, we need the UTC time
+            $utcDateTime = $this->timeConverter->parseTimeWithOffset($time, toUtc: true);
+            $healthcheckCronExpression = $this->dateTimeToCronExpression($utcDateTime);
         } else {
             // Legacy format: bare HH:MM (assumes server timezone)
+            // We treat bare time as server timezone, so health check should also use that
             $storedTime = $time;
             $cronExpression = $this->timeToCronExpression($time);
+            // Note: For bare HH:MM format, we assume server timezone which may not be UTC
+            // The health check will use UTC, so we need to document this limitation
+            $healthcheckCronExpression = $cronExpression;
         }
+
+        // Create health check for recurring job monitoring
+        // Uses same unified method as one-off jobs, just with daily cron expression
+        $checkName = $this->formatCheckName($jobId, $action, true);
+        $healthcheckData = $this->createHealthCheck($checkName, $healthcheckCronExpression);
+        $healthcheckUuid = $healthcheckData['uuid'] ?? null;
+        $healthcheckPingUrl = $healthcheckData['ping_url'] ?? null;
 
         // Create job data
         $jobData = [
@@ -182,6 +200,15 @@ class SchedulerService
             'recurring' => true,
             'createdAt' => $createdAt,
         ];
+
+        // Add health check data if monitoring is enabled
+        if ($healthcheckUuid !== null) {
+            $jobData['healthcheckUuid'] = $healthcheckUuid;
+        }
+        // Recurring jobs need ping_url for cron-runner.sh to ping on success
+        if ($healthcheckPingUrl !== null) {
+            $jobData['healthcheckPingUrl'] = $healthcheckPingUrl;
+        }
 
         // Write job file
         $jobFile = $this->jobsDir . '/' . $jobId . '.json';
@@ -360,38 +387,53 @@ class SchedulerService
     }
 
     /**
+     * Format a descriptive check name for Healthchecks.io.
+     *
+     * The name includes job ID, action, and type (ONCE/DAILY) so checks
+     * are easily identifiable in the Healthchecks.io admin panel.
+     *
+     * @param string $jobId The job ID (e.g., "job-abc123" or "rec-abc123")
+     * @param string $action The action (e.g., "heater-on")
+     * @param bool $recurring Whether this is a recurring job
+     * @return string Descriptive name (e.g., "job-abc123 | heater-on | ONCE")
+     */
+    private function formatCheckName(string $jobId, string $action, bool $recurring): string
+    {
+        $type = $recurring ? 'DAILY' : 'ONCE';
+        return "{$jobId} | {$action} | {$type}";
+    }
+
+    /**
      * Create a health check for job monitoring.
      *
-     * Creates a Healthchecks.io check that will alert if the job doesn't
-     * execute by the scheduled time + grace period.
+     * Creates a Healthchecks.io check with a cron schedule that will alert
+     * if the job doesn't execute according to its schedule.
+     *
+     * Both one-off and recurring jobs use the same method:
+     * - One-off: cron expression like "30 14 15 12 *" (specific date/time)
+     * - Recurring: cron expression like "30 14 * * *" (daily at that time)
      *
      * Architecture:
-     * 1. Create check with timeout = (scheduled_time - now) + grace
+     * 1. Create check with schedule (cron expression) and timezone
      * 2. Ping immediately to arm the check (transitions new → up)
-     * 3. Store UUID in job file for deletion on success
+     * 3. Return both uuid and ping_url for storage in job file
      *
-     * @param string $jobId The job ID (used as check name)
-     * @param \DateTime $scheduledTime When the job is scheduled to run (UTC)
-     * @return string|null The health check UUID, or null if monitoring disabled/failed
+     * @param string $name Descriptive check name
+     * @param string $cronExpression Cron expression for the schedule (in UTC)
+     * @return array{uuid: string, ping_url: string}|null Check data or null if disabled/failed
      */
-    private function createHealthCheck(string $jobId, \DateTime $scheduledTime): ?string
+    private function createHealthCheck(string $name, string $cronExpression): ?array
     {
         // Skip if monitoring is not configured
         if ($this->healthchecksClient === null || !$this->healthchecksClient->isEnabled()) {
             return null;
         }
 
-        // Calculate timeout: seconds until scheduled time + execution buffer
-        $now = new \DateTime('now', new \DateTimeZone('UTC'));
-        $secondsUntilRun = $scheduledTime->getTimestamp() - $now->getTimestamp();
-
-        // Ensure minimum timeout (API requires >= 60 seconds)
-        $timeout = max(60, $secondsUntilRun + 60); // +60s buffer for execution
-
-        // Create the health check
+        // Create the health check with schedule
         $check = $this->healthchecksClient->createCheck(
-            $jobId,
-            $timeout,
+            $name,
+            $cronExpression,
+            'UTC', // Health check schedule is in UTC
             self::HEALTHCHECK_GRACE_SECONDS
         );
 
@@ -404,6 +446,9 @@ class SchedulerService
         // Without this ping, the check will never alert!
         $this->healthchecksClient->ping($check['ping_url']);
 
-        return $check['uuid'];
+        return [
+            'uuid' => $check['uuid'],
+            'ping_url' => $check['ping_url'],
+        ];
     }
 }

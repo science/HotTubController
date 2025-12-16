@@ -14,6 +14,8 @@ use PHPUnit\Framework\TestCase;
  * These tests make real API calls to Healthchecks.io and verify
  * the full workflow: create → ping → get status → delete.
  *
+ * All checks use schedule-based monitoring with cron expressions.
+ *
  * @group live
  * @group healthchecks
  */
@@ -67,7 +69,8 @@ class HealthchecksClientLiveTest extends TestCase
     {
         $result = $this->client->createCheck(
             'live-test-' . time(),
-            60,  // 1 minute timeout
+            '* * * * *',  // Every minute (just for testing)
+            'UTC',
             60   // 1 minute grace
         );
 
@@ -84,7 +87,8 @@ class HealthchecksClientLiveTest extends TestCase
     {
         $created = $this->client->createCheck(
             'live-test-status-' . time(),
-            60,
+            '* * * * *',
+            'UTC',
             60
         );
         $this->createdChecks[] = $created['uuid'];
@@ -100,7 +104,8 @@ class HealthchecksClientLiveTest extends TestCase
     {
         $created = $this->client->createCheck(
             'live-test-ping-' . time(),
-            60,
+            '* * * * *',
+            'UTC',
             60
         );
         $this->createdChecks[] = $created['uuid'];
@@ -122,7 +127,8 @@ class HealthchecksClientLiveTest extends TestCase
     {
         $created = $this->client->createCheck(
             'live-test-delete-' . time(),
-            60,
+            '* * * * *',
+            'UTC',
             60
         );
 
@@ -147,7 +153,7 @@ class HealthchecksClientLiveTest extends TestCase
         );
 
         // This should fail but not throw
-        $result = $badClient->createCheck('test', 60, 60);
+        $result = $badClient->createCheck('test', '* * * * *', 'UTC', 60);
 
         $this->assertNull($result, 'Should return null on auth failure');
 
@@ -165,11 +171,11 @@ class HealthchecksClientLiveTest extends TestCase
         // This simulates what the scheduler will do:
         // 1. Create check when job is scheduled
         // 2. Ping immediately to arm it
-        // 3. Delete when job executes successfully
+        // 3. Delete when job executes successfully (one-off) or ping again (recurring)
 
-        // Step 1: Create check
+        // Step 1: Create check with a daily schedule
         $checkName = 'workflow-test-' . time();
-        $created = $this->client->createCheck($checkName, 300, 60);
+        $created = $this->client->createCheck($checkName, '30 14 * * *', 'UTC', 60);
 
         $this->assertNotNull($created);
         $uuid = $created['uuid'];
@@ -186,7 +192,7 @@ class HealthchecksClientLiveTest extends TestCase
         $check = $this->client->getCheck($uuid);
         $this->assertEquals('up', $check['status']);
 
-        // Step 3: Delete on "success"
+        // Step 3: Delete on "success" (simulating one-off job)
         $deleteResult = $this->client->delete($uuid);
         $this->assertTrue($deleteResult);
 
@@ -203,7 +209,8 @@ class HealthchecksClientLiveTest extends TestCase
     {
         $created = $this->client->createCheck(
             'channel-test-' . time(),
-            60,
+            '* * * * *',
+            'UTC',
             60
         );
         $this->createdChecks[] = $created['uuid'];

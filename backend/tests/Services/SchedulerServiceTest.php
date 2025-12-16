@@ -846,7 +846,7 @@ class SchedulerServiceTest extends TestCase
         $this->assertStringContainsString('HOTTUB:', $entries[0]);
     }
 
-    public function testScheduleJobCalculatesCorrectTimeout(): void
+    public function testScheduleJobCreatesCorrectCronSchedule(): void
     {
         $healthchecksClient = new MockHealthchecksClient(enabled: true);
         $scheduler = new SchedulerService(
@@ -859,17 +859,20 @@ class SchedulerServiceTest extends TestCase
         );
 
         // Schedule a job 2 hours from now
-        $twoHoursFromNow = (new \DateTime())->modify('+2 hours');
+        $twoHoursFromNow = (new \DateTime('now', new \DateTimeZone('UTC')))->modify('+2 hours');
         $scheduler->scheduleJob('heater-on', $twoHoursFromNow->format(\DateTime::ATOM));
 
         $checks = $healthchecksClient->getCreatedChecks();
         $this->assertCount(1, $checks);
 
-        // Timeout should be approximately 2 hours (7200s) + grace buffer
-        // We allow some variance for execution time
-        $timeout = $checks[0]['timeout'];
-        $this->assertGreaterThan(7100, $timeout, 'Timeout should be at least ~2 hours');
-        $this->assertLessThan(9000, $timeout, 'Timeout should not be excessively long');
+        // Should have a cron schedule (not timeout)
+        $this->assertArrayHasKey('schedule', $checks[0]);
+
+        // Schedule should contain the correct minute and hour
+        $expectedMinute = (int) $twoHoursFromNow->format('i');
+        $expectedHour = (int) $twoHoursFromNow->format('G');
+        $this->assertStringContainsString("$expectedMinute $expectedHour", $checks[0]['schedule'],
+            "Schedule should contain '$expectedMinute $expectedHour' for the scheduled time");
     }
 
     public function testScheduleJobWithoutHealthchecksClientStillWorks(): void
@@ -909,6 +912,186 @@ class SchedulerServiceTest extends TestCase
         $deleted = $healthchecksClient->getDeletedUuids();
         $this->assertCount(1, $deleted);
         $this->assertEquals('mock-uuid-0', $deleted[0]);
+    }
+
+    public function testOneOffJobCreatesScheduleBasedHealthCheck(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        // Schedule a job for a specific date/time
+        $scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00Z');
+
+        $checks = $healthchecksClient->getCreatedChecks();
+        $this->assertCount(1, $checks, 'Should create one health check');
+
+        // Check should have schedule (cron expression), not timeout
+        $this->assertArrayHasKey('schedule', $checks[0]);
+        $this->assertStringContainsString('30 6 11 12', $checks[0]['schedule'],
+            'Schedule should be cron expression for Dec 11 at 6:30');
+
+        // Check name should include job ID, action, and ONCE
+        $this->assertStringContainsString('job-', $checks[0]['name']);
+        $this->assertStringContainsString('heater-on', $checks[0]['name']);
+        $this->assertStringContainsString('ONCE', $checks[0]['name']);
+    }
+
+    public function testRecurringJobStoresPingUrl(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        // Recurring jobs need ping_url for cron-runner.sh
+        $this->assertArrayHasKey('healthcheckPingUrl', $jobData);
+        $this->assertStringContainsString('hc-ping.com', $jobData['healthcheckPingUrl']);
+    }
+
+    public function testRecurringJobCreatesScheduledHealthCheck(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $checks = $healthchecksClient->getCreatedChecks();
+        $this->assertCount(1, $checks, 'Should create one health check');
+        $this->assertStringContainsString('rec-', $checks[0]['name']);
+        $this->assertStringContainsString('heater-on', $checks[0]['name']);
+        $this->assertStringContainsString('DAILY', $checks[0]['name']);
+        $this->assertStringContainsString('30 6', $checks[0]['schedule']);
+        $this->assertEquals('UTC', $checks[0]['timezone']);
+    }
+
+    public function testRecurringJobWithTimezoneCreatesUtcSchedule(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        // 06:30 Pacific (UTC-8) = 14:30 UTC
+        $scheduler->scheduleJob('heater-on', '06:30-08:00', recurring: true);
+
+        $checks = $healthchecksClient->getCreatedChecks();
+        $this->assertCount(1, $checks);
+        $this->assertStringContainsString('30 14', $checks[0]['schedule'],
+            'Schedule should be 14:30 UTC (converted from 06:30 Pacific)');
+    }
+
+    public function testRecurringJobPingsHealthCheckToArm(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $pinged = $healthchecksClient->getPingedUrls();
+        $this->assertCount(1, $pinged, 'Should ping health check once to arm it');
+        $this->assertStringContainsString('hc-ping.com', $pinged[0]);
+    }
+
+    public function testRecurringJobStoresHealthCheckUuid(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        $this->assertArrayHasKey('healthcheckUuid', $jobData);
+        $this->assertEquals('mock-uuid-0', $jobData['healthcheckUuid']);
+    }
+
+    public function testCancelRecurringJobDeletesHealthCheck(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+        $scheduler->cancelJob($result['jobId']);
+
+        $deleted = $healthchecksClient->getDeletedUuids();
+        $this->assertCount(1, $deleted);
+        $this->assertEquals('mock-uuid-0', $deleted[0]);
+    }
+
+    public function testRecurringJobContinuesWhenHealthchecksFails(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $healthchecksClient->setShouldFailCreate(true);
+
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        // Job should still be created even if healthchecks fails
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $this->assertArrayHasKey('jobId', $result);
+
+        // Cron should still be scheduled
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+        $this->assertStringContainsString('HOTTUB:', $entries[0]);
     }
 
     // ========== Bug Reproduction Test ==========
@@ -1086,6 +1269,8 @@ class RealisticMockCrontabAdapter implements CrontabAdapterInterface
 
 /**
  * Mock Healthchecks.io client for testing SchedulerService integration.
+ *
+ * All checks use schedule-based monitoring (unified interface).
  */
 class MockHealthchecksClient implements \HotTub\Contracts\HealthchecksClientInterface
 {
@@ -1110,8 +1295,13 @@ class MockHealthchecksClient implements \HotTub\Contracts\HealthchecksClientInte
         $this->shouldFailCreate = $fail;
     }
 
-    public function createCheck(string $name, int $timeout, int $grace, ?string $channels = null): ?array
-    {
+    public function createCheck(
+        string $name,
+        string $schedule,
+        string $timezone,
+        int $grace,
+        ?string $channels = null
+    ): ?array {
         if ($this->shouldFailCreate) {
             return null;
         }
@@ -1121,7 +1311,8 @@ class MockHealthchecksClient implements \HotTub\Contracts\HealthchecksClientInte
 
         $this->createdChecks[] = [
             'name' => $name,
-            'timeout' => $timeout,
+            'schedule' => $schedule,
+            'timezone' => $timezone,
             'grace' => $grace,
             'channels' => $channels,
         ];
