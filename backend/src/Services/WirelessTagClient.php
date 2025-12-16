@@ -105,6 +105,31 @@ class WirelessTagClient
     }
 
     /**
+     * Request a fresh temperature reading from the hardware sensor.
+     *
+     * This triggers the WirelessTag sensor to take a new measurement
+     * via the RequestImmediatePostback endpoint. The sensor will update
+     * its cached reading which can then be retrieved via getTemperature().
+     *
+     * Note: This call may be slow (several seconds) and can fail on flaky
+     * networks. The actual temperature update happens asynchronously on
+     * the sensor hardware.
+     *
+     * @param string $deviceId WirelessTag device ID
+     * @return bool True on success, false on failure
+     */
+    public function requestRefresh(string $deviceId): bool
+    {
+        try {
+            $this->httpClient->post('/RequestImmediatePostback', ['id' => $deviceId]);
+            return true;
+        } catch (\RuntimeException $e) {
+            // Log the error but don't throw - return false to indicate failure
+            return false;
+        }
+    }
+
+    /**
      * Convert Celsius to Fahrenheit.
      */
     private function celsiusToFahrenheit(float $celsius): float

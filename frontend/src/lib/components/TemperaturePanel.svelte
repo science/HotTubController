@@ -7,10 +7,14 @@
 	// Export loadTemperature for parent components to trigger refresh
 	export { loadTemperature };
 
+	const POLL_INTERVAL_MS = 3000;
+	const MAX_POLL_ATTEMPTS = 5;
+
 	let temperature = $state<TemperatureData | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let lastRefreshed = $state<number | null>(null);
+	let refreshingSensor = $state(false);
 
 	async function loadTemperature() {
 		loading = true;
@@ -32,8 +36,52 @@
 		}
 	}
 
+	async function pollForFreshReading(attemptCount: number = 0): Promise<void> {
+		if (attemptCount >= MAX_POLL_ATTEMPTS) {
+			refreshingSensor = false;
+			return;
+		}
+
+		try {
+			const data = await api.getTemperature();
+			temperature = data;
+			setCachedTemperature(data);
+
+			const cached = getCachedTemperature();
+			if (cached) {
+				lastRefreshed = cached.cachedAt;
+			}
+
+			if (data.refresh_in_progress) {
+				// Still refreshing - poll again after interval
+				setTimeout(() => pollForFreshReading(attemptCount + 1), POLL_INTERVAL_MS);
+			} else {
+				// Refresh complete
+				refreshingSensor = false;
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load temperature';
+			refreshingSensor = false;
+		}
+	}
+
 	async function handleRefresh() {
-		await loadTemperature();
+		loading = true;
+		error = null;
+		refreshingSensor = true;
+
+		try {
+			// First, request hardware sensor refresh
+			await api.refreshTemperature();
+
+			// Then start polling for the fresh reading
+			await pollForFreshReading(0);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to refresh';
+			refreshingSensor = false;
+		} finally {
+			loading = false;
+		}
 	}
 
 	onMount(() => {
@@ -88,6 +136,11 @@
 			{error}
 		</div>
 	{:else if temperature}
+		{#if refreshingSensor}
+			<div class="text-blue-400 text-xs mb-1">
+				Refreshing sensor...
+			</div>
+		{/if}
 		<div data-testid="temperature-readings" class="flex flex-wrap gap-x-4 gap-y-1">
 			<!-- Water Temperature -->
 			<div data-testid="water-temp" class="flex items-center gap-1.5 whitespace-nowrap">

@@ -9,6 +9,7 @@ use HotTub\Controllers\AuthController;
 use HotTub\Controllers\ScheduleController;
 use HotTub\Controllers\UserController;
 use HotTub\Controllers\TemperatureController;
+use HotTub\Services\TemperatureStateService;
 use HotTub\Services\EnvLoader;
 use HotTub\Services\IftttClientFactory;
 use HotTub\Services\WirelessTagClientFactory;
@@ -82,10 +83,12 @@ $iftttClient = $factory->create($config['IFTTT_MODE'] ?? 'auto');
 // Create controller with IFTTT client
 $equipmentController = new EquipmentController($logFile, $iftttClient);
 
-// Create WirelessTag client and temperature controller
+// Create WirelessTag client and temperature controller with state service
 $wirelessTagFactory = new WirelessTagClientFactory($config);
 $wirelessTagClient = $wirelessTagFactory->create($config['WIRELESSTAG_MODE'] ?? 'auto');
-$temperatureController = new TemperatureController($wirelessTagClient, $wirelessTagFactory);
+$temperatureStateFile = __DIR__ . '/../storage/temperature_state.json';
+$temperatureStateService = new TemperatureStateService($temperatureStateFile);
+$temperatureController = new TemperatureController($wirelessTagClient, $wirelessTagFactory, $temperatureStateService);
 
 // Create scheduler service and controller
 $jobsDir = __DIR__ . '/../storage/scheduled-jobs';
@@ -152,8 +155,9 @@ $router->post('/api/equipment/heater/on', fn() => $equipmentController->heaterOn
 $router->post('/api/equipment/heater/off', fn() => $equipmentController->heaterOff(), $requireAuth);
 $router->post('/api/equipment/pump/run', fn() => $equipmentController->pumpRun(), $requireAuth);
 
-// Protected temperature route (with auth middleware)
+// Protected temperature routes (with auth middleware)
 $router->get('/api/temperature', fn() => $temperatureController->get(), $requireAuth);
+$router->post('/api/temperature/refresh', fn() => $temperatureController->refresh(), $requireAuth);
 
 // Protected schedule routes (with auth middleware)
 $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireAuth);

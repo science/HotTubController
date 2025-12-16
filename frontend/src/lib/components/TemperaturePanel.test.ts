@@ -7,7 +7,8 @@ import * as settings from '$lib/settings';
 // Mock the api module
 vi.mock('$lib/api', () => ({
 	api: {
-		getTemperature: vi.fn()
+		getTemperature: vi.fn(),
+		refreshTemperature: vi.fn()
 	}
 }));
 
@@ -25,7 +26,20 @@ const mockTemperatureData: api.TemperatureData = {
 	battery_voltage: 3.54,
 	signal_dbm: -67,
 	device_name: 'Hot Tub',
-	timestamp: '2025-12-11T10:30:00Z'
+	timestamp: '2025-12-11T10:30:00Z',
+	refresh_in_progress: false
+};
+
+const mockRefreshResponse: api.RefreshResponse = {
+	success: true,
+	message: 'Temperature refresh requested',
+	requested_at: '2025-12-11T10:30:00Z'
+};
+
+const mockTemperatureRefreshing: api.TemperatureData = {
+	...mockTemperatureData,
+	refresh_in_progress: true,
+	refresh_requested_at: '2025-12-11T10:30:00Z'
 };
 
 const mockCachedData: settings.CachedTemperature = {
@@ -37,6 +51,7 @@ const mockCachedData: settings.CachedTemperature = {
 	signal_dbm: -60,
 	device_name: 'Hot Tub',
 	timestamp: '2025-12-11T08:00:00Z',
+	refresh_in_progress: false,
 	cachedAt: Date.now() - 60000 // 1 minute ago
 };
 
@@ -406,6 +421,172 @@ describe('TemperaturePanel', () => {
 			// Should have called API and updated cache
 			expect(api.api.getTemperature).toHaveBeenCalledTimes(1);
 			expect(settings.setCachedTemperature).toHaveBeenCalledWith(mockTemperatureData);
+		});
+	});
+
+	describe('hardware refresh polling', () => {
+		beforeEach(() => {
+			vi.useFakeTimers();
+			vi.mocked(api.api.refreshTemperature).mockResolvedValue(mockRefreshResponse);
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it('calls refreshTemperature API when refresh button is clicked', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(mockCachedData);
+			vi.mocked(api.api.getTemperature).mockResolvedValue(mockTemperatureData);
+
+			render(TemperaturePanel);
+
+			await waitFor(() => {
+				expect(screen.getByText(/95\.0/)).toBeTruthy();
+			});
+
+			const button = screen.getByRole('button', { name: /refresh/i });
+			await fireEvent.click(button);
+
+			await waitFor(() => {
+				expect(api.api.refreshTemperature).toHaveBeenCalledTimes(1);
+			});
+		});
+
+		it('polls getTemperature after requesting refresh', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(mockCachedData);
+			// First poll: still refreshing, second poll: complete
+			vi.mocked(api.api.getTemperature)
+				.mockResolvedValueOnce(mockTemperatureRefreshing)
+				.mockResolvedValueOnce(mockTemperatureData);
+
+			render(TemperaturePanel);
+
+			await waitFor(() => {
+				expect(screen.getByText(/95\.0/)).toBeTruthy();
+			});
+
+			const button = screen.getByRole('button', { name: /refresh/i });
+			await fireEvent.click(button);
+
+			// First poll after refresh request
+			await waitFor(() => {
+				expect(api.api.getTemperature).toHaveBeenCalledTimes(1);
+			});
+
+			// Advance timer by 3 seconds for second poll
+			await vi.advanceTimersByTimeAsync(3000);
+
+			await waitFor(() => {
+				expect(api.api.getTemperature).toHaveBeenCalledTimes(2);
+			});
+		});
+
+		it('shows refreshing state while polling', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(mockCachedData);
+			vi.mocked(api.api.getTemperature).mockResolvedValue(mockTemperatureRefreshing);
+
+			render(TemperaturePanel);
+
+			await waitFor(() => {
+				expect(screen.getByText(/95\.0/)).toBeTruthy();
+			});
+
+			const button = screen.getByRole('button', { name: /refresh/i });
+			await fireEvent.click(button);
+
+			await waitFor(() => {
+				expect(screen.getByText(/refreshing sensor/i)).toBeTruthy();
+			});
+		});
+
+		it('stops polling when refresh_in_progress becomes false', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(mockCachedData);
+			// First call: refreshing, second call: complete
+			vi.mocked(api.api.getTemperature)
+				.mockResolvedValueOnce(mockTemperatureRefreshing)
+				.mockResolvedValueOnce(mockTemperatureData);
+
+			render(TemperaturePanel);
+
+			await waitFor(() => {
+				expect(screen.getByText(/95\.0/)).toBeTruthy();
+			});
+
+			const button = screen.getByRole('button', { name: /refresh/i });
+			await fireEvent.click(button);
+
+			// Wait for first poll
+			await waitFor(() => {
+				expect(api.api.getTemperature).toHaveBeenCalledTimes(1);
+			});
+
+			// Advance timer
+			await vi.advanceTimersByTimeAsync(3000);
+
+			// Second poll shows complete
+			await waitFor(() => {
+				expect(api.api.getTemperature).toHaveBeenCalledTimes(2);
+			});
+
+			// Should not show refreshing anymore
+			expect(screen.queryByText(/refreshing sensor/i)).toBeNull();
+
+			// Advance timer more - should NOT poll again
+			await vi.advanceTimersByTimeAsync(3000);
+			expect(api.api.getTemperature).toHaveBeenCalledTimes(2);
+		});
+
+		it('stops polling after max attempts (5 polls = 15 seconds)', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(mockCachedData);
+			// Always return refreshing state
+			vi.mocked(api.api.getTemperature).mockResolvedValue(mockTemperatureRefreshing);
+
+			render(TemperaturePanel);
+
+			await waitFor(() => {
+				expect(screen.getByText(/95\.0/)).toBeTruthy();
+			});
+
+			const button = screen.getByRole('button', { name: /refresh/i });
+			await fireEvent.click(button);
+
+			// Wait for initial poll
+			await waitFor(() => {
+				expect(api.api.getTemperature).toHaveBeenCalledTimes(1);
+			});
+
+			// Advance through 4 more poll cycles (5 total)
+			for (let i = 0; i < 4; i++) {
+				await vi.advanceTimersByTimeAsync(3000);
+			}
+
+			await waitFor(() => {
+				expect(api.api.getTemperature).toHaveBeenCalledTimes(5);
+			});
+
+			// Advance again - should NOT poll (max attempts reached)
+			await vi.advanceTimersByTimeAsync(3000);
+			expect(api.api.getTemperature).toHaveBeenCalledTimes(5);
+		});
+
+		it('handles refreshTemperature API failure gracefully', async () => {
+			vi.mocked(settings.getCachedTemperature).mockReturnValue(mockCachedData);
+			vi.mocked(api.api.refreshTemperature).mockRejectedValue(new Error('Network error'));
+			vi.mocked(api.api.getTemperature).mockResolvedValue(mockTemperatureData);
+
+			render(TemperaturePanel);
+
+			await waitFor(() => {
+				expect(screen.getByText(/95\.0/)).toBeTruthy();
+			});
+
+			const button = screen.getByRole('button', { name: /refresh/i });
+			await fireEvent.click(button);
+
+			// Should show error state
+			await waitFor(() => {
+				expect(screen.getByText(/failed to refresh/i)).toBeTruthy();
+			});
 		});
 	});
 });
