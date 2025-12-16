@@ -34,6 +34,14 @@ export interface TemperatureData {
 	signal_dbm: number | null;
 	device_name: string;
 	timestamp: string;
+	refresh_in_progress: boolean;
+	refresh_requested_at?: string;
+}
+
+export interface RefreshResponse {
+	success: boolean;
+	message: string;
+	requested_at: string;
 }
 
 export interface UserListResponse {
@@ -146,8 +154,9 @@ export const api = {
 	heaterOff: () => post('/api/equipment/heater/off'),
 	pumpRun: () => post('/api/equipment/pump/run'),
 
-	// Temperature endpoint
+	// Temperature endpoints
 	getTemperature: () => get<TemperatureData>('/api/temperature'),
+	refreshTemperature: () => post('/api/temperature/refresh') as Promise<RefreshResponse>,
 
 	// Schedule endpoints
 	scheduleJob: (action: string, scheduledTime: string, recurring: boolean = false) =>
