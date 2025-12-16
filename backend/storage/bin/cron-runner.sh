@@ -161,30 +161,52 @@ else
 fi
 
 # ============================================================
-# STEP 5: Delete health check on SUCCESS (if configured)
-# This prevents the monitoring alert from firing since the job ran successfully.
-# On failure, we intentionally don't delete - the check will timeout and alert.
+# STEP 5: Handle health check on SUCCESS (if configured)
+# - One-off jobs: DELETE the check (job is done, no more alerts needed)
+# - Recurring jobs: PING the check (signals success, resets timer for tomorrow)
+# On failure, we intentionally don't touch the check - it will timeout and alert.
 # ============================================================
 if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-    # Parse healthcheckUuid from job file (no jq dependency)
+    # Parse health check data from job file (no jq dependency)
     HEALTHCHECK_UUID=$(grep -o '"healthcheckUuid"[[:space:]]*:[[:space:]]*"[^"]*"' "$JOB_FILE" 2>/dev/null | sed 's/.*:.*"\([^"]*\)"/\1/' || true)
+    HEALTHCHECK_PING_URL=$(grep -o '"healthcheckPingUrl"[[:space:]]*:[[:space:]]*"[^"]*"' "$JOB_FILE" 2>/dev/null | sed 's/.*:.*"\([^"]*\)"/\1/' || true)
 
     # Read Healthchecks.io API key from .env (optional - monitoring may not be configured)
     HEALTHCHECKS_KEY=$(grep '^HEALTHCHECKS_IO_KEY=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '\r\n' || true)
 
-    if [ -n "$HEALTHCHECK_UUID" ] && [ -n "$HEALTHCHECKS_KEY" ]; then
-        log "Deleting health check: $HEALTHCHECK_UUID"
+    if [ "$IS_RECURRING" = "true" ]; then
+        # Recurring job: PING the health check to signal success
+        # This resets the timer - check will expect another ping by tomorrow's scheduled time
+        if [ -n "$HEALTHCHECK_PING_URL" ]; then
+            log "Pinging health check: $HEALTHCHECK_PING_URL"
 
-        HC_DELETE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X DELETE "https://healthchecks.io/api/v3/checks/$HEALTHCHECK_UUID" \
-            -H "X-Api-Key: $HEALTHCHECKS_KEY" \
-            --max-time 10 \
-            2>&1) || HC_DELETE_CODE="000"
+            HC_PING_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                "$HEALTHCHECK_PING_URL" \
+                --max-time 10 \
+                2>&1) || HC_PING_CODE="000"
 
-        if [ "$HC_DELETE_CODE" = "200" ]; then
-            log "Health check deleted successfully"
-        else
-            log "WARNING: Failed to delete health check (HTTP $HC_DELETE_CODE)"
+            if [ "$HC_PING_CODE" = "200" ]; then
+                log "Health check pinged successfully"
+            else
+                log "WARNING: Failed to ping health check (HTTP $HC_PING_CODE)"
+            fi
+        fi
+    else
+        # One-off job: DELETE the health check (job is done)
+        if [ -n "$HEALTHCHECK_UUID" ] && [ -n "$HEALTHCHECKS_KEY" ]; then
+            log "Deleting health check: $HEALTHCHECK_UUID"
+
+            HC_DELETE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                -X DELETE "https://healthchecks.io/api/v3/checks/$HEALTHCHECK_UUID" \
+                -H "X-Api-Key: $HEALTHCHECKS_KEY" \
+                --max-time 10 \
+                2>&1) || HC_DELETE_CODE="000"
+
+            if [ "$HC_DELETE_CODE" = "200" ]; then
+                log "Health check deleted successfully"
+            else
+                log "WARNING: Failed to delete health check (HTTP $HC_DELETE_CODE)"
+            fi
         fi
     fi
 fi

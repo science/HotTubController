@@ -30,7 +30,7 @@ class HealthchecksClientTest extends TestCase
     public function testNullClientCreateCheckReturnsNull(): void
     {
         $client = new NullHealthchecksClient();
-        $result = $client->createCheck('test-job', 120, 60);
+        $result = $client->createCheck('test-job', '* * * * *', 'UTC', 60);
         $this->assertNull($result);
     }
 

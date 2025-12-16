@@ -22,8 +22,13 @@ class NullHealthchecksClient implements HealthchecksClientInterface
         return false;
     }
 
-    public function createCheck(string $name, int $timeout, int $grace, ?string $channels = null): ?array
-    {
+    public function createCheck(
+        string $name,
+        string $schedule,
+        string $timezone,
+        int $grace,
+        ?string $channels = null
+    ): ?array {
         return null;
     }
 

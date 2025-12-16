@@ -40,11 +40,17 @@ class HealthchecksClient implements HealthchecksClientInterface
         return true;
     }
 
-    public function createCheck(string $name, int $timeout, int $grace, ?string $channels = null): ?array
-    {
+    public function createCheck(
+        string $name,
+        string $schedule,
+        string $timezone,
+        int $grace,
+        ?string $channels = null
+    ): ?array {
         $payload = [
             'name' => $name,
-            'timeout' => $timeout,
+            'schedule' => $schedule,
+            'tz' => $timezone,
             'grace' => $grace,
         ];
 
