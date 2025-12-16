@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace HotTub\Controllers;
 
 use HotTub\Services\EventLogger;
+use HotTub\Services\EquipmentStatusService;
 use HotTub\Contracts\IftttClientInterface;
 
 /**
  * Controller for hot tub equipment operations.
  *
- * All equipment control operations trigger IFTTT webhooks
- * and log events for audit purposes.
+ * All equipment control operations trigger IFTTT webhooks,
+ * log events for audit purposes, and update equipment status.
  */
 class EquipmentController
 {
@@ -19,7 +20,8 @@ class EquipmentController
 
     public function __construct(
         string $logFile,
-        private IftttClientInterface $iftttClient
+        private IftttClientInterface $iftttClient,
+        private ?EquipmentStatusService $statusService = null
     ) {
         $this->logger = new EventLogger($logFile);
     }
@@ -27,16 +29,22 @@ class EquipmentController
     /**
      * Health check endpoint.
      *
-     * Returns system status including IFTTT mode.
+     * Returns system status including IFTTT mode and equipment status.
      */
     public function health(): array
     {
+        $body = [
+            'status' => 'ok',
+            'ifttt_mode' => $this->iftttClient->getMode(),
+        ];
+
+        if ($this->statusService !== null) {
+            $body['equipmentStatus'] = $this->statusService->getStatus();
+        }
+
         return [
             'status' => 200,
-            'body' => [
-                'status' => 'ok',
-                'ifttt_mode' => $this->iftttClient->getMode(),
-            ],
+            'body' => $body,
         ];
     }
 
@@ -52,6 +60,10 @@ class EquipmentController
     {
         $timestamp = date('c');
         $success = $this->iftttClient->trigger('hot-tub-heat-on');
+
+        if ($success && $this->statusService !== null) {
+            $this->statusService->setHeaterOn();
+        }
 
         $this->logger->log('heater_on', [
             'ifttt_success' => $success,
@@ -73,13 +85,20 @@ class EquipmentController
      *
      * Triggers the IFTTT hot-tub-heat-off event which:
      * 1. Turns off heating element immediately
-     * 2. Continues pump for heater cooling
-     * 3. Stops pump after cooling period
+     * 2. Stops pump (hardware controller handles this)
+     *
+     * Note: The hardware controller turns off both the heater and pump
+     * when this command is triggered, so we update both statuses.
      */
     public function heaterOff(): array
     {
         $timestamp = date('c');
         $success = $this->iftttClient->trigger('hot-tub-heat-off');
+
+        if ($success && $this->statusService !== null) {
+            $this->statusService->setHeaterOff();
+            $this->statusService->setPumpOff();
+        }
 
         $this->logger->log('heater_off', [
             'ifttt_success' => $success,
@@ -107,6 +126,10 @@ class EquipmentController
         $timestamp = date('c');
         $duration = 7200; // 2 hours in seconds
         $success = $this->iftttClient->trigger('cycle_hot_tub_ionizer');
+
+        if ($success && $this->statusService !== null) {
+            $this->statusService->setPumpOn();
+        }
 
         $this->logger->log('pump_run', [
             'duration' => $duration,

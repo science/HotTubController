@@ -11,6 +11,7 @@ use HotTub\Controllers\UserController;
 use HotTub\Controllers\TemperatureController;
 use HotTub\Services\TemperatureStateService;
 use HotTub\Services\EnvLoader;
+use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\IftttClientFactory;
 use HotTub\Services\WirelessTagClientFactory;
 use HotTub\Services\AuthService;
@@ -80,8 +81,12 @@ $userController = new UserController($userRepository);
 $factory = new IftttClientFactory($config, $logFile);
 $iftttClient = $factory->create($config['IFTTT_MODE'] ?? 'auto');
 
-// Create controller with IFTTT client
-$equipmentController = new EquipmentController($logFile, $iftttClient);
+// Create equipment status service for tracking heater/pump state
+$equipmentStatusFile = __DIR__ . '/../storage/state/equipment-status.json';
+$equipmentStatusService = new EquipmentStatusService($equipmentStatusFile);
+
+// Create controller with IFTTT client and status service
+$equipmentController = new EquipmentController($logFile, $iftttClient, $equipmentStatusService);
 
 // Create WirelessTag client and temperature controller with state service
 $wirelessTagFactory = new WirelessTagClientFactory($config);

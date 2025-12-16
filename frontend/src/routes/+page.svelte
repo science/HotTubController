@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CompactControlButton from '$lib/components/CompactControlButton.svelte';
+	import EquipmentStatusBar from '$lib/components/EquipmentStatusBar.svelte';
 	import QuickSchedulePanel from '$lib/components/QuickSchedulePanel.svelte';
 	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte';
@@ -9,17 +10,40 @@
 	import { base } from '$app/paths';
 	import { buildInfo } from '$lib/config';
 	import { getRefreshTempOnHeaterOff } from '$lib/settings';
+	import {
+		fetchStatus,
+		getHeaterOn,
+		getPumpOn,
+		setHeaterOn,
+		setHeaterOff,
+		setPumpOn
+	} from '$lib/stores/equipmentStatus.svelte';
+	import { onMount } from 'svelte';
 
 	let { data } = $props();
+
+	// Reactive equipment status
+	let heaterOn = $derived(getHeaterOn());
+	let pumpOn = $derived(getPumpOn());
+
+	// Fetch equipment status on mount
+	onMount(() => {
+		fetchStatus();
+	});
 
 	let status = $state<{ message: string; type: 'success' | 'error' } | null>(null);
 	let schedulePanel = $state<{ loadJobs: () => Promise<void> } | null>(null);
 	let temperaturePanel = $state<{ loadTemperature: () => Promise<void> } | null>(null);
 
-	async function handleAction(action: () => Promise<unknown>, successMsg: string) {
+	async function handleAction(
+		action: () => Promise<unknown>,
+		successMsg: string,
+		onSuccess?: () => void
+	) {
 		try {
 			await action();
 			status = { message: successMsg, type: 'success' };
+			onSuccess?.();
 		} catch (e) {
 			if (e instanceof Error && e.message === 'Unauthorized') {
 				goto(`${base}/login`);
@@ -89,27 +113,33 @@
 		<!-- Compact Primary Controls -->
 		<div class="grid grid-cols-3 gap-2">
 			<CompactControlButton
-				label="ON"
+				label="Heat On"
 				icon="flame"
 				variant="primary"
 				tooltip="Turn on the hot tub heater"
-				onClick={() => handleAction(api.heaterOn, 'Heater turned ON')}
+				active={heaterOn}
+				onClick={() => handleAction(api.heaterOn, 'Heater turned ON', setHeaterOn)}
 			/>
 			<CompactControlButton
-				label="OFF"
+				label="Heat/Pump Off"
 				icon="flame-off"
 				variant="secondary"
-				tooltip="Turn off the hot tub heater"
-				onClick={() => handleAction(api.heaterOff, 'Heater turned OFF')}
+				tooltip="Turn off heater and pump"
+				active={!heaterOn}
+				onClick={() => handleAction(api.heaterOff, 'Heater and pump turned OFF', setHeaterOff)}
 			/>
 			<CompactControlButton
-				label="PUMP"
+				label="Pump (2h)"
 				icon="refresh"
 				variant="tertiary"
 				tooltip="Run the circulation pump for 2 hours"
-				onClick={() => handleAction(api.pumpRun, 'Pump running for 2 hours')}
+				active={pumpOn}
+				onClick={() => handleAction(api.pumpRun, 'Pump running for 2 hours', setPumpOn)}
 			/>
 		</div>
+
+		<!-- Equipment Status Bar -->
+		<EquipmentStatusBar />
 
 		<!-- Quick Schedule Buttons -->
 		<QuickSchedulePanel onScheduled={handleQuickScheduled} />

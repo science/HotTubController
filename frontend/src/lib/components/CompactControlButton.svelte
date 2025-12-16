@@ -7,9 +7,11 @@
 		onClick: () => Promise<void>;
 		variant?: 'primary' | 'secondary' | 'tertiary';
 		tooltip?: string;
+		active?: boolean;
 	}
 
-	let { label, icon, onClick, variant = 'primary', tooltip = '' }: Props = $props();
+	let { label, icon, onClick, variant = 'primary', tooltip = '', active = false }: Props =
+		$props();
 
 	let loading = $state(false);
 	let showTooltip = $state(false);
@@ -48,12 +50,21 @@
 		secondary: 'bg-slate-800 hover:bg-blue-500/20 border-blue-500/50 text-blue-400',
 		tertiary: 'bg-slate-800 hover:bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
 	};
+
+	const activeClasses = {
+		primary:
+			'bg-orange-500/30 border-orange-400 text-orange-300 shadow-[0_0_12px_rgba(251,146,60,0.5)] ring-2 ring-orange-400/50',
+		secondary:
+			'bg-blue-500/30 border-blue-400 text-blue-300 shadow-[0_0_12px_rgba(96,165,250,0.5)] ring-2 ring-blue-400/50',
+		tertiary:
+			'bg-cyan-500/30 border-cyan-400 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.5)] ring-2 ring-cyan-400/50'
+	};
 </script>
 
 <div class="relative">
 	<button
 		type="button"
-		class="compact-btn {variant} {variantClasses[variant]} flex flex-col items-center justify-center gap-1 p-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 w-full"
+		class="compact-btn {variant} {active ? activeClasses[variant] : variantClasses[variant]} flex flex-col items-center justify-center gap-1 p-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 w-full"
 		onclick={handleClick}
 		onmousedown={handlePressStart}
 		onmouseup={handlePressEnd}

@@ -44,6 +44,22 @@ export interface RefreshResponse {
 	requested_at: string;
 }
 
+export interface EquipmentState {
+	on: boolean;
+	lastChangedAt: string | null;
+}
+
+export interface EquipmentStatus {
+	heater: EquipmentState;
+	pump: EquipmentState;
+}
+
+export interface HealthResponse {
+	status: string;
+	ifttt_mode: string;
+	equipmentStatus: EquipmentStatus;
+}
+
 export interface UserListResponse {
 	users: User[];
 }
@@ -150,6 +166,9 @@ async function put<T>(endpoint: string, data: object): Promise<T> {
 }
 
 export const api = {
+	// Health/status endpoint
+	getHealth: () => get<HealthResponse>('/api/health'),
+
 	heaterOn: () => post('/api/equipment/heater/on'),
 	heaterOff: () => post('/api/equipment/heater/off'),
 	pumpRun: () => post('/api/equipment/pump/run'),
