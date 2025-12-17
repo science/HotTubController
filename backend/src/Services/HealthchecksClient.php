@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTub\Services;
 
 use HotTub\Contracts\HealthchecksClientInterface;
+use RuntimeException;
 
 /**
  * Real Healthchecks.io client that makes API calls.
@@ -30,6 +31,15 @@ class HealthchecksClient implements HealthchecksClientInterface
         ?string $defaultChannel = null,
         ?string $logFile = null
     ) {
+        // Tripwire: Live client should never be instantiated in stub mode
+        $apiMode = getenv('EXTERNAL_API_MODE') ?: ($_ENV['EXTERNAL_API_MODE'] ?? 'auto');
+        if ($apiMode === 'stub') {
+            throw new RuntimeException(
+                'HealthchecksClient instantiated while EXTERNAL_API_MODE=stub. ' .
+                'This indicates a configuration bug - the factory should have created a null client.'
+            );
+        }
+
         $this->apiKey = $apiKey;
         $this->defaultChannel = $defaultChannel;
         $this->logFile = $logFile;

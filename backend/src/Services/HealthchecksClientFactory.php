@@ -32,11 +32,22 @@ class HealthchecksClientFactory
     /**
      * Create a Healthchecks.io client based on configuration.
      *
+     * EXTERNAL_API_MODE support:
+     * - 'stub' mode: Always returns NullHealthchecksClient (no API calls)
+     * - 'live' mode: Returns HealthchecksClient if API key is present
+     * - When not set: Uses feature flag pattern (null client if no key)
+     *
      * @return HealthchecksClientInterface
      */
     public function create(): HealthchecksClientInterface
     {
         $apiKey = $this->config['HEALTHCHECKS_IO_KEY'] ?? null;
+        $externalApiMode = $this->config['EXTERNAL_API_MODE'] ?? null;
+
+        // EXTERNAL_API_MODE=stub forces null client (no external calls)
+        if ($externalApiMode === 'stub') {
+            return new NullHealthchecksClient();
+        }
 
         // Feature flag: if no API key, return null client
         if (empty($apiKey)) {

@@ -65,12 +65,16 @@ npm run check            # TypeScript/Svelte type checking
   - `IftttClient` - Unified client with injectable HTTP layer
   - `StubHttpClient` - Simulates API calls (safe for testing)
   - `CurlHttpClient` - Makes real IFTTT webhook calls
-- **Factory**: `IftttClientFactory` - Creates appropriate client based on config
+- **Factory**: `IftttClientFactory` - Creates client based on EXTERNAL_API_MODE
 - **WirelessTag Client Pattern**: Same strategy pattern for temperature sensor API:
   - `WirelessTagClient` - Unified client with injectable HTTP layer
   - `StubWirelessTagHttpClient` - Simulates sensor data (configurable temps)
   - `CurlWirelessTagHttpClient` - Real API calls to WirelessTag cloud
-- **Factory**: `WirelessTagClientFactory` - Creates client based on mode (stub/live/auto)
+- **Factory**: `WirelessTagClientFactory` - Creates client based on EXTERNAL_API_MODE
+- **Healthchecks.io Client**: Optional monitoring integration:
+  - `HealthchecksClient` - Real API calls to Healthchecks.io
+  - `NullHealthchecksClient` - No-op client (stub mode or no API key)
+- **Factory**: `HealthchecksClientFactory` - Creates client based on EXTERNAL_API_MODE
 
 ### Frontend
 - **Framework**: SvelteKit with Svelte 5 runes (`$state`, `$effect`)
@@ -141,29 +145,32 @@ cp config/env.production.example .env
 # Edit .env to add your real IFTTT_WEBHOOK_KEY
 ```
 
-### IFTTT Mode Configuration
-Set via `IFTTT_MODE` in `.env` file:
-- `stub` - Always use simulated calls (safe for development/testing)
-- `live` - Use real IFTTT calls (requires `IFTTT_WEBHOOK_KEY`)
-- `auto` - Uses stub in testing environment, live if key available
+### External API Mode Configuration
+A unified `EXTERNAL_API_MODE` controls ALL external service calls (IFTTT, WirelessTag, Healthchecks.io):
 
-### WirelessTag Configuration
-Temperature sensor API uses the same mode pattern via factory:
-- `stub` - Returns simulated temperature data (configurable for testing)
-- `live` - Real API calls to WirelessTag cloud (requires `WIRELESSTAG_OAUTH_TOKEN`)
-- `auto` - Uses stub in testing environment, live if token available
-
-Required `.env` variables for live mode:
 ```bash
-WIRELESSTAG_OAUTH_TOKEN=your-oauth-token
+# In .env file:
+EXTERNAL_API_MODE=stub   # Development: simulated calls (safe)
+EXTERNAL_API_MODE=live   # Production: real API calls (requires keys)
+```
+
+**Mode behavior:**
+- `stub` - All external APIs use simulated responses (no network calls)
+- `live` - All external APIs make real calls (requires API keys)
+
+**Required `.env` variables for live mode:**
+```bash
+EXTERNAL_API_MODE=live
+IFTTT_WEBHOOK_KEY=your-ifttt-key          # For equipment control
+WIRELESSTAG_OAUTH_TOKEN=your-oauth-token  # For temperature sensor
 WIRELESSTAG_DEVICE_ID=0
 ```
 
 **Safety rules:**
-- Always use `IFTTT_MODE=stub` during development
+- Always use `EXTERNAL_API_MODE=stub` during development
 - Never commit `backend/.env` (it's gitignored)
-- Get API keys from: https://ifttt.com/maker_webhooks/settings
-- Tests automatically use stub mode (live tests excluded by default)
+- Tests automatically use stub mode via `phpunit.xml`
+- Live tests (`@group live`) explicitly pass `'live'` mode parameter
 
 ## Reference: Archived Implementation
 

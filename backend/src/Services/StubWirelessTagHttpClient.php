@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTub\Services;
 
 use HotTub\Contracts\WirelessTagHttpClientInterface;
+use RuntimeException;
 
 /**
  * Stub HTTP client for WirelessTag API.
@@ -18,6 +19,18 @@ class StubWirelessTagHttpClient implements WirelessTagHttpClientInterface
 
     // Realistic default values based on actual sensor data
     private float $waterTempC = 36.5;     // ~97.7°F - typical hot tub temp
+
+    public function __construct()
+    {
+        // Tripwire: Stub client should never be instantiated in live mode
+        $apiMode = getenv('EXTERNAL_API_MODE') ?: ($_ENV['EXTERNAL_API_MODE'] ?? 'auto');
+        if ($apiMode === 'live') {
+            throw new RuntimeException(
+                'StubWirelessTagHttpClient instantiated while EXTERNAL_API_MODE=live. ' .
+                'This indicates a configuration bug - the factory should have created a live client.'
+            );
+        }
+    }
     private float $ambientTempC = 15.0;   // ~59°F - typical outdoor temp
     private float $batteryVoltage = 3.5;
     private int $signalDbm = -65;

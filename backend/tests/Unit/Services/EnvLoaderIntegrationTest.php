@@ -20,12 +20,14 @@ class EnvLoaderIntegrationTest extends TestCase
 {
     private string $tempDir;
     private string $testLogFile;
+    private ?string $originalExternalApiMode = null;
 
     protected function setUp(): void
     {
         $this->tempDir = sys_get_temp_dir() . '/envloader-integration-' . uniqid();
         mkdir($this->tempDir);
         $this->testLogFile = $this->tempDir . '/events.log';
+        $this->originalExternalApiMode = getenv('EXTERNAL_API_MODE') ?: null;
     }
 
     protected function tearDown(): void
@@ -35,6 +37,12 @@ class EnvLoaderIntegrationTest extends TestCase
             unlink($file);
         }
         rmdir($this->tempDir);
+        // Restore original mode
+        if ($this->originalExternalApiMode !== null) {
+            putenv("EXTERNAL_API_MODE={$this->originalExternalApiMode}");
+        } else {
+            putenv('EXTERNAL_API_MODE');
+        }
     }
 
     private function createEnvFile(string $content): string
@@ -63,6 +71,8 @@ class EnvLoaderIntegrationTest extends TestCase
 
     public function testProductionConfigCreatesLiveClient(): void
     {
+        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
+
         $envPath = $this->createEnvFile(
             "APP_ENV=production\nIFTTT_MODE=live\nIFTTT_WEBHOOK_KEY=prod-secret-key"
         );
@@ -98,6 +108,8 @@ class EnvLoaderIntegrationTest extends TestCase
 
     public function testStagingWithLiveModeMakesLiveClient(): void
     {
+        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
+
         $envPath = $this->createEnvFile(
             "APP_ENV=staging\nIFTTT_MODE=live\nIFTTT_WEBHOOK_KEY=staging-key"
         );

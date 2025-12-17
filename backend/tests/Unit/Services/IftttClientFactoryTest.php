@@ -13,16 +13,24 @@ use InvalidArgumentException;
 class IftttClientFactoryTest extends TestCase
 {
     private string $testLogFile;
+    private ?string $originalExternalApiMode = null;
 
     protected function setUp(): void
     {
         $this->testLogFile = sys_get_temp_dir() . '/factory-test-' . uniqid() . '.log';
+        $this->originalExternalApiMode = getenv('EXTERNAL_API_MODE') ?: null;
     }
 
     protected function tearDown(): void
     {
         if (file_exists($this->testLogFile)) {
             unlink($this->testLogFile);
+        }
+        // Restore original mode
+        if ($this->originalExternalApiMode !== null) {
+            putenv("EXTERNAL_API_MODE={$this->originalExternalApiMode}");
+        } else {
+            putenv('EXTERNAL_API_MODE');
         }
     }
 
@@ -40,6 +48,8 @@ class IftttClientFactoryTest extends TestCase
 
     public function testCreateLiveModeReturnsUnifiedClientInLiveMode(): void
     {
+        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
+
         $output = fopen('php://memory', 'w+');
         $factory = new IftttClientFactory(
             ['IFTTT_WEBHOOK_KEY' => 'test-key'],
@@ -84,12 +94,34 @@ class IftttClientFactoryTest extends TestCase
         fclose($output);
     }
 
-    public function testAutoModeWithKeyReturnsLive(): void
+    public function testAutoModeWithKeyButNoExternalApiModeDefaultsToStub(): void
     {
         $output = fopen('php://memory', 'w+');
         $factory = new IftttClientFactory(
             [
                 'APP_ENV' => 'production',
+                'IFTTT_WEBHOOK_KEY' => 'real-key',
+                // No EXTERNAL_API_MODE set - should default to stub for safety
+            ],
+            $this->testLogFile,
+            $output
+        );
+
+        $client = $factory->create('auto');
+
+        // New behavior: defaults to stub when EXTERNAL_API_MODE not explicitly set
+        $this->assertEquals('stub', $client->getMode());
+        fclose($output);
+    }
+
+    public function testAutoModeWithExternalApiModeLiveReturnsLive(): void
+    {
+        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
+
+        $output = fopen('php://memory', 'w+');
+        $factory = new IftttClientFactory(
+            [
+                'EXTERNAL_API_MODE' => 'live',
                 'IFTTT_WEBHOOK_KEY' => 'real-key',
             ],
             $this->testLogFile,
@@ -132,13 +164,14 @@ class IftttClientFactoryTest extends TestCase
         fclose($output);
     }
 
-    public function testAutoModeInDevelopmentWithKeyReturnsLive(): void
+    public function testAutoModeInDevelopmentWithKeyButNoExternalApiModeDefaultsToStub(): void
     {
         $output = fopen('php://memory', 'w+');
         $factory = new IftttClientFactory(
             [
                 'APP_ENV' => 'development',
                 'IFTTT_WEBHOOK_KEY' => 'dev-key',
+                // No EXTERNAL_API_MODE set - should default to stub for safety
             ],
             $this->testLogFile,
             $output
@@ -146,7 +179,8 @@ class IftttClientFactoryTest extends TestCase
 
         $client = $factory->create('auto');
 
-        $this->assertEquals('live', $client->getMode());
+        // New behavior: defaults to stub when EXTERNAL_API_MODE not explicitly set
+        $this->assertEquals('stub', $client->getMode());
         fclose($output);
     }
 

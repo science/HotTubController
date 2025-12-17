@@ -6,6 +6,7 @@ namespace HotTub\Services;
 
 use HotTub\Contracts\HttpClientInterface;
 use HotTub\Contracts\HttpResponse;
+use RuntimeException;
 
 /**
  * cURL-based HTTP client implementation.
@@ -16,6 +17,15 @@ class CurlHttpClient implements HttpClientInterface
 
     public function __construct(int $timeout = 30)
     {
+        // Tripwire: Live client should never be instantiated in stub mode
+        $apiMode = getenv('EXTERNAL_API_MODE') ?: ($_ENV['EXTERNAL_API_MODE'] ?? 'auto');
+        if ($apiMode === 'stub') {
+            throw new RuntimeException(
+                'CurlHttpClient instantiated while EXTERNAL_API_MODE=stub. ' .
+                'This indicates a configuration bug - the factory should have created a stub client.'
+            );
+        }
+
         $this->timeout = $timeout;
     }
 

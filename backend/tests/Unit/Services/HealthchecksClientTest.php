@@ -17,6 +17,23 @@ use PHPUnit\Framework\TestCase;
  */
 class HealthchecksClientTest extends TestCase
 {
+    private ?string $originalExternalApiMode = null;
+
+    protected function setUp(): void
+    {
+        $this->originalExternalApiMode = getenv('EXTERNAL_API_MODE') ?: null;
+    }
+
+    protected function tearDown(): void
+    {
+        // Restore original mode
+        if ($this->originalExternalApiMode !== null) {
+            putenv("EXTERNAL_API_MODE={$this->originalExternalApiMode}");
+        } else {
+            putenv('EXTERNAL_API_MODE');
+        }
+    }
+
     // =========================================================================
     // NullHealthchecksClient Tests (feature disabled)
     // =========================================================================
@@ -84,6 +101,8 @@ class HealthchecksClientTest extends TestCase
 
     public function testFactoryReturnsRealClientWhenApiKeyPresent(): void
     {
+        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
+
         $factory = new HealthchecksClientFactory([
             'HEALTHCHECKS_IO_KEY' => 'test-api-key',
         ]);
@@ -96,6 +115,8 @@ class HealthchecksClientTest extends TestCase
 
     public function testFactoryCanOverrideChannelId(): void
     {
+        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
+
         $factory = new HealthchecksClientFactory([
             'HEALTHCHECKS_IO_KEY' => 'test-api-key',
             'HEALTHCHECKS_IO_CHANNEL' => 'custom-channel-uuid',
@@ -107,18 +128,56 @@ class HealthchecksClientTest extends TestCase
         $this->assertInstanceOf(HealthchecksClient::class, $client);
     }
 
+    /**
+     * @test
+     * EXTERNAL_API_MODE=stub should force NullHealthchecksClient even with API key.
+     */
+    public function testFactoryReturnsNullClientWhenExternalApiModeIsStub(): void
+    {
+        $factory = new HealthchecksClientFactory([
+            'EXTERNAL_API_MODE' => 'stub',
+            'HEALTHCHECKS_IO_KEY' => 'test-api-key',
+        ]);
+
+        $client = $factory->create();
+
+        $this->assertInstanceOf(NullHealthchecksClient::class, $client);
+        $this->assertFalse($client->isEnabled());
+    }
+
+    /**
+     * @test
+     * EXTERNAL_API_MODE=live should use real client when API key present.
+     */
+    public function testFactoryReturnsRealClientWhenExternalApiModeIsLive(): void
+    {
+        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
+
+        $factory = new HealthchecksClientFactory([
+            'EXTERNAL_API_MODE' => 'live',
+            'HEALTHCHECKS_IO_KEY' => 'test-api-key',
+        ]);
+
+        $client = $factory->create();
+
+        $this->assertInstanceOf(HealthchecksClient::class, $client);
+        $this->assertTrue($client->isEnabled());
+    }
+
     // =========================================================================
     // HealthchecksClient Unit Tests (with mocked HTTP)
     // =========================================================================
 
     public function testClientIsEnabled(): void
     {
+        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
         $client = new HealthchecksClient('test-api-key');
         $this->assertTrue($client->isEnabled());
     }
 
     public function testClientImplementsInterface(): void
     {
+        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
         $client = new HealthchecksClient('test-api-key');
         $this->assertInstanceOf(HealthchecksClientInterface::class, $client);
     }

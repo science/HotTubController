@@ -14,4 +14,8 @@
             <group>live</group>
         </exclude>
     </groups>
+    <php>
+        <!-- Ensure all external APIs use stub mode during tests -->
+        <env name="EXTERNAL_API_MODE" value="stub"/>
+    </php>
 </phpunit>

@@ -9,8 +9,11 @@ use HotTub\Controllers\AuthController;
 use HotTub\Controllers\ScheduleController;
 use HotTub\Controllers\UserController;
 use HotTub\Controllers\TemperatureController;
+use HotTub\Controllers\MaintenanceController;
 use HotTub\Services\TemperatureStateService;
+use HotTub\Services\LogRotationService;
 use HotTub\Services\EnvLoader;
+use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\IftttClientFactory;
 use HotTub\Services\WirelessTagClientFactory;
 use HotTub\Services\AuthService;
@@ -76,16 +79,21 @@ $authMiddleware = new AuthMiddleware($authService);
 $authController = new AuthController($authService);
 $userController = new UserController($userRepository);
 
-// Create IFTTT client via factory
+// Create IFTTT client via factory (uses EXTERNAL_API_MODE from config)
 $factory = new IftttClientFactory($config, $logFile);
-$iftttClient = $factory->create($config['IFTTT_MODE'] ?? 'auto');
+$iftttClient = $factory->create();
 
-// Create controller with IFTTT client
-$equipmentController = new EquipmentController($logFile, $iftttClient);
+// Create equipment status service for tracking heater/pump state
+$equipmentStatusFile = __DIR__ . '/../storage/state/equipment-status.json';
+$equipmentStatusService = new EquipmentStatusService($equipmentStatusFile);
+
+// Create controller with IFTTT client and status service
+$equipmentController = new EquipmentController($logFile, $iftttClient, $equipmentStatusService);
 
 // Create WirelessTag client and temperature controller with state service
+// (uses EXTERNAL_API_MODE from config)
 $wirelessTagFactory = new WirelessTagClientFactory($config);
-$wirelessTagClient = $wirelessTagFactory->create($config['WIRELESSTAG_MODE'] ?? 'auto');
+$wirelessTagClient = $wirelessTagFactory->create();
 $temperatureStateFile = __DIR__ . '/../storage/temperature_state.json';
 $temperatureStateService = new TemperatureStateService($temperatureStateFile);
 $temperatureController = new TemperatureController($wirelessTagClient, $wirelessTagFactory, $temperatureStateService);
@@ -118,6 +126,23 @@ $schedulerService = new SchedulerService(
     $healthchecksClient
 );
 $scheduleController = new ScheduleController($schedulerService);
+
+// Create maintenance controller for log rotation
+// Loads ping URL from state file (created by deploy script)
+$logsDir = __DIR__ . '/../storage/logs';
+$logRotationService = new LogRotationService();
+$logRotationHealthcheckStateFile = __DIR__ . '/../storage/state/log-rotation-healthcheck.json';
+$logRotationPingUrl = null;
+if (file_exists($logRotationHealthcheckStateFile)) {
+    $logRotationState = json_decode(file_get_contents($logRotationHealthcheckStateFile), true);
+    $logRotationPingUrl = $logRotationState['ping_url'] ?? null;
+}
+$maintenanceController = new MaintenanceController(
+    $logRotationService,
+    $logsDir,
+    $healthchecksClient,
+    $logRotationPingUrl
+);
 
 // Parse request URI
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -169,6 +194,9 @@ $router->get('/api/users', fn() => $userController->list(), $requireAdmin);
 $router->post('/api/users', fn() => handleUserCreate($userController), $requireAdmin);
 $router->delete('/api/users/{username}', fn($params) => $userController->delete($params['username']), $requireAdmin);
 $router->put('/api/users/{username}/password', fn($params) => handleUserPasswordUpdate($userController, $params['username']), $requireAdmin);
+
+// Protected maintenance routes (called by cron with CRON_JWT)
+$router->post('/api/maintenance/logs/rotate', fn() => $maintenanceController->rotateLogs(), $requireAuth);
 
 // Dispatch request
 $response = $router->dispatch($method, $uri);

@@ -21,6 +21,15 @@ class CurlWirelessTagHttpClient implements WirelessTagHttpClientInterface
 
     public function __construct(string $oauthToken, int $timeoutSeconds = 60)
     {
+        // Tripwire: Live client should never be instantiated in stub mode
+        $apiMode = getenv('EXTERNAL_API_MODE') ?: ($_ENV['EXTERNAL_API_MODE'] ?? 'auto');
+        if ($apiMode === 'stub') {
+            throw new RuntimeException(
+                'CurlWirelessTagHttpClient instantiated while EXTERNAL_API_MODE=stub. ' .
+                'This indicates a configuration bug - the factory should have created a stub client.'
+            );
+        }
+
         if (empty($oauthToken)) {
             throw new RuntimeException('WirelessTag OAuth token cannot be empty');
         }

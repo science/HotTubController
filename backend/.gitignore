@@ -8,8 +8,8 @@
 .env
 !.env.example
 
-# Config files that may contain real keys - staging and production have real API keys
-# (development and testing configs are safe to commit as they use stub mode)
+# Config files that may contain real keys or local overrides
+config/env.dev
 config/env.staging
 config/env.production
 
@@ -21,3 +21,7 @@ config/env.production
 
 # Scheduled job files - runtime data managed by SchedulerService
 /storage/scheduled-jobs/
+
+# Equipment state files - runtime data managed by EquipmentStatusService
+/storage/state/*
+!/storage/state/.gitkeep
