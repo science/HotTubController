@@ -22,6 +22,9 @@
 
 	let { data } = $props();
 
+	// Check if user has basic role (simplified UI)
+	const isBasicUser = $derived(data.user?.role === 'basic');
+
 	// Reactive equipment status
 	let heaterOn = $derived(getHeaterOn());
 	let pumpOn = $derived(getPumpOn());
@@ -141,17 +144,23 @@
 		<!-- Equipment Status Bar -->
 		<EquipmentStatusBar />
 
-		<!-- Quick Schedule Buttons -->
-		<QuickSchedulePanel onScheduled={handleQuickScheduled} />
+		<!-- Quick Schedule Buttons (hidden for basic users) -->
+		{#if !isBasicUser}
+			<QuickSchedulePanel onScheduled={handleQuickScheduled} />
+		{/if}
 
 		<!-- Temperature Display -->
 		<TemperaturePanel bind:this={temperaturePanel} />
 
-		<!-- Full Schedule Panel -->
-		<SchedulePanel bind:this={schedulePanel} onHeaterOffCompleted={handleHeaterOffCompleted} />
+		<!-- Full Schedule Panel (hidden for basic users) -->
+		{#if !isBasicUser}
+			<SchedulePanel bind:this={schedulePanel} onHeaterOffCompleted={handleHeaterOffCompleted} />
+		{/if}
 
-		<!-- Settings Panel -->
-		<SettingsPanel />
+		<!-- Settings Panel (hidden for basic users) -->
+		{#if !isBasicUser}
+			<SettingsPanel />
+		{/if}
 	</main>
 
 	<footer class="mt-6 text-center">

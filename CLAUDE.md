@@ -47,6 +47,34 @@ npm run check            # TypeScript/Svelte type checking
 
 **E2E Testing**: Playwright tests in `frontend/e2e/` test frontend-backend integration. They auto-start servers on ports 5174 (frontend) and 8081 (backend). The frontend is served at `/tub` base path.
 
+### Test Artifact Cleanup
+
+Tests create artifacts (user accounts, healthchecks.io checks) that are automatically cleaned up:
+
+**E2E Tests (Users)** - Fully automatic:
+- `global-setup.ts` cleans stale test users BEFORE tests run (catches previous run failures)
+- `global-teardown.ts` cleans test users AFTER tests run (catches current run failures)
+- Patterns cleaned: `testuser_*`, `deletetest_*`, `basic_e2e_test`
+
+**PHPUnit Tests (Healthchecks)** - Automatic with live tests:
+- Each test's `tearDown()` deletes checks it created
+- `composer test:live` and `composer test:all` run cleanup script after tests
+- Patterns cleaned: `poc-test-*`, `live-test-*`, `workflow-test-*`, `channel-test-*`
+
+**Manual cleanup** (if needed):
+```bash
+# Check for stale healthchecks (dry run)
+cd backend && composer cleanup:healthchecks:dry
+
+# Delete stale healthchecks
+cd backend && composer cleanup:healthchecks
+```
+
+**When writing new tests** that create external artifacts:
+- Use recognizable test prefixes (e.g., `testuser_`, `poc-test-`)
+- Add cleanup in `tearDown()` / `afterAll()` / `afterEach()`
+- Add new patterns to cleanup scripts if introducing new prefixes
+
 ## Architecture
 
 ### Backend

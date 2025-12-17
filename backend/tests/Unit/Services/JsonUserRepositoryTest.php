@@ -257,4 +257,18 @@ class JsonUserRepositoryTest extends TestCase
         $this->assertEquals('admin', $admin['role']);
         $this->assertEquals('user', $user['role']);
     }
+
+    public function testBasicRoleIsAccepted(): void
+    {
+        $repo = new JsonUserRepository($this->usersFile);
+
+        $basicUser = $repo->create('basic_user', 'pass', 'basic');
+
+        // 'basic' should be preserved, not defaulted to 'user'
+        $this->assertEquals('basic', $basicUser['role']);
+
+        // Verify it persists correctly
+        $found = $repo->findByUsername('basic_user');
+        $this->assertEquals('basic', $found['role']);
+    }
 }

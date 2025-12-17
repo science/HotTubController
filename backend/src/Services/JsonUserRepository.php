@@ -14,7 +14,7 @@ use HotTub\Contracts\UserRepositoryInterface;
  */
 class JsonUserRepository implements UserRepositoryInterface
 {
-    private const VALID_ROLES = ['admin', 'user'];
+    private const VALID_ROLES = ['admin', 'user', 'basic'];
     private string $filePath;
 
     public function __construct(string $filePath)

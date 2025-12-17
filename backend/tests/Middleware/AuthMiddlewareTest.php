@@ -137,4 +137,61 @@ class AuthMiddlewareTest extends TestCase
         $this->assertEquals(403, $response['status']);
         $this->assertEquals('Admin access required', $response['body']['error']);
     }
+
+    public function testRequireAuthReturnsNullForBasicUser(): void
+    {
+        // Create a basic user
+        $userRepo = TestAuthHelper::getUserRepository();
+        if ($userRepo->findByUsername('basicuser') === null) {
+            $userRepo->create('basicuser', 'password', 'basic');
+        }
+
+        $authService = TestAuthHelper::getAuthService();
+        $token = $authService->login('basicuser', 'password');
+        $headers = ['Authorization' => 'Bearer ' . $token];
+
+        // Basic users should pass requireAuth (same as 'user')
+        $response = $this->middleware->requireAuth($headers, []);
+
+        $this->assertNull($response);
+    }
+
+    public function testRequireAdminReturns403ForBasicUser(): void
+    {
+        // Create a basic user
+        $userRepo = TestAuthHelper::getUserRepository();
+        if ($userRepo->findByUsername('basicuser2') === null) {
+            $userRepo->create('basicuser2', 'password', 'basic');
+        }
+
+        $authService = TestAuthHelper::getAuthService();
+        $token = $authService->login('basicuser2', 'password');
+        $headers = ['Authorization' => 'Bearer ' . $token];
+
+        // Basic users should NOT have admin access
+        $response = $this->middleware->requireAdmin($headers, []);
+
+        $this->assertNotNull($response);
+        $this->assertEquals(403, $response['status']);
+        $this->assertEquals('Admin access required', $response['body']['error']);
+    }
+
+    public function testBasicUserTokenHasCorrectRole(): void
+    {
+        // Create a basic user and verify the token contains the correct role
+        $userRepo = TestAuthHelper::getUserRepository();
+        if ($userRepo->findByUsername('basicuser3') === null) {
+            $userRepo->create('basicuser3', 'password', 'basic');
+        }
+
+        $authService = TestAuthHelper::getAuthService();
+        $token = $authService->login('basicuser3', 'password');
+        $headers = ['Authorization' => 'Bearer ' . $token];
+
+        $result = $this->middleware->authenticate($headers, []);
+
+        $this->assertNotNull($result);
+        $this->assertEquals('basicuser3', $result['sub']);
+        $this->assertEquals('basic', $result['role']);
+    }
 }

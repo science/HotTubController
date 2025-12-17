@@ -13,7 +13,7 @@
 	// Form state
 	let newUsername = $state('');
 	let newPassword = $state('');
-	let newRole = $state<'user' | 'admin'>('user');
+	let newRole = $state<'user' | 'admin' | 'basic'>('user');
 	let isCreating = $state(false);
 
 	// Credential display modal
@@ -192,6 +192,7 @@
 							bind:value={newRole}
 							class="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-slate-100 focus:outline-none focus:border-cyan-500"
 						>
+							<option value="basic">Basic (simplified UI)</option>
 							<option value="user">User</option>
 							<option value="admin">Admin</option>
 						</select>
@@ -247,7 +248,7 @@
 							<li class="flex items-center justify-between bg-slate-700/50 rounded p-3">
 								<div>
 									<span class="text-slate-100 font-medium">{user.username}</span>
-									<span class="ml-2 px-2 py-0.5 text-xs rounded {user.role === 'admin' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-600 text-slate-300'}">
+									<span class="ml-2 px-2 py-0.5 text-xs rounded {user.role === 'admin' ? 'bg-amber-500/20 text-amber-400' : user.role === 'basic' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-slate-600 text-slate-300'}">
 										{user.role}
 									</span>
 								</div>

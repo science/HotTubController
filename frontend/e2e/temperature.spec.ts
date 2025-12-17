@@ -49,7 +49,7 @@ test.describe('Temperature Display Feature', () => {
 		test('temperature panel is between Quick Heat On and Schedule', async ({ page }) => {
 			const quickPanel = page.locator('text=Quick Heat On');
 			const tempPanel = page.getByRole('heading', { name: 'Temperature' });
-			const scheduleHeading = page.getByRole('heading', { name: 'Schedule' });
+			const scheduleHeading = page.getByRole('heading', { name: 'Schedule', exact: true });
 
 			// Wait for all elements to be visible
 			await expect(quickPanel).toBeVisible({ timeout: 10000 });

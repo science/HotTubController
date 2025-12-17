@@ -12,7 +12,7 @@ test.describe('User Management', () => {
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.click('button[type="submit"]');
-		await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 10000 });
+		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 	});
 
 	test('admin can see Users link in header', async ({ page }) => {
@@ -86,11 +86,14 @@ test.describe('User Management', () => {
 		// New user should appear in the list
 		await expect(page.locator(`li:has-text("${uniqueUsername}")`)).toBeVisible();
 
+		// Set up dialog handler BEFORE clicking delete
+		page.on('dialog', (dialog) => dialog.accept());
+
 		// Clean up - delete the test user
 		await page.locator(`li:has-text("${uniqueUsername}")`).locator('button:has-text("Delete")').click();
 
-		// Handle the confirmation dialog
-		page.on('dialog', (dialog) => dialog.accept());
+		// Wait for user to be removed
+		await expect(page.locator(`li:has-text("${uniqueUsername}")`)).not.toBeVisible({ timeout: 5000 });
 	});
 
 	test('admin can delete a user', async ({ page }) => {
