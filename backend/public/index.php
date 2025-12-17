@@ -9,7 +9,9 @@ use HotTub\Controllers\AuthController;
 use HotTub\Controllers\ScheduleController;
 use HotTub\Controllers\UserController;
 use HotTub\Controllers\TemperatureController;
+use HotTub\Controllers\MaintenanceController;
 use HotTub\Services\TemperatureStateService;
+use HotTub\Services\LogRotationService;
 use HotTub\Services\EnvLoader;
 use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\IftttClientFactory;
@@ -125,6 +127,11 @@ $schedulerService = new SchedulerService(
 );
 $scheduleController = new ScheduleController($schedulerService);
 
+// Create maintenance controller for log rotation
+$logsDir = __DIR__ . '/../storage/logs';
+$logRotationService = new LogRotationService();
+$maintenanceController = new MaintenanceController($logRotationService, $logsDir);
+
 // Parse request URI
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
@@ -175,6 +182,9 @@ $router->get('/api/users', fn() => $userController->list(), $requireAdmin);
 $router->post('/api/users', fn() => handleUserCreate($userController), $requireAdmin);
 $router->delete('/api/users/{username}', fn($params) => $userController->delete($params['username']), $requireAdmin);
 $router->put('/api/users/{username}/password', fn($params) => handleUserPasswordUpdate($userController, $params['username']), $requireAdmin);
+
+// Protected maintenance routes (called by cron with CRON_JWT)
+$router->post('/api/maintenance/logs/rotate', fn() => $maintenanceController->rotateLogs(), $requireAuth);
 
 // Dispatch request
 $response = $router->dispatch($method, $uri);
