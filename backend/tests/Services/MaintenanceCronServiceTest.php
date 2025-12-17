@@ -117,15 +117,15 @@ class MaintenanceCronServiceTest extends TestCase
 {
     private MockCrontabAdapterForMaintenance $crontabAdapter;
     private MaintenanceCronService $service;
-    private string $apiBaseUrl;
+    private string $cronScriptPath;
 
     protected function setUp(): void
     {
         $this->crontabAdapter = new MockCrontabAdapterForMaintenance();
-        $this->apiBaseUrl = 'https://example.com/tub/backend/public';
+        $this->cronScriptPath = '/path/to/storage/bin/log-rotation-cron.sh';
         $this->service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl
+            $this->cronScriptPath
         );
     }
 
@@ -168,29 +168,12 @@ class MaintenanceCronServiceTest extends TestCase
         $this->assertStringStartsWith('0 3 1 * *', $entry);
     }
 
-    public function testCreatedCronJobCallsCorrectEndpoint(): void
+    public function testCreatedCronJobCallsScript(): void
     {
         $this->service->ensureLogRotationCronExists();
 
         $entry = $this->crontabAdapter->addedEntries[0];
-        $this->assertStringContainsString('/api/maintenance/logs/rotate', $entry);
-        $this->assertStringContainsString($this->apiBaseUrl, $entry);
-    }
-
-    public function testCreatedCronJobUsesAuthorizationHeader(): void
-    {
-        $this->service->ensureLogRotationCronExists();
-
-        $entry = $this->crontabAdapter->addedEntries[0];
-        $this->assertStringContainsString('Authorization: Bearer', $entry);
-    }
-
-    public function testCreatedCronJobUsesPOSTMethod(): void
-    {
-        $this->service->ensureLogRotationCronExists();
-
-        $entry = $this->crontabAdapter->addedEntries[0];
-        $this->assertStringContainsString('-X POST', $entry);
+        $this->assertStringContainsString($this->cronScriptPath, $entry);
     }
 
     public function testEnsureLogRotationCronExistsReturnsStatus(): void
@@ -267,7 +250,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'America/Los_Angeles' // Server timezone
@@ -291,7 +274,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'America/Los_Angeles'
@@ -313,7 +296,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'America/New_York'
@@ -335,7 +318,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'
@@ -357,7 +340,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'
@@ -379,7 +362,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'
@@ -402,7 +385,7 @@ class MaintenanceCronServiceTest extends TestCase
         $stateFile = sys_get_temp_dir() . '/log-rotation-healthcheck-test-' . uniqid() . '.json';
 
         // Pre-populate with existing cron AND state file
-        $this->crontabAdapter->entries[] = '0 3 1 * * curl -X POST https://example.com/api/maintenance/logs/rotate # HOTTUB:log-rotation';
+        $this->crontabAdapter->entries[] = '0 3 1 * * /path/to/log-rotation-cron.sh # HOTTUB:log-rotation';
         file_put_contents($stateFile, json_encode([
             'uuid' => 'existing-uuid',
             'ping_url' => 'https://hc-ping.com/existing-uuid',
@@ -410,7 +393,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'
@@ -431,11 +414,11 @@ class MaintenanceCronServiceTest extends TestCase
         $stateFile = sys_get_temp_dir() . '/log-rotation-healthcheck-test-' . uniqid() . '.json';
 
         // Pre-populate with existing cron but NO state file (upgrade scenario)
-        $this->crontabAdapter->entries[] = '0 3 1 * * curl -X POST https://example.com/api/maintenance/logs/rotate # HOTTUB:log-rotation';
+        $this->crontabAdapter->entries[] = '0 3 1 * * /path/to/log-rotation-cron.sh # HOTTUB:log-rotation';
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'
@@ -457,11 +440,11 @@ class MaintenanceCronServiceTest extends TestCase
         $stateFile = sys_get_temp_dir() . '/log-rotation-healthcheck-test-' . uniqid() . '.json';
 
         // Pre-populate with existing cron but NO state file
-        $this->crontabAdapter->entries[] = '0 3 1 * * curl -X POST https://example.com/api/maintenance/logs/rotate # HOTTUB:log-rotation';
+        $this->crontabAdapter->entries[] = '0 3 1 * * /path/to/log-rotation-cron.sh # HOTTUB:log-rotation';
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'
@@ -485,7 +468,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'
@@ -513,11 +496,11 @@ class MaintenanceCronServiceTest extends TestCase
         ]));
 
         // Pre-populate cron
-        $this->crontabAdapter->entries[] = '0 3 1 * * curl -X POST https://example.com/api/maintenance/logs/rotate # HOTTUB:log-rotation';
+        $this->crontabAdapter->entries[] = '0 3 1 * * /path/to/log-rotation-cron.sh # HOTTUB:log-rotation';
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'
@@ -544,7 +527,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'
@@ -564,7 +547,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'
@@ -582,7 +565,7 @@ class MaintenanceCronServiceTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $this->apiBaseUrl,
+            $this->cronScriptPath,
             $healthchecksClient,
             $stateFile,
             'UTC'

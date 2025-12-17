@@ -22,7 +22,6 @@ use HotTub\Contracts\HealthchecksClientInterface;
 class MaintenanceCronService
 {
     private const LOG_ROTATION_MARKER = 'HOTTUB:log-rotation';
-    private const LOG_ROTATION_ENDPOINT = '/api/maintenance/logs/rotate';
 
     // Run at 3am on the 1st of every month (approximately every 30 days)
     private const LOG_ROTATION_SCHEDULE = '0 3 1 * *';
@@ -32,7 +31,7 @@ class MaintenanceCronService
 
     public function __construct(
         private CrontabAdapterInterface $crontabAdapter,
-        private string $apiBaseUrl,
+        private string $cronScriptPath,
         private ?HealthchecksClientInterface $healthchecksClient = null,
         private ?string $healthcheckStateFile = null,
         private ?string $serverTimezone = null
@@ -151,19 +150,18 @@ class MaintenanceCronService
     /**
      * Build the cron entry for log rotation.
      *
-     * Uses curl to call the API endpoint with JWT authentication.
-     * The JWT token is read from the CRON_JWT environment variable at runtime.
+     * Calls the log-rotation-cron.sh script which handles:
+     * - Reading CRON_JWT from .env file
+     * - Reading API_BASE_URL from .env file
+     * - Calling the log rotation API endpoint
+     * - Logging results to storage/logs/cron.log
      */
     private function buildLogRotationCronEntry(): string
     {
-        $url = rtrim($this->apiBaseUrl, '/') . self::LOG_ROTATION_ENDPOINT;
-
-        // Note: $CRON_JWT is expanded by the shell at runtime from .env
-        // The cron command reads the JWT from environment
         return sprintf(
-            '%s curl -s -X POST -H "Authorization: Bearer $CRON_JWT" %s # %s',
+            '%s %s # %s',
             self::LOG_ROTATION_SCHEDULE,
-            escapeshellarg($url),
+            $this->cronScriptPath,
             self::LOG_ROTATION_MARKER
         );
     }

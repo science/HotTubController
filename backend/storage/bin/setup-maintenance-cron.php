@@ -84,7 +84,7 @@ if (!file_exists($envPath)) {
 
 $config = $loader->load($envPath);
 
-// Get API base URL from config or construct from defaults
+// Verify API_BASE_URL is configured (required by the cron script)
 $apiBaseUrl = $config['API_BASE_URL'] ?? null;
 
 if ($apiBaseUrl === null) {
@@ -92,6 +92,9 @@ if ($apiBaseUrl === null) {
     echo "Please add API_BASE_URL=https://your-server.com/path/to/backend/public to .env\n";
     exit(1);
 }
+
+// Path to the log rotation cron script
+$cronScriptPath = $scriptDir . '/log-rotation-cron.sh';
 
 // Create services
 $crontabBackupDir = $storageDir . '/crontab-backups';
@@ -110,7 +113,7 @@ $serverTimezone = TimeConverter::getSystemTimezone();
 
 $maintenanceService = new MaintenanceCronService(
     $crontabAdapter,
-    $apiBaseUrl,
+    $cronScriptPath,
     $healthchecksClient,
     $healthcheckStateFile,
     $serverTimezone

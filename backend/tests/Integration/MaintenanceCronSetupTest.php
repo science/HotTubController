@@ -42,10 +42,12 @@ class IntegrationMockCrontabAdapter implements CrontabAdapterInterface
 class MaintenanceCronSetupTest extends TestCase
 {
     private IntegrationMockCrontabAdapter $crontabAdapter;
+    private string $cronScriptPath;
 
     protected function setUp(): void
     {
         $this->crontabAdapter = new IntegrationMockCrontabAdapter();
+        $this->cronScriptPath = '/path/to/storage/bin/log-rotation-cron.sh';
     }
 
     public function testDeployWorkflowCreatesLogRotationCronWhenNotExists(): void
@@ -53,7 +55,7 @@ class MaintenanceCronSetupTest extends TestCase
         // Simulate fresh deploy - no existing cron jobs
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            'https://example.com/api'
+            $this->cronScriptPath
         );
 
         // Run the deploy setup
@@ -70,7 +72,7 @@ class MaintenanceCronSetupTest extends TestCase
         // Simulate deploy with existing cron
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            'https://example.com/api'
+            $this->cronScriptPath
         );
 
         // First deploy
@@ -93,7 +95,7 @@ class MaintenanceCronSetupTest extends TestCase
 
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            'https://example.com/api'
+            $this->cronScriptPath
         );
 
         // Run the deploy setup
@@ -113,7 +115,7 @@ class MaintenanceCronSetupTest extends TestCase
     {
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            'https://example.com/api'
+            $this->cronScriptPath
         );
 
         $service->ensureLogRotationCronExists();
@@ -124,19 +126,18 @@ class MaintenanceCronSetupTest extends TestCase
         $this->assertStringStartsWith('0 3 1 * *', $entry);
     }
 
-    public function testCreatedCronJobUsesCorrectApiBaseUrl(): void
+    public function testCreatedCronJobUsesScript(): void
     {
-        $apiBaseUrl = 'https://myserver.com/tub/backend/public';
         $service = new MaintenanceCronService(
             $this->crontabAdapter,
-            $apiBaseUrl
+            $this->cronScriptPath
         );
 
         $service->ensureLogRotationCronExists();
 
         $entry = $this->crontabAdapter->entries[0];
 
-        // Should contain the full URL to the endpoint
-        $this->assertStringContainsString($apiBaseUrl . '/api/maintenance/logs/rotate', $entry);
+        // Should contain the script path
+        $this->assertStringContainsString($this->cronScriptPath, $entry);
     }
 }
