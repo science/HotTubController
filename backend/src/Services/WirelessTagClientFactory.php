@@ -35,10 +35,17 @@ class WirelessTagClientFactory
     /**
      * Check if the WirelessTag sensor is properly configured.
      *
-     * Returns true if OAuth token is present and not a placeholder value.
+     * In stub mode, always returns true (no credentials needed).
+     * In live mode, returns true if OAuth token is present and not a placeholder.
      */
     public function isConfigured(): bool
     {
+        // In stub mode, we don't need credentials - always configured
+        $externalApiMode = $this->config['EXTERNAL_API_MODE'] ?? null;
+        if ($externalApiMode === 'stub') {
+            return true;
+        }
+
         $token = $this->getOAuthToken();
         if (empty($token)) {
             return false;
@@ -111,20 +118,20 @@ class WirelessTagClientFactory
 
     /**
      * Resolve auto mode to either stub or live.
+     *
+     * Priority:
+     * 1. EXTERNAL_API_MODE from config (unified system mode)
+     * 2. Default to 'stub' (fail-safe)
      */
     private function resolveAutoMode(): string
     {
-        // Safety: Always use stub in testing environment
-        if ($this->isTestingEnvironment()) {
-            return 'stub';
+        // Priority 1: Check EXTERNAL_API_MODE (unified system mode)
+        $externalApiMode = $this->config['EXTERNAL_API_MODE'] ?? null;
+        if ($externalApiMode !== null && in_array($externalApiMode, ['stub', 'live'], true)) {
+            return $externalApiMode;
         }
 
-        // Use live if OAuth token is available
-        if ($this->hasOAuthToken()) {
-            return 'live';
-        }
-
-        // Fallback to stub
+        // Priority 2: Default to stub (fail-safe)
         return 'stub';
     }
 

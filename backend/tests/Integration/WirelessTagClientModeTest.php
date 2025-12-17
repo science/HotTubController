@@ -221,6 +221,52 @@ class WirelessTagClientModeTest extends TestCase
     }
 
     /**
+     * @test
+     * In stub mode, isConfigured should return true even without an OAuth token.
+     *
+     * Stub mode doesn't require credentials because it uses simulated data.
+     * The controller should not block temperature reads in stub mode just
+     * because the token is missing.
+     */
+    public function isConfiguredReturnsTrueInStubModeWithoutToken(): void
+    {
+        $config = [
+            'EXTERNAL_API_MODE' => 'stub',
+            'WIRELESSTAG_OAUTH_TOKEN' => '',  // No token
+            'WIRELESSTAG_DEVICE_ID' => '0',
+        ];
+
+        $factory = new WirelessTagClientFactory($config);
+
+        // In stub mode, we don't need credentials
+        $this->assertTrue(
+            $factory->isConfigured(),
+            'Factory should report as configured in stub mode even without OAuth token'
+        );
+    }
+
+    /**
+     * @test
+     * In live mode without token, isConfigured should return false.
+     */
+    public function isConfiguredReturnsFalseInLiveModeWithoutToken(): void
+    {
+        $config = [
+            'EXTERNAL_API_MODE' => 'live',
+            'WIRELESSTAG_OAUTH_TOKEN' => '',  // No token
+            'WIRELESSTAG_DEVICE_ID' => '0',
+        ];
+
+        $factory = new WirelessTagClientFactory($config);
+
+        // In live mode, we need credentials
+        $this->assertFalse(
+            $factory->isConfigured(),
+            'Factory should report as not configured in live mode without OAuth token'
+        );
+    }
+
+    /**
      * Assert temperature response has expected structure.
      */
     private function assertTemperatureStructure(array $temp): void

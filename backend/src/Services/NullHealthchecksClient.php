@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTub\Services;
 
 use HotTub\Contracts\HealthchecksClientInterface;
+use RuntimeException;
 
 /**
  * No-op Healthchecks.io client for when monitoring is disabled.
@@ -17,6 +18,18 @@ use HotTub\Contracts\HealthchecksClientInterface;
  */
 class NullHealthchecksClient implements HealthchecksClientInterface
 {
+    public function __construct()
+    {
+        // Tripwire: Null client should never be instantiated in live mode
+        $apiMode = getenv('EXTERNAL_API_MODE') ?: ($_ENV['EXTERNAL_API_MODE'] ?? 'auto');
+        if ($apiMode === 'live') {
+            throw new RuntimeException(
+                'NullHealthchecksClient instantiated while EXTERNAL_API_MODE=live. ' .
+                'This indicates a configuration bug - the factory should have created a live client.'
+            );
+        }
+    }
+
     public function isEnabled(): bool
     {
         return false;

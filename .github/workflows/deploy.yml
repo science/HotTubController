@@ -59,7 +59,7 @@ jobs:
         run: |
           cat > backend/.env << 'EOF'
           APP_ENV=production
-          IFTTT_MODE=live
+          EXTERNAL_API_MODE=live
           IFTTT_WEBHOOK_KEY=${{ secrets.IFTTT_WEBHOOK_KEY }}
           AUTH_ADMIN_USERNAME=${{ secrets.AUTH_ADMIN_USERNAME }}
           AUTH_ADMIN_PASSWORD=${{ secrets.AUTH_ADMIN_PASSWORD }}

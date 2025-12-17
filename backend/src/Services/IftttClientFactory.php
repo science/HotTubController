@@ -105,20 +105,27 @@ class IftttClientFactory
 
     /**
      * Resolve auto mode to either stub or live.
+     *
+     * Priority:
+     * 1. EXTERNAL_API_MODE from config (unified system mode)
+     * 2. IFTTT_MODE from config (legacy fallback)
+     * 3. Default to 'stub' (fail-safe)
      */
     private function resolveAutoMode(): string
     {
-        // Safety: Always use stub in testing environment
-        if ($this->isTestingEnvironment()) {
-            return 'stub';
+        // Priority 1: Check EXTERNAL_API_MODE (unified system mode)
+        $externalApiMode = $this->config['EXTERNAL_API_MODE'] ?? null;
+        if ($externalApiMode !== null && in_array($externalApiMode, ['stub', 'live'], true)) {
+            return $externalApiMode;
         }
 
-        // Use live if API key is available
-        if ($this->hasApiKey()) {
-            return 'live';
+        // Priority 2: Check legacy IFTTT_MODE
+        $iftttMode = $this->config['IFTTT_MODE'] ?? null;
+        if ($iftttMode !== null && in_array($iftttMode, ['stub', 'live'], true)) {
+            return $iftttMode;
         }
 
-        // Fallback to stub
+        // Priority 3: Default to stub (fail-safe)
         return 'stub';
     }
 

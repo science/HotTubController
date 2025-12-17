@@ -6,6 +6,7 @@ namespace HotTub\Services;
 
 use HotTub\Contracts\HttpClientInterface;
 use HotTub\Contracts\HttpResponse;
+use RuntimeException;
 
 /**
  * Stub HTTP client that simulates network responses without making real calls.
@@ -17,6 +18,18 @@ use HotTub\Contracts\HttpResponse;
 class StubHttpClient implements HttpClientInterface
 {
     private const SIMULATED_DELAY_MS = 100;
+
+    public function __construct()
+    {
+        // Tripwire: Stub client should never be instantiated in live mode
+        $apiMode = getenv('EXTERNAL_API_MODE') ?: ($_ENV['EXTERNAL_API_MODE'] ?? 'auto');
+        if ($apiMode === 'live') {
+            throw new RuntimeException(
+                'StubHttpClient instantiated while EXTERNAL_API_MODE=live. ' .
+                'This indicates a configuration bug - the factory should have created a live client.'
+            );
+        }
+    }
 
     /**
      * Simulate a POST request without making an actual HTTP call.

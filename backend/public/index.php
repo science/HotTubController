@@ -77,9 +77,9 @@ $authMiddleware = new AuthMiddleware($authService);
 $authController = new AuthController($authService);
 $userController = new UserController($userRepository);
 
-// Create IFTTT client via factory
+// Create IFTTT client via factory (uses EXTERNAL_API_MODE from config)
 $factory = new IftttClientFactory($config, $logFile);
-$iftttClient = $factory->create($config['IFTTT_MODE'] ?? 'auto');
+$iftttClient = $factory->create();
 
 // Create equipment status service for tracking heater/pump state
 $equipmentStatusFile = __DIR__ . '/../storage/state/equipment-status.json';
@@ -89,8 +89,9 @@ $equipmentStatusService = new EquipmentStatusService($equipmentStatusFile);
 $equipmentController = new EquipmentController($logFile, $iftttClient, $equipmentStatusService);
 
 // Create WirelessTag client and temperature controller with state service
+// (uses EXTERNAL_API_MODE from config)
 $wirelessTagFactory = new WirelessTagClientFactory($config);
-$wirelessTagClient = $wirelessTagFactory->create($config['WIRELESSTAG_MODE'] ?? 'auto');
+$wirelessTagClient = $wirelessTagFactory->create();
 $temperatureStateFile = __DIR__ . '/../storage/temperature_state.json';
 $temperatureStateService = new TemperatureStateService($temperatureStateFile);
 $temperatureController = new TemperatureController($wirelessTagClient, $wirelessTagFactory, $temperatureStateService);
