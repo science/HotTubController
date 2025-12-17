@@ -21,7 +21,15 @@
     },
     "scripts": {
         "test": "phpunit",
-        "test:live": "phpunit --group=live",
-        "test:all": "phpunit --configuration=phpunit-all.xml"
+        "test:live": [
+            "phpunit --group=live",
+            "@cleanup:healthchecks"
+        ],
+        "test:all": [
+            "phpunit --configuration=phpunit-all.xml",
+            "@cleanup:healthchecks"
+        ],
+        "cleanup:healthchecks": "php scripts/cleanup-test-healthchecks.php --delete",
+        "cleanup:healthchecks:dry": "php scripts/cleanup-test-healthchecks.php"
     }
 }
