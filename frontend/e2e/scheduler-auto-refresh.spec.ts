@@ -26,7 +26,7 @@ test.describe('Scheduler Integration', () => {
 		await page.click('button[type="submit"]');
 
 		// Wait for redirect to main page
-		await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 10000 });
+		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
 		// Clean up any existing scheduled jobs from previous test runs
 		const cancelButtons = page.locator('ul li button:has-text("Cancel")');
@@ -135,7 +135,7 @@ test.describe('Scheduler Integration', () => {
 
 		// Reload the page
 		await page.reload();
-		await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 10000 });
+		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
 		// Verify GET was called
 		expect(getCallMade).toBe(true);

@@ -30,30 +30,31 @@ test.describe('Quick Schedule Feature', () => {
 	});
 
 	test.describe('Compact Control Buttons', () => {
-		test('displays compact ON, OFF, and PUMP buttons', async ({ page }) => {
-			// Verify all three compact buttons are visible
-			await expect(page.getByRole('button', { name: 'ON' })).toBeVisible();
-			await expect(page.getByRole('button', { name: 'OFF' })).toBeVisible();
-			await expect(page.getByRole('button', { name: 'PUMP' })).toBeVisible();
+		test('displays all three compact control buttons', async ({ page }) => {
+			// Verify all three compact buttons are visible with their actual labels
+			await expect(page.getByRole('button', { name: 'Heat On' })).toBeVisible();
+			await expect(page.getByRole('button', { name: 'Heat/Pump Off' })).toBeVisible();
+			await expect(page.getByRole('button', { name: 'Pump (2h)' })).toBeVisible();
 		});
 
 		test('compact buttons are in a 3-column layout', async ({ page }) => {
-			const onButton = page.getByRole('button', { name: 'ON' });
-			const offButton = page.getByRole('button', { name: 'OFF' });
-			const pumpButton = page.getByRole('button', { name: 'PUMP' });
+			// Use exact button labels to avoid ambiguity
+			const heatOnButton = page.getByRole('button', { name: 'Heat On' });
+			const heatOffButton = page.getByRole('button', { name: 'Heat/Pump Off' });
+			const pumpButton = page.getByRole('button', { name: 'Pump (2h)' });
 
 			// Get bounding boxes
-			const onBox = await onButton.boundingBox();
-			const offBox = await offButton.boundingBox();
+			const heatOnBox = await heatOnButton.boundingBox();
+			const heatOffBox = await heatOffButton.boundingBox();
 			const pumpBox = await pumpButton.boundingBox();
 
 			// All buttons should be roughly on the same row (same Y position)
-			expect(onBox!.y).toBeCloseTo(offBox!.y, 0);
-			expect(offBox!.y).toBeCloseTo(pumpBox!.y, 0);
+			expect(heatOnBox!.y).toBeCloseTo(heatOffBox!.y, 0);
+			expect(heatOffBox!.y).toBeCloseTo(pumpBox!.y, 0);
 
-			// Buttons should be in left-to-right order
-			expect(onBox!.x).toBeLessThan(offBox!.x);
-			expect(offBox!.x).toBeLessThan(pumpBox!.x);
+			// Buttons should be in left-to-right order: Heat On | Heat/Pump Off | Pump
+			expect(heatOnBox!.x).toBeLessThan(heatOffBox!.x);
+			expect(heatOffBox!.x).toBeLessThan(pumpBox!.x);
 		});
 	});
 
@@ -72,17 +73,17 @@ test.describe('Quick Schedule Feature', () => {
 		});
 
 		test('quick schedule panel is between controls and schedule form', async ({ page }) => {
-			const onButton = page.getByRole('button', { name: 'ON' });
+			const heatOnButton = page.getByRole('button', { name: 'Heat On' });
 			const quickPanel = page.locator('text=Quick Heat On');
-			const scheduleHeading = page.getByRole('heading', { name: 'Schedule' });
+			const scheduleHeading = page.getByRole('heading', { name: 'Schedule', exact: true });
 
 			// Get vertical positions
-			const onBox = await onButton.boundingBox();
+			const heatOnBox = await heatOnButton.boundingBox();
 			const quickBox = await quickPanel.boundingBox();
 			const scheduleBox = await scheduleHeading.boundingBox();
 
 			// Quick panel should be below control buttons
-			expect(quickBox!.y).toBeGreaterThan(onBox!.y);
+			expect(quickBox!.y).toBeGreaterThan(heatOnBox!.y);
 
 			// Quick panel should be above schedule heading
 			expect(quickBox!.y).toBeLessThan(scheduleBox!.y);

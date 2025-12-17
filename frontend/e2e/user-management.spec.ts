@@ -12,7 +12,7 @@ test.describe('User Management', () => {
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.click('button[type="submit"]');
-		await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible({ timeout: 10000 });
+		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 	});
 
 	test('admin can see Users link in header', async ({ page }) => {
