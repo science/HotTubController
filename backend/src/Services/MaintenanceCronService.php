@@ -59,11 +59,18 @@ class MaintenanceCronService
      * When creating the cron for the first time, also creates a Healthchecks.io
      * monitoring check (if enabled).
      *
+     * If the cron already exists but the healthcheck state file is missing
+     * (upgrade scenario), creates the healthcheck without touching the cron.
+     *
      * @return array{created: bool, entry: string, healthcheck: ?array}
      */
     public function ensureLogRotationCronExists(): array
     {
-        if ($this->logRotationCronExists()) {
+        $cronExists = $this->logRotationCronExists();
+        $healthcheckExists = $this->healthcheckStateFileExists();
+
+        if ($cronExists && $healthcheckExists) {
+            // Both exist - nothing to do
             return [
                 'created' => false,
                 'entry' => $this->getExistingLogRotationEntry(),
@@ -71,10 +78,21 @@ class MaintenanceCronService
             ];
         }
 
+        if ($cronExists && !$healthcheckExists) {
+            // Cron exists but healthcheck doesn't - upgrade scenario
+            // Create healthcheck without touching the cron
+            $healthcheck = $this->createHealthCheck();
+
+            return [
+                'created' => false, // Cron wasn't created
+                'entry' => $this->getExistingLogRotationEntry(),
+                'healthcheck' => $healthcheck, // But healthcheck was
+            ];
+        }
+
+        // Fresh install - create both
         $entry = $this->buildLogRotationCronEntry();
         $this->crontabAdapter->addEntry($entry);
-
-        // Create health check if enabled
         $healthcheck = $this->createHealthCheck();
 
         return [
@@ -82,6 +100,15 @@ class MaintenanceCronService
             'entry' => $entry,
             'healthcheck' => $healthcheck,
         ];
+    }
+
+    /**
+     * Check if the healthcheck state file exists.
+     */
+    private function healthcheckStateFileExists(): bool
+    {
+        return $this->healthcheckStateFile !== null
+            && file_exists($this->healthcheckStateFile);
     }
 
     /**

@@ -396,12 +396,41 @@ class MaintenanceCronServiceTest extends TestCase
         @unlink($stateFile);
     }
 
-    public function testNoHealthcheckCreatedWhenAlreadyExists(): void
+    public function testNoHealthcheckCreatedWhenCronAndStateFileExist(): void
     {
         $healthchecksClient = new MockHealthchecksClientForMaintenance();
         $stateFile = sys_get_temp_dir() . '/log-rotation-healthcheck-test-' . uniqid() . '.json';
 
-        // Pre-populate with existing cron
+        // Pre-populate with existing cron AND state file
+        $this->crontabAdapter->entries[] = '0 3 1 * * curl -X POST https://example.com/api/maintenance/logs/rotate # HOTTUB:log-rotation';
+        file_put_contents($stateFile, json_encode([
+            'uuid' => 'existing-uuid',
+            'ping_url' => 'https://hc-ping.com/existing-uuid',
+        ]));
+
+        $service = new MaintenanceCronService(
+            $this->crontabAdapter,
+            $this->apiBaseUrl,
+            $healthchecksClient,
+            $stateFile,
+            'UTC'
+        );
+
+        $result = $service->ensureLogRotationCronExists();
+
+        // Should NOT create health check (cron exists AND state file exists)
+        $this->assertEmpty($healthchecksClient->createdChecks);
+        $this->assertFalse($result['created']);
+
+        @unlink($stateFile);
+    }
+
+    public function testHealthcheckCreatedWhenCronExistsButStateFileMissing(): void
+    {
+        $healthchecksClient = new MockHealthchecksClientForMaintenance();
+        $stateFile = sys_get_temp_dir() . '/log-rotation-healthcheck-test-' . uniqid() . '.json';
+
+        // Pre-populate with existing cron but NO state file (upgrade scenario)
         $this->crontabAdapter->entries[] = '0 3 1 * * curl -X POST https://example.com/api/maintenance/logs/rotate # HOTTUB:log-rotation';
 
         $service = new MaintenanceCronService(
@@ -414,9 +443,36 @@ class MaintenanceCronServiceTest extends TestCase
 
         $result = $service->ensureLogRotationCronExists();
 
-        // Should NOT create health check (cron already exists)
-        $this->assertEmpty($healthchecksClient->createdChecks);
-        $this->assertFalse($result['created']);
+        // Should create health check (cron exists but state file missing - upgrade scenario)
+        $this->assertCount(1, $healthchecksClient->createdChecks);
+        $this->assertFalse($result['created']); // Cron wasn't created (already existed)
+        $this->assertNotNull($result['healthcheck']); // But healthcheck WAS created
+
+        @unlink($stateFile);
+    }
+
+    public function testHealthcheckStateFileSavedWhenCronExistsButStateMissing(): void
+    {
+        $healthchecksClient = new MockHealthchecksClientForMaintenance();
+        $stateFile = sys_get_temp_dir() . '/log-rotation-healthcheck-test-' . uniqid() . '.json';
+
+        // Pre-populate with existing cron but NO state file
+        $this->crontabAdapter->entries[] = '0 3 1 * * curl -X POST https://example.com/api/maintenance/logs/rotate # HOTTUB:log-rotation';
+
+        $service = new MaintenanceCronService(
+            $this->crontabAdapter,
+            $this->apiBaseUrl,
+            $healthchecksClient,
+            $stateFile,
+            'UTC'
+        );
+
+        $service->ensureLogRotationCronExists();
+
+        // State file should now exist with ping URL
+        $this->assertFileExists($stateFile);
+        $state = json_decode(file_get_contents($stateFile), true);
+        $this->assertArrayHasKey('ping_url', $state);
 
         @unlink($stateFile);
     }

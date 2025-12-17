@@ -182,5 +182,15 @@ if ($result['created']) {
 } else {
     echo "\n  Cron job already exists:\n";
     echo "    $result[entry]\n";
-    echo "\n  No changes made.\n";
+
+    if ($result['healthcheck'] !== null) {
+        // Upgrade scenario: cron existed but healthcheck didn't
+        echo "\n  Created Healthchecks.io check (upgrade):\n";
+        echo "    UUID: {$result['healthcheck']['uuid']}\n";
+        echo "    Ping URL: {$result['healthcheck']['ping_url']}\n";
+        echo "    Schedule: 0 3 1 * * ($serverTimezone)\n";
+        echo "\n  Healthcheck monitoring now enabled.\n";
+    } else {
+        echo "\n  No changes made.\n";
+    }
 }
