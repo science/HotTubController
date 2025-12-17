@@ -128,9 +128,21 @@ $schedulerService = new SchedulerService(
 $scheduleController = new ScheduleController($schedulerService);
 
 // Create maintenance controller for log rotation
+// Loads ping URL from state file (created by deploy script)
 $logsDir = __DIR__ . '/../storage/logs';
 $logRotationService = new LogRotationService();
-$maintenanceController = new MaintenanceController($logRotationService, $logsDir);
+$logRotationHealthcheckStateFile = __DIR__ . '/../storage/state/log-rotation-healthcheck.json';
+$logRotationPingUrl = null;
+if (file_exists($logRotationHealthcheckStateFile)) {
+    $logRotationState = json_decode(file_get_contents($logRotationHealthcheckStateFile), true);
+    $logRotationPingUrl = $logRotationState['ping_url'] ?? null;
+}
+$maintenanceController = new MaintenanceController(
+    $logRotationService,
+    $logsDir,
+    $healthchecksClient,
+    $logRotationPingUrl
+);
 
 // Parse request URI
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);

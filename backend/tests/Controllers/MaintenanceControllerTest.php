@@ -5,8 +5,50 @@ declare(strict_types=1);
 namespace HotTub\Tests\Controllers;
 
 use HotTub\Controllers\MaintenanceController;
+use HotTub\Contracts\HealthchecksClientInterface;
 use HotTub\Services\LogRotationService;
 use PHPUnit\Framework\TestCase;
+
+/**
+ * Mock Healthchecks client for testing MaintenanceController.
+ */
+class MockHealthchecksClientForController implements HealthchecksClientInterface
+{
+    public bool $enabled = true;
+    public array $pings = [];
+    public bool $pingResult = true;
+
+    public function isEnabled(): bool
+    {
+        return $this->enabled;
+    }
+
+    public function createCheck(
+        string $name,
+        string $schedule,
+        string $timezone,
+        int $grace,
+        ?string $channels = null
+    ): ?array {
+        return null;
+    }
+
+    public function ping(string $pingUrl): bool
+    {
+        $this->pings[] = $pingUrl;
+        return $this->pingResult;
+    }
+
+    public function delete(string $uuid): bool
+    {
+        return true;
+    }
+
+    public function getCheck(string $uuid): ?array
+    {
+        return null;
+    }
+}
 
 class MaintenanceControllerTest extends TestCase
 {
@@ -150,5 +192,116 @@ class MaintenanceControllerTest extends TestCase
         $this->assertArrayHasKey('timestamp', $response['body']);
         // Timestamp should be a valid ISO 8601 date
         $this->assertNotFalse(strtotime($response['body']['timestamp']));
+    }
+
+    // ========== Healthchecks Integration Tests ==========
+
+    public function testRotateLogsPingsHealthcheckOnSuccess(): void
+    {
+        $healthchecksClient = new MockHealthchecksClientForController();
+        $pingUrl = 'https://hc-ping.com/test-uuid';
+
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            $healthchecksClient,
+            $pingUrl
+        );
+
+        $controller->rotateLogs();
+
+        $this->assertCount(1, $healthchecksClient->pings);
+        $this->assertEquals($pingUrl, $healthchecksClient->pings[0]);
+    }
+
+    public function testRotateLogsDoesNotPingWhenNoHealthcheckConfigured(): void
+    {
+        $healthchecksClient = new MockHealthchecksClientForController();
+
+        // No ping URL configured
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            $healthchecksClient,
+            null
+        );
+
+        $controller->rotateLogs();
+
+        $this->assertEmpty($healthchecksClient->pings);
+    }
+
+    public function testRotateLogsDoesNotPingWhenHealthchecksDisabled(): void
+    {
+        $healthchecksClient = new MockHealthchecksClientForController();
+        $healthchecksClient->enabled = false;
+        $pingUrl = 'https://hc-ping.com/test-uuid';
+
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            $healthchecksClient,
+            $pingUrl
+        );
+
+        $controller->rotateLogs();
+
+        $this->assertEmpty($healthchecksClient->pings);
+    }
+
+    public function testRotateLogsReturnsHealthcheckPingedStatus(): void
+    {
+        $healthchecksClient = new MockHealthchecksClientForController();
+        $pingUrl = 'https://hc-ping.com/test-uuid';
+
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            $healthchecksClient,
+            $pingUrl
+        );
+
+        $response = $controller->rotateLogs();
+
+        $this->assertArrayHasKey('healthcheck_pinged', $response['body']);
+        $this->assertTrue($response['body']['healthcheck_pinged']);
+    }
+
+    public function testRotateLogsReturnsHealthcheckNotPingedWhenNoUrl(): void
+    {
+        $healthchecksClient = new MockHealthchecksClientForController();
+
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            $healthchecksClient,
+            null
+        );
+
+        $response = $controller->rotateLogs();
+
+        $this->assertArrayHasKey('healthcheck_pinged', $response['body']);
+        $this->assertFalse($response['body']['healthcheck_pinged']);
+    }
+
+    public function testRotateLogsStillSucceedsIfHealthcheckPingFails(): void
+    {
+        $healthchecksClient = new MockHealthchecksClientForController();
+        $healthchecksClient->pingResult = false;
+        $pingUrl = 'https://hc-ping.com/test-uuid';
+
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            $healthchecksClient,
+            $pingUrl
+        );
+
+        $response = $controller->rotateLogs();
+
+        // Log rotation should still succeed even if ping fails
+        $this->assertEquals(200, $response['status']);
+        // But indicate the ping failed
+        $this->assertFalse($response['body']['healthcheck_pinged']);
     }
 }
