@@ -33,6 +33,9 @@ export default defineConfig({
 			},
 			workbox: {
 				globPatterns: []
+			},
+			devOptions: {
+				enabled: true
 			}
 		})
 	],
