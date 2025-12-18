@@ -42,8 +42,11 @@ The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it
 - **Full Scheduler** - Create one-time or recurring heating schedules
 - **Auto Heat-Off** - Automatically schedule heater shutdown after configurable duration
 - **Temperature Display** - Real-time water and ambient temperature from WirelessTag sensors
-- **User Authentication** - JWT-based login with admin/user roles
+- **Equipment Status Display** - Control buttons illuminate when equipment is active
+- **User Authentication** - JWT-based login with three user roles (admin/user/basic)
 - **User Management** - Admin interface for creating and managing users
+- **Optional Monitoring** - Healthchecks.io integration for cron job alerts
+- **Comprehensive Logging** - Request logging with automatic rotation
 - **Safety First** - Stub mode for testing without triggering real hardware
 
 ## Hardware Requirements
@@ -143,28 +146,47 @@ All configuration is via `backend/.env`:
 # Application mode
 APP_ENV=development
 
+# External API Mode - controls ALL external services (IFTTT, WirelessTag, Healthchecks.io)
+EXTERNAL_API_MODE=stub       # stub (safe) or live (requires keys)
+
 # IFTTT webhook integration
-IFTTT_MODE=stub              # stub, live, or auto
 IFTTT_WEBHOOK_KEY=your-key   # From IFTTT Maker Webhooks settings
 
 # WirelessTag temperature sensors
-WIRELESSTAG_MODE=stub                    # stub, live, or auto
 WIRELESSTAG_OAUTH_TOKEN=your-token       # OAuth token from WirelessTag
 WIRELESSTAG_DEVICE_ID=0                  # Your hot tub sensor device ID
+
+# Healthchecks.io monitoring (optional)
+HEALTHCHECKS_IO_KEY=your-key             # API key for cron job monitoring
+HEALTHCHECKS_IO_CHANNEL=your-channel     # Notification channel slug
 
 # Authentication
 AUTH_ADMIN_USERNAME=admin
 AUTH_ADMIN_PASSWORD=change-this!
 JWT_SECRET=generate-a-secure-random-string
+
+# API Base URL - Required for scheduled jobs (used by cron)
+API_BASE_URL=https://your-server.com/path/to/backend/public
 ```
 
-### Mode Options
+### External API Mode
 
 | Mode | Description |
 |------|-------------|
-| `stub` | Simulates API calls - safe for development/testing |
-| `live` | Makes real API calls - requires valid keys |
-| `auto` | Uses stub in test environments, live if keys are present |
+| `stub` | Simulates all API calls - safe for development/testing |
+| `live` | Makes real API calls to IFTTT, WirelessTag, and Healthchecks.io |
+
+The unified `EXTERNAL_API_MODE` defaults to `stub` for fail-safe behavior.
+
+### User Roles
+
+| Role | Capabilities |
+|------|--------------|
+| `admin` | Full access: equipment control, scheduling, settings, user management |
+| `user` | Standard access: equipment control, scheduling, settings |
+| `basic` | Simplified UI: equipment control and temperature display only |
+
+The `basic` role is useful for household members who just need to turn the hot tub on/off without the complexity of scheduling features.
 
 ## Running Tests
 
@@ -210,7 +232,7 @@ hot-tub-controller/
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/api/health` | No | Health check |
+| GET | `/api/health` | No | Health check with equipment status |
 | POST | `/api/auth/login` | No | Login |
 | POST | `/api/auth/logout` | No | Logout |
 | GET | `/api/auth/me` | Yes | Current user info |
@@ -224,12 +246,13 @@ hot-tub-controller/
 | GET | `/api/users` | Admin | List users |
 | POST | `/api/users` | Admin | Create user |
 | DELETE | `/api/users/{username}` | Admin | Delete user |
+| POST | `/api/maintenance/logs/rotate` | Cron | Rotate log files |
 
 ## Safety Considerations
 
 This system controls real electrical equipment. Safety features include:
 
-- **Test Mode**: Always develop with `IFTTT_MODE=stub`
+- **Test Mode**: Always develop with `EXTERNAL_API_MODE=stub`
 - **Equipment Sequencing**: Pump starts before heater, heater stops before pump
 - **Authentication Required**: All control endpoints require login
 - **Audit Logging**: All API requests are logged with timestamps
@@ -239,6 +262,31 @@ Never deploy to production without:
 2. Setting a secure JWT_SECRET
 3. Configuring HTTPS
 4. Testing equipment sequencing with your actual setup
+
+## Logging & Monitoring
+
+### Request Logging
+
+All API requests are logged in JSON Lines format to `backend/storage/logs/api-requests-*.jsonl`:
+- Timestamp, IP address, HTTP method, URI
+- Response status and duration
+- Authenticated username (if applicable)
+
+### Log Rotation
+
+Automated log rotation runs monthly via cron:
+- Compress logs older than 30 days
+- Delete compressed logs older than 6 months
+- Crontab backups follow the same retention policy
+
+### Healthchecks.io Integration (Optional)
+
+When `HEALTHCHECKS_IO_KEY` is configured, scheduled jobs are monitored:
+- Health check created when job is scheduled
+- Alert triggered if job fails to execute within timeout
+- Check deleted on successful completion
+
+This provides proactive notification if a scheduled heating job fails to fire.
 
 ## Contributing
 
