@@ -100,5 +100,21 @@ test.describe('PWA Manifest and Installability', () => {
 			expect(response.ok()).toBeTruthy();
 			expect(response.headers()['content-type']).toContain('image/png');
 		});
+
+		test('icons have expected content (not placeholder/cached)', async ({ request }) => {
+			// Verify actual icon content by checking file sizes match source files
+			// This catches stale cache or wrong icons being served
+			const expectedSizes = {
+				'icon-192.png': 24250,
+				'icon-512.png': 122056,
+				'apple-touch-icon.png': 21754
+			};
+
+			for (const [filename, expectedSize] of Object.entries(expectedSizes)) {
+				const response = await request.get(`/tub/icons/${filename}`);
+				const body = await response.body();
+				expect(body.length, `${filename} should match expected size`).toBe(expectedSize);
+			}
+		});
 	});
 });
