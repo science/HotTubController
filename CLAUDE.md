@@ -11,7 +11,6 @@ Hot tub controller system with a PHP backend API and SvelteKit frontend. Control
 ```
 backend/           # PHP API (PHPUnit tests)
 frontend/          # SvelteKit + TypeScript + Tailwind (Vitest unit tests, Playwright E2E)
-_archive/          # Previous implementation for reference patterns
 ```
 
 ## Build & Test Commands
@@ -81,14 +80,21 @@ cd backend && composer cleanup:healthchecks
 - **Entry point**: `public/index.php` - Router setup and dependency wiring
 - **Routing**: `src/Routing/Router.php` - Simple router with `{param}` pattern support
 - **Controllers**:
-  - `EquipmentController` - Heater/pump control via IFTTT
+  - `EquipmentController` - Heater/pump control via IFTTT, tracks equipment state
   - `ScheduleController` - Scheduled job management via crontab
   - `AuthController` - JWT-based authentication
+  - `UserController` - User management (admin only)
+  - `MaintenanceController` - Log rotation endpoint for cron
 - **Services**:
   - `EnvLoader` - File-based `.env` configuration loading
-  - `SchedulerService` - Creates/lists/cancels cron jobs
+  - `SchedulerService` - Creates/lists/cancels cron jobs with Healthchecks.io monitoring
   - `AuthService` - JWT token validation
   - `WirelessTagClient` - Temperature sensor readings from WirelessTag API
+  - `EquipmentStatusService` - Tracks heater/pump on/off state in JSON file
+  - `RequestLogger` - API request logging in JSON Lines format
+  - `LogRotationService` - Compresses and deletes old log files
+  - `CrontabBackupService` - Timestamped backups before crontab modifications
+  - `MaintenanceCronService` - Sets up monthly log rotation cron job
 - **IFTTT Client Pattern**: Uses interface (`IftttClientInterface`) with unified client:
   - `IftttClient` - Unified client with injectable HTTP layer
   - `StubHttpClient` - Simulates API calls (safe for testing)
@@ -109,22 +115,32 @@ cd backend && composer cleanup:healthchecks
 - **Styling**: Tailwind CSS v4
 - **API client**: `src/lib/api.ts` - Typed wrapper for all backend endpoints
 - **Auth**: `src/lib/stores/auth.svelte.ts` - Reactive auth state with httpOnly cookie support
+- **Stores**:
+  - `auth.svelte.ts` - Authentication state with role-based access
+  - `equipmentStatus.svelte.ts` - Equipment on/off state with auto-refresh
 - **Components**:
-  - `ControlButton.svelte` - Equipment control buttons
+  - `CompactControlButton.svelte` - Equipment control buttons with active glow state
+  - `EquipmentStatusBar.svelte` - Last update time and manual refresh button
   - `SchedulePanel.svelte` - Scheduled jobs list with auto-refresh
   - `QuickSchedulePanel.svelte` - Quick scheduling UI
+  - `TemperaturePanel.svelte` - Water/ambient temperature display
 
 ### API Endpoints
-- `GET /api/health` - Health check with IFTTT mode status
+- `GET /api/health` - Health check with equipment status
 - `POST /api/auth/login` - Login (sets httpOnly cookie)
 - `POST /api/auth/logout` - Logout (clears cookie)
 - `GET /api/auth/me` - Get current user info
 - `POST /api/equipment/heater/on` - Trigger IFTTT `hot-tub-heat-on` (auth required)
 - `POST /api/equipment/heater/off` - Trigger IFTTT `hot-tub-heat-off` (auth required)
 - `POST /api/equipment/pump/run` - Trigger IFTTT `cycle_hot_tub_ionizer` (auth required)
+- `GET /api/temperature` - Get current temperatures (auth required)
 - `POST /api/schedule` - Schedule a future action (auth required)
 - `GET /api/schedule` - List scheduled jobs (auth required)
 - `DELETE /api/schedule/{id}` - Cancel scheduled job (auth required)
+- `GET /api/users` - List users (admin only)
+- `POST /api/users` - Create user (admin only)
+- `DELETE /api/users/{username}` - Delete user (admin only)
+- `POST /api/maintenance/logs/rotate` - Rotate log files (cron auth)
 
 ## Development Methodology: TDD Red/Green
 
@@ -199,10 +215,3 @@ WIRELESSTAG_DEVICE_ID=0
 - Never commit `backend/.env` (it's gitignored)
 - Tests automatically use stub mode via `phpunit.xml`
 - Live tests (`@group live`) explicitly pass `'live'` mode parameter
-
-## Reference: Archived Implementation
-
-The `_archive/` folder contains patterns to reference:
-- IFTTT safety client with test/dry-run modes
-- VCR testing for HTTP interactions
-- Temperature simulation for heating cycle tests
