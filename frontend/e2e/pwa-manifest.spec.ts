@@ -45,6 +45,12 @@ test.describe('PWA Manifest and Installability', () => {
 	});
 
 	test.describe('PWA Meta Tags', () => {
+		test('page has manifest link (required for PWA install)', async ({ page }) => {
+			await page.goto('/tub/login');
+			const manifestLink = await page.locator('link[rel="manifest"]').getAttribute('href');
+			expect(manifestLink).toBe('/tub/manifest.webmanifest');
+		});
+
 		test('page has theme-color meta tag', async ({ page }) => {
 			await page.goto('/tub/login');
 			const themeColor = await page.locator('meta[name="theme-color"]').getAttribute('content');
