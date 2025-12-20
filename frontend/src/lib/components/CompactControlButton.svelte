@@ -8,10 +8,23 @@
 		variant?: 'primary' | 'secondary' | 'tertiary' | 'accent';
 		tooltip?: string;
 		active?: boolean;
+		size?: 'normal' | 'compact';
 	}
 
-	let { label, icon, onClick, variant = 'primary', tooltip = '', active = false }: Props =
-		$props();
+	let {
+		label,
+		icon,
+		onClick,
+		variant = 'primary',
+		tooltip = '',
+		active = false,
+		size = 'normal'
+	}: Props = $props();
+
+	const sizeClasses = {
+		normal: 'p-2 gap-1',
+		compact: 'p-1 gap-0.5'
+	};
 
 	let loading = $state(false);
 	let showTooltip = $state(false);
@@ -67,7 +80,7 @@
 <div class="relative">
 	<button
 		type="button"
-		class="compact-btn {variant} {active ? activeClasses[variant] : variantClasses[variant]} flex flex-col items-center justify-center gap-1 p-2 rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 w-full"
+		class="compact-btn {variant} {active ? activeClasses[variant] : variantClasses[variant]} {sizeClasses[size]} flex flex-col items-center justify-center rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 w-full"
 		onclick={handleClick}
 		onmousedown={handlePressStart}
 		onmouseup={handlePressEnd}

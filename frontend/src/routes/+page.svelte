@@ -143,20 +143,22 @@
 			/>
 		</div>
 
-		<!-- Dining Room Blinds Controls (optional feature) -->
+		<!-- Dining Room Blinds Controls (optional feature, half-height) -->
 		{#if blindsEnabled}
 			<div class="grid grid-cols-2 gap-2">
 				<CompactControlButton
-					label="Open Blinds"
+					label="Blinds Up"
 					icon="blinds-open"
 					variant="accent"
+					size="compact"
 					tooltip="Open dining room blinds for privacy"
 					onClick={() => handleAction(api.blindsOpen, 'Blinds opening')}
 				/>
 				<CompactControlButton
-					label="Close Blinds"
+					label="Blinds Down"
 					icon="blinds-close"
 					variant="accent"
+					size="compact"
 					tooltip="Close dining room blinds"
 					onClick={() => handleAction(api.blindsClose, 'Blinds closing')}
 				/>

@@ -150,4 +150,34 @@ describe('CompactControlButton', () => {
 			expect(screen.getByRole('button')).toBeTruthy();
 		});
 	});
+
+	describe('size variants', () => {
+		it('applies normal size by default with p-2 padding', () => {
+			render(CompactControlButton, {
+				props: {
+					label: 'Heat On',
+					icon: 'flame',
+					onClick: vi.fn()
+				}
+			});
+
+			const button = screen.getByRole('button');
+			expect(button.className).toContain('p-2');
+		});
+
+		it('applies compact size with p-1 padding when size="compact"', () => {
+			render(CompactControlButton, {
+				props: {
+					label: 'Blinds Up',
+					icon: 'blinds-open',
+					onClick: vi.fn(),
+					size: 'compact'
+				}
+			});
+
+			const button = screen.getByRole('button');
+			expect(button.className).toContain('p-1');
+			expect(button.className).not.toContain('p-2');
+		});
+	});
 });

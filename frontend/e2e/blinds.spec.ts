@@ -18,8 +18,8 @@ test.describe('Blinds Control Buttons', () => {
 
 	test('displays blinds buttons when feature is enabled', async ({ page }) => {
 		// The blinds buttons should be visible when the feature is enabled
-		const openBlindsButton = page.getByRole('button', { name: 'Open Blinds' });
-		const closeBlindsButton = page.getByRole('button', { name: 'Close Blinds' });
+		const openBlindsButton = page.getByRole('button', { name: 'Blinds Up' });
+		const closeBlindsButton = page.getByRole('button', { name: 'Blinds Down' });
 
 		await expect(openBlindsButton).toBeVisible();
 		await expect(closeBlindsButton).toBeVisible();
@@ -27,8 +27,8 @@ test.describe('Blinds Control Buttons', () => {
 
 	test('blinds buttons appear on their own row with 2 columns', async ({ page }) => {
 		// Verify the blinds buttons are in a 2-column grid (half-width each)
-		const openBlindsButton = page.getByRole('button', { name: 'Open Blinds' });
-		const closeBlindsButton = page.getByRole('button', { name: 'Close Blinds' });
+		const openBlindsButton = page.getByRole('button', { name: 'Blinds Up' });
+		const closeBlindsButton = page.getByRole('button', { name: 'Blinds Down' });
 
 		// Both buttons should be visible
 		await expect(openBlindsButton).toBeVisible();
@@ -51,7 +51,7 @@ test.describe('Blinds Control Buttons', () => {
 	});
 
 	test('open blinds button triggers API call', async ({ page }) => {
-		const openBlindsButton = page.getByRole('button', { name: 'Open Blinds' });
+		const openBlindsButton = page.getByRole('button', { name: 'Blinds Up' });
 		await expect(openBlindsButton).toBeVisible();
 
 		// Click the button
@@ -62,7 +62,7 @@ test.describe('Blinds Control Buttons', () => {
 	});
 
 	test('close blinds button triggers API call', async ({ page }) => {
-		const closeBlindsButton = page.getByRole('button', { name: 'Close Blinds' });
+		const closeBlindsButton = page.getByRole('button', { name: 'Blinds Down' });
 		await expect(closeBlindsButton).toBeVisible();
 
 		// Click the button
@@ -72,12 +72,12 @@ test.describe('Blinds Control Buttons', () => {
 		await expect(page.getByText('Blinds closing')).toBeVisible({ timeout: 5000 });
 	});
 
-	test('blinds buttons have purple/accent styling', async ({ page }) => {
-		const openBlindsButton = page.getByRole('button', { name: 'Open Blinds' });
+	test('blinds buttons have purple/accent styling and compact size', async ({ page }) => {
+		const openBlindsButton = page.getByRole('button', { name: 'Blinds Up' });
 		await expect(openBlindsButton).toBeVisible();
 
-		// Verify the button has the accent (purple) styling
-		// The button should have text-purple-400 class
+		// Verify the button has the accent (purple) styling and compact size (p-1)
 		await expect(openBlindsButton).toHaveClass(/text-purple-400/);
+		await expect(openBlindsButton).toHaveClass(/p-1/);
 	});
 });
