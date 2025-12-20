@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use HotTub\Controllers\EquipmentController;
+use HotTub\Controllers\BlindsController;
 use HotTub\Controllers\AuthController;
 use HotTub\Controllers\ScheduleController;
 use HotTub\Controllers\UserController;
@@ -90,6 +91,9 @@ $equipmentStatusService = new EquipmentStatusService($equipmentStatusFile);
 // Create controller with IFTTT client and status service
 $equipmentController = new EquipmentController($logFile, $iftttClient, $equipmentStatusService);
 
+// Create blinds controller (optional feature, isolated by config)
+$blindsController = new BlindsController($logFile, $iftttClient, $config);
+
 // Create WirelessTag client and temperature controller with state service
 // (uses EXTERNAL_API_MODE from config)
 $wirelessTagFactory = new WirelessTagClientFactory($config);
@@ -168,7 +172,11 @@ $requireAdmin = fn() => $authMiddleware->requireAdmin($headers, $cookies);
 $router = new Router();
 
 // Public routes
-$router->get('/api/health', fn() => $equipmentController->health());
+$router->get('/api/health', function() use ($equipmentController, $blindsController) {
+    $response = $equipmentController->health();
+    $response['body']['blindsEnabled'] = $blindsController->isEnabled();
+    return $response;
+});
 
 // Auth routes
 $router->post('/api/auth/login', fn() => handleLogin($authController));
@@ -179,6 +187,10 @@ $router->get('/api/auth/me', fn() => handleMe($authController, $headers, $cookie
 $router->post('/api/equipment/heater/on', fn() => $equipmentController->heaterOn(), $requireAuth);
 $router->post('/api/equipment/heater/off', fn() => $equipmentController->heaterOff(), $requireAuth);
 $router->post('/api/equipment/pump/run', fn() => $equipmentController->pumpRun(), $requireAuth);
+
+// Protected blinds routes (optional feature - returns 404 if not enabled)
+$router->post('/api/blinds/open', fn() => $blindsController->open(), $requireAuth);
+$router->post('/api/blinds/close', fn() => $blindsController->close(), $requireAuth);
 
 // Protected temperature routes (with auth middleware)
 $router->get('/api/temperature', fn() => $temperatureController->get(), $requireAuth);

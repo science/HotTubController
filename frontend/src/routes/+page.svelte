@@ -14,6 +14,7 @@
 		fetchStatus,
 		getHeaterOn,
 		getPumpOn,
+		getBlindsEnabled,
 		setHeaterOn,
 		setHeaterOff,
 		setPumpOn
@@ -28,6 +29,7 @@
 	// Reactive equipment status
 	let heaterOn = $derived(getHeaterOn());
 	let pumpOn = $derived(getPumpOn());
+	let blindsEnabled = $derived(getBlindsEnabled());
 
 	// Fetch equipment status on mount
 	onMount(() => {
@@ -140,6 +142,26 @@
 				onClick={() => handleAction(api.pumpRun, 'Pump running for 2 hours', setPumpOn)}
 			/>
 		</div>
+
+		<!-- Dining Room Blinds Controls (optional feature) -->
+		{#if blindsEnabled}
+			<div class="grid grid-cols-2 gap-2">
+				<CompactControlButton
+					label="Open Blinds"
+					icon="blinds-open"
+					variant="accent"
+					tooltip="Open dining room blinds for privacy"
+					onClick={() => handleAction(api.blindsOpen, 'Blinds opening')}
+				/>
+				<CompactControlButton
+					label="Close Blinds"
+					icon="blinds-close"
+					variant="accent"
+					tooltip="Close dining room blinds"
+					onClick={() => handleAction(api.blindsClose, 'Blinds closing')}
+				/>
+			</div>
+		{/if}
 
 		<!-- Equipment Status Bar -->
 		<EquipmentStatusBar />

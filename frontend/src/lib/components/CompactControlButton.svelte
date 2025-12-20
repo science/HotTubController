@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { Flame, RefreshCw, Loader2, Ban } from 'lucide-svelte';
+	import { Flame, RefreshCw, Loader2, Ban, ChevronsUp, ChevronsDown } from 'lucide-svelte';
 
 	interface Props {
 		label: string;
-		icon: 'flame' | 'flame-off' | 'refresh';
+		icon: 'flame' | 'flame-off' | 'refresh' | 'blinds-open' | 'blinds-close';
 		onClick: () => Promise<void>;
-		variant?: 'primary' | 'secondary' | 'tertiary';
+		variant?: 'primary' | 'secondary' | 'tertiary' | 'accent';
 		tooltip?: string;
 		active?: boolean;
 	}
@@ -48,7 +48,8 @@
 	const variantClasses = {
 		primary: 'bg-slate-800 hover:bg-orange-500/20 border-orange-500/50 text-orange-400',
 		secondary: 'bg-slate-800 hover:bg-blue-500/20 border-blue-500/50 text-blue-400',
-		tertiary: 'bg-slate-800 hover:bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
+		tertiary: 'bg-slate-800 hover:bg-cyan-500/20 border-cyan-500/50 text-cyan-400',
+		accent: 'bg-slate-800 hover:bg-purple-500/20 border-purple-500/50 text-purple-400'
 	};
 
 	const activeClasses = {
@@ -57,7 +58,9 @@
 		secondary:
 			'bg-blue-500/30 border-blue-400 text-blue-300 shadow-[0_0_12px_rgba(96,165,250,0.5)] ring-2 ring-blue-400/50',
 		tertiary:
-			'bg-cyan-500/30 border-cyan-400 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.5)] ring-2 ring-cyan-400/50'
+			'bg-cyan-500/30 border-cyan-400 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.5)] ring-2 ring-cyan-400/50',
+		accent:
+			'bg-purple-500/30 border-purple-400 text-purple-300 shadow-[0_0_12px_rgba(192,132,252,0.5)] ring-2 ring-purple-400/50'
 	};
 </script>
 
@@ -86,6 +89,10 @@
 				</span>
 			{:else if icon === 'refresh'}
 				<RefreshCw class="w-5 h-5" />
+			{:else if icon === 'blinds-open'}
+				<ChevronsUp class="w-5 h-5" />
+			{:else if icon === 'blinds-close'}
+				<ChevronsDown class="w-5 h-5" />
 			{/if}
 		</span>
 		<span class="label text-xs font-medium">{label}</span>

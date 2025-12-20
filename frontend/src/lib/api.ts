@@ -58,6 +58,7 @@ export interface HealthResponse {
 	status: string;
 	ifttt_mode: string;
 	equipmentStatus: EquipmentStatus;
+	blindsEnabled?: boolean;
 }
 
 export interface UserListResponse {
@@ -172,6 +173,10 @@ export const api = {
 	heaterOn: () => post('/api/equipment/heater/on'),
 	heaterOff: () => post('/api/equipment/heater/off'),
 	pumpRun: () => post('/api/equipment/pump/run'),
+
+	// Blinds endpoints (optional feature)
+	blindsOpen: () => post('/api/blinds/open'),
+	blindsClose: () => post('/api/blinds/close'),
 
 	// Temperature endpoints
 	getTemperature: () => get<TemperatureData>('/api/temperature'),
