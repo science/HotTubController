@@ -21,9 +21,10 @@
 		size = 'normal'
 	}: Props = $props();
 
+	// Normal: vertical layout (icon above text), Compact: horizontal layout (icon beside text)
 	const sizeClasses = {
-		normal: 'p-2 gap-1',
-		compact: 'p-1 gap-0.5'
+		normal: 'flex-col p-2 gap-1',
+		compact: 'flex-row py-1.5 px-2 gap-1.5'
 	};
 
 	let loading = $state(false);
@@ -80,7 +81,7 @@
 <div class="relative">
 	<button
 		type="button"
-		class="compact-btn {variant} {active ? activeClasses[variant] : variantClasses[variant]} {sizeClasses[size]} flex flex-col items-center justify-center rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 w-full"
+		class="compact-btn {variant} {active ? activeClasses[variant] : variantClasses[variant]} {sizeClasses[size]} flex items-center justify-center rounded-lg border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 w-full"
 		onclick={handleClick}
 		onmousedown={handlePressStart}
 		onmouseup={handlePressEnd}
@@ -90,25 +91,25 @@
 		ontouchcancel={handlePressEnd}
 		disabled={loading}
 	>
-		<span class="icon-wrapper w-6 h-6 flex items-center justify-center">
+		<span class="icon-wrapper flex items-center justify-center {size === 'compact' ? 'w-4 h-4' : 'w-6 h-6'}">
 			{#if loading}
-				<Loader2 class="w-5 h-5 animate-spin" />
+				<Loader2 class="{size === 'compact' ? 'w-3.5 h-3.5' : 'w-5 h-5'} animate-spin" />
 			{:else if icon === 'flame'}
-				<Flame class="w-5 h-5" />
+				<Flame class={size === 'compact' ? 'w-3.5 h-3.5' : 'w-5 h-5'} />
 			{:else if icon === 'flame-off'}
 				<span class="relative">
-					<Flame class="w-5 h-5 opacity-40" />
-					<Ban class="w-5 h-5 absolute inset-0" />
+					<Flame class="{size === 'compact' ? 'w-3.5 h-3.5' : 'w-5 h-5'} opacity-40" />
+					<Ban class="{size === 'compact' ? 'w-3.5 h-3.5' : 'w-5 h-5'} absolute inset-0" />
 				</span>
 			{:else if icon === 'refresh'}
-				<RefreshCw class="w-5 h-5" />
+				<RefreshCw class={size === 'compact' ? 'w-3.5 h-3.5' : 'w-5 h-5'} />
 			{:else if icon === 'blinds-open'}
-				<ChevronsUp class="w-5 h-5" />
+				<ChevronsUp class={size === 'compact' ? 'w-3.5 h-3.5' : 'w-5 h-5'} />
 			{:else if icon === 'blinds-close'}
-				<ChevronsDown class="w-5 h-5" />
+				<ChevronsDown class={size === 'compact' ? 'w-3.5 h-3.5' : 'w-5 h-5'} />
 			{/if}
 		</span>
-		<span class="label text-xs font-medium">{label}</span>
+		<span class="label font-medium {size === 'compact' ? 'text-xs' : 'text-xs'}">{label}</span>
 	</button>
 
 	{#if showTooltip && tooltip}

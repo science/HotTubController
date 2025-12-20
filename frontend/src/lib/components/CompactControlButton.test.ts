@@ -152,7 +152,7 @@ describe('CompactControlButton', () => {
 	});
 
 	describe('size variants', () => {
-		it('applies normal size by default with p-2 padding', () => {
+		it('applies normal size with vertical layout (flex-col) by default', () => {
 			render(CompactControlButton, {
 				props: {
 					label: 'Heat On',
@@ -162,10 +162,11 @@ describe('CompactControlButton', () => {
 			});
 
 			const button = screen.getByRole('button');
+			expect(button.className).toContain('flex-col');
 			expect(button.className).toContain('p-2');
 		});
 
-		it('applies compact size with p-1 padding when size="compact"', () => {
+		it('applies compact size with horizontal layout (flex-row) when size="compact"', () => {
 			render(CompactControlButton, {
 				props: {
 					label: 'Blinds Up',
@@ -176,8 +177,8 @@ describe('CompactControlButton', () => {
 			});
 
 			const button = screen.getByRole('button');
-			expect(button.className).toContain('p-1');
-			expect(button.className).not.toContain('p-2');
+			expect(button.className).toContain('flex-row');
+			expect(button.className).not.toContain('flex-col');
 		});
 	});
 });
