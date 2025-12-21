@@ -150,4 +150,35 @@ describe('CompactControlButton', () => {
 			expect(screen.getByRole('button')).toBeTruthy();
 		});
 	});
+
+	describe('size variants', () => {
+		it('applies normal size with vertical layout (flex-col) by default', () => {
+			render(CompactControlButton, {
+				props: {
+					label: 'Heat On',
+					icon: 'flame',
+					onClick: vi.fn()
+				}
+			});
+
+			const button = screen.getByRole('button');
+			expect(button.className).toContain('flex-col');
+			expect(button.className).toContain('p-2');
+		});
+
+		it('applies compact size with horizontal layout (flex-row) when size="compact"', () => {
+			render(CompactControlButton, {
+				props: {
+					label: 'Blinds Up',
+					icon: 'blinds-open',
+					onClick: vi.fn(),
+					size: 'compact'
+				}
+			});
+
+			const button = screen.getByRole('button');
+			expect(button.className).toContain('flex-row');
+			expect(button.className).not.toContain('flex-col');
+		});
+	});
 });

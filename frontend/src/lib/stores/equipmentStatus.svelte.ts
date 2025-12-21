@@ -1,10 +1,11 @@
-import { api, type EquipmentStatus } from '$lib/api';
+import { api, type EquipmentStatus, type HealthResponse } from '$lib/api';
 
 export interface EquipmentStatusState {
 	heaterOn: boolean;
 	pumpOn: boolean;
 	heaterLastChangedAt: Date | null;
 	pumpLastChangedAt: Date | null;
+	blindsEnabled: boolean;
 	lastUpdated: Date | null;
 	isLoading: boolean;
 	error: string | null;
@@ -15,6 +16,7 @@ let heaterOn = $state(false);
 let pumpOn = $state(false);
 let heaterLastChangedAt = $state<Date | null>(null);
 let pumpLastChangedAt = $state<Date | null>(null);
+let blindsEnabled = $state(false);
 let lastUpdated = $state<Date | null>(null);
 let isLoading = $state(false);
 let error = $state<string | null>(null);
@@ -32,6 +34,8 @@ export async function fetchStatus(): Promise<void> {
 		if (response.equipmentStatus) {
 			updateFromResponse(response.equipmentStatus);
 		}
+		// Update blinds feature flag from health response
+		blindsEnabled = response.blindsEnabled ?? false;
 	} catch (e) {
 		error = e instanceof Error ? e.message : 'Failed to fetch status';
 	} finally {
@@ -100,6 +104,7 @@ export function getEquipmentState(): EquipmentStatusState {
 		pumpOn,
 		heaterLastChangedAt,
 		pumpLastChangedAt,
+		blindsEnabled,
 		lastUpdated,
 		isLoading,
 		error
@@ -124,4 +129,8 @@ export function getIsLoading(): boolean {
 
 export function getError(): string | null {
 	return error;
+}
+
+export function getBlindsEnabled(): boolean {
+	return blindsEnabled;
 }
