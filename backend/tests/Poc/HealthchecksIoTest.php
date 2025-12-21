@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+namespace HotTub\Tests\Poc;
+
+use PHPUnit\Framework\TestCase;
+
 /**
  * Proof-of-Concept Tests for Healthchecks.io Integration
  *
@@ -14,12 +18,8 @@ declare(strict_types=1);
  *
  * @group poc
  * @group healthchecks
+ * @group live
  */
-
-namespace HotTub\Tests\Poc;
-
-use PHPUnit\Framework\TestCase;
-
 class HealthchecksIoTest extends TestCase
 {
     private string $apiKey;
