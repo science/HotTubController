@@ -69,6 +69,8 @@ jobs:
           WIRELESSTAG_DEVICE_ID=${{ secrets.WIRELESSTAG_DEVICE_ID }}
           HEALTHCHECKS_IO_KEY=${{ secrets.HEALTHCHECKS_IO_KEY }}
           HEALTHCHECKS_IO_CHANNEL=${{ secrets.HEALTHCHECKS_IO_CHANNEL }}
+          # Optional Features
+          BLINDS_FEATURE_ENABLED=true
           EOF
 
       # Generate CRON_JWT for scheduled job authentication
