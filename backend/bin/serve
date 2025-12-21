@@ -20,11 +20,12 @@ if [ ! -f .env ]; then
 fi
 
 # Read configuration from .env
-APP_ENV=$(grep -E "^APP_ENV=" .env 2>/dev/null | cut -d= -f2 | tr -d ' ')
-IFTTT_MODE=$(grep -E "^IFTTT_MODE=" .env 2>/dev/null | cut -d= -f2 | tr -d ' ')
+# Note: tr -d ' \r' strips both spaces and carriage returns (for Windows CRLF line endings)
+APP_ENV=$(grep -E "^APP_ENV=" .env 2>/dev/null | cut -d= -f2 | tr -d ' \r')
+EXTERNAL_API_MODE=$(grep -E "^EXTERNAL_API_MODE=" .env 2>/dev/null | cut -d= -f2 | tr -d ' \r')
 
 # Determine display style based on mode
-if [ "$IFTTT_MODE" = "live" ]; then
+if [ "$EXTERNAL_API_MODE" = "live" ]; then
     MODE_DISPLAY=">>> LIVE - REAL HARDWARE <<<"
     WARN_MSG="API calls WILL trigger real IFTTT webhooks!"
 else
@@ -38,7 +39,7 @@ echo "=========================================="
 echo "  HOT TUB CONTROLLER BACKEND"
 echo "=========================================="
 echo "  Environment:  ${APP_ENV:-unknown}"
-echo "  IFTTT Mode:   ${MODE_DISPLAY}"
+echo "  API Mode:     ${MODE_DISPLAY}"
 echo ""
 echo "  ${WARN_MSG}"
 echo "=========================================="
