@@ -179,7 +179,7 @@ $router->get('/api/health', function() use ($equipmentController, $blindsControl
 });
 
 // Auth routes
-$router->post('/api/auth/login', fn() => handleLogin($authController));
+$router->post('/api/auth/login', fn() => handleLogin($authController, $config));
 $router->post('/api/auth/logout', fn() => handleLogout($authController));
 $router->get('/api/auth/me', fn() => handleMe($authController, $headers, $cookies));
 
@@ -242,7 +242,7 @@ $requestLogger->log(
 );
 
 // Auth route handlers
-function handleLogin(AuthController $controller): array
+function handleLogin(AuthController $controller, array $config): array
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     $username = $input['username'] ?? '';
@@ -256,7 +256,7 @@ function handleLogin(AuthController $controller): array
             'auth_token',
             $response['body']['token'],
             [
-                'expires' => time() + (24 * 3600),
+                'expires' => time() + ((int)($config['JWT_EXPIRY_HOURS'] ?? 24) * 3600),
                 'path' => '/',
                 'httponly' => true,
                 'samesite' => 'Lax',
