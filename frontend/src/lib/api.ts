@@ -26,22 +26,63 @@ export interface User {
 }
 
 export interface TemperatureData {
-	water_temp_f: number;
-	water_temp_c: number;
-	ambient_temp_f: number;
-	ambient_temp_c: number;
-	battery_voltage: number | null;
-	signal_dbm: number | null;
+	water_temp_f: number | null;
+	water_temp_c: number | null;
+	ambient_temp_f: number | null;
+	ambient_temp_c: number | null;
+	battery_voltage?: number | null;
+	signal_dbm?: number | null;
 	device_name: string;
 	timestamp: string;
-	refresh_in_progress: boolean;
+	refresh_in_progress?: boolean;
 	refresh_requested_at?: string;
+	source?: string;
+	device_id?: string;
+	uptime_seconds?: number;
+	sensors?: Esp32Sensor[];
+	error?: string;
+	error_code?: string;
+}
+
+export interface AllTemperaturesResponse {
+	esp32: TemperatureData | null;
+	wirelesstag: TemperatureData | null;
 }
 
 export interface RefreshResponse {
 	success: boolean;
 	message: string;
 	requested_at: string;
+}
+
+export type SensorRole = 'water' | 'ambient' | 'unassigned';
+
+export interface Esp32Sensor {
+	address: string;
+	temp_c: number;
+	temp_f?: number;
+	role: SensorRole;
+	calibration_offset: number;
+	name: string;
+}
+
+export interface Esp32SensorListResponse {
+	sensors: Esp32Sensor[];
+}
+
+export interface SensorUpdateRequest {
+	role?: SensorRole;
+	calibration_offset?: number;
+	name?: string;
+}
+
+export interface SensorUpdateResponse {
+	sensor: {
+		address: string;
+		role: SensorRole;
+		calibration_offset: number;
+		name: string;
+	};
 }
 
 export interface EquipmentState {
@@ -75,7 +116,7 @@ export interface CreateUserResponse {
 // API base path - backend is at {base}/backend/public
 const API_BASE = `${base}/backend/public`;
 
-async function post(endpoint: string): Promise<ApiResponse> {
+async function post<T = ApiResponse>(endpoint: string): Promise<T> {
 	const response = await fetch(`${API_BASE}${endpoint}`, {
 		method: 'POST',
 		credentials: 'include'
@@ -180,7 +221,8 @@ export const api = {
 
 	// Temperature endpoints
 	getTemperature: () => get<TemperatureData>('/api/temperature'),
-	refreshTemperature: () => post('/api/temperature/refresh') as Promise<RefreshResponse>,
+	getAllTemperatures: () => get<AllTemperaturesResponse>('/api/temperature/all'),
+	refreshTemperature: () => post<RefreshResponse>('/api/temperature/refresh'),
 
 	// Schedule endpoints
 	scheduleJob: (action: string, scheduledTime: string, recurring: boolean = false) =>
@@ -194,5 +236,10 @@ export const api = {
 		postJson<CreateUserResponse>('/api/users', { username, password, role }),
 	deleteUser: (username: string) => del(`/api/users/${username}`),
 	updateUserPassword: (username: string, password: string) =>
-		put<{ success: boolean }>(`/api/users/${username}/password`, { password })
+		put<{ success: boolean }>(`/api/users/${username}/password`, { password }),
+
+	// ESP32 sensor configuration endpoints
+	listEsp32Sensors: () => get<Esp32SensorListResponse>('/api/esp32/sensors'),
+	updateEsp32Sensor: (address: string, data: SensorUpdateRequest) =>
+		put<SensorUpdateResponse>(`/api/esp32/sensors/${encodeURIComponent(address)}`, data)
 };

@@ -62,6 +62,73 @@ ApiResponse ApiClient::postTemperature(const char* deviceId, float tempC, float 
     return response;
 }
 
+ApiResponse ApiClient::postSensors(const char* deviceId, SensorReading* sensors, int sensorCount, unsigned long uptimeSeconds) {
+    ApiResponse response = {false, DEFAULT_INTERVAL_SEC, 0};
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi not connected, skipping API call");
+        return response;
+    }
+
+    HTTPClient http;
+    http.begin(endpoint);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-ESP32-API-Key", apiKey);
+
+    // Build JSON payload with sensors array
+    JsonDocument doc;
+    doc["device_id"] = deviceId;
+    doc["uptime_seconds"] = uptimeSeconds;
+
+    JsonArray sensorsArray = doc["sensors"].to<JsonArray>();
+    for (int i = 0; i < sensorCount; i++) {
+        JsonObject sensorObj = sensorsArray.add<JsonObject>();
+        sensorObj["address"] = sensors[i].address;
+        sensorObj["temp_c"] = sensors[i].tempC;
+    }
+
+    String payload;
+    serializeJson(doc, payload);
+
+    Serial.printf("POST %s\n", endpoint);
+    Serial.printf("Payload: %s\n", payload.c_str());
+
+    int httpCode = http.POST(payload);
+    response.httpCode = httpCode;
+
+    if (httpCode == 200) {
+        String responseBody = http.getString();
+        Serial.printf("Response: %s\n", responseBody.c_str());
+
+        // Parse response
+        JsonDocument responseDoc;
+        DeserializationError error = deserializeJson(responseDoc, responseBody);
+
+        if (!error) {
+            response.success = true;
+            if (!responseDoc["interval_seconds"].isNull()) {
+                response.intervalSeconds = clampInterval(responseDoc["interval_seconds"].as<int>());
+            }
+        } else {
+            Serial.printf("JSON parse error: %s\n", error.c_str());
+        }
+    } else {
+        Serial.printf("HTTP error: %d\n", httpCode);
+        if (httpCode > 0) {
+            Serial.println(http.getString());
+        }
+    }
+
+    http.end();
+    return response;
+}
+
+void ApiClient::formatAddress(uint8_t* address, char* buffer) {
+    snprintf(buffer, 24, "%02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X",
+             address[0], address[1], address[2], address[3],
+             address[4], address[5], address[6], address[7]);
+}
+
 String ApiClient::getMacAddress() {
     uint8_t mac[6];
     WiFi.macAddress(mac);

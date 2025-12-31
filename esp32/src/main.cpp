@@ -85,20 +85,38 @@ void loop() {
             connectWiFi();
         }
 
-        // Read temperature
+        // Read all sensors
         sensors.requestTemperatures();
-        float tempC = sensors.getTempCByIndex(0);
-        float tempF = tempC * 9.0 / 5.0 + 32.0;
+        int deviceCount = sensors.getDeviceCount();
 
-        Serial.printf("Temperature: %.2f C (%.2f F)\n", tempC, tempF);
+        // Build sensor readings array
+        SensorReading readings[MAX_SENSORS];
+        int validCount = 0;
+
+        for (int i = 0; i < deviceCount && i < MAX_SENSORS; i++) {
+            DeviceAddress addr;
+            if (sensors.getAddress(addr, i)) {
+                float tempC = sensors.getTempC(addr);
+                if (tempC != DEVICE_DISCONNECTED_C) {
+                    ApiClient::formatAddress(addr, readings[validCount].address);
+                    readings[validCount].tempC = tempC;
+
+                    Serial.printf("Sensor %s: %.2f C (%.2f F)\n",
+                                  readings[validCount].address,
+                                  tempC,
+                                  tempC * 9.0 / 5.0 + 32.0);
+                    validCount++;
+                }
+            }
+        }
 
         // Blink LED to show activity
         digitalWrite(LED_PIN, HIGH);
 
         // Post to API
         unsigned long uptimeSeconds = millis() / 1000;
-        ApiResponse response = apiClient->postTemperature(
-            deviceId.c_str(), tempC, tempF, uptimeSeconds
+        ApiResponse response = apiClient->postSensors(
+            deviceId.c_str(), readings, validCount, uptimeSeconds
         );
 
         digitalWrite(LED_PIN, LOW);

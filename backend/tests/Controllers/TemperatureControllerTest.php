@@ -9,6 +9,9 @@ use HotTub\Controllers\TemperatureController;
 use HotTub\Services\WirelessTagClient;
 use HotTub\Services\StubWirelessTagHttpClient;
 use HotTub\Services\TemperatureStateService;
+use HotTub\Services\Esp32TemperatureService;
+use HotTub\Services\Esp32SensorConfigService;
+use HotTub\Services\Esp32CalibratedTemperatureService;
 
 /**
  * Unit tests for TemperatureController.
@@ -266,5 +269,361 @@ class TemperatureControllerTest extends TestCase
         $storedRequestedAt = $this->stateService->getRefreshRequestedAt();
         $this->assertNotNull($storedRequestedAt);
         $this->assertEquals($storedRequestedAt->format('c'), $response['body']['requested_at']);
+    }
+
+    // ==================== ESP32 Integration Tests ====================
+
+    /**
+     * @test
+     * When ESP32 service is provided and has fresh data, use ESP32 temperatures.
+     */
+    public function getUsesEsp32DataWhenFreshAndAvailable(): void
+    {
+        // Create ESP32 services
+        $esp32TempFile = sys_get_temp_dir() . '/test_esp32_temp_' . uniqid() . '.json';
+        $esp32ConfigFile = sys_get_temp_dir() . '/test_esp32_config_' . uniqid() . '.json';
+
+        $esp32TempService = new Esp32TemperatureService($esp32TempFile);
+        $esp32ConfigService = new Esp32SensorConfigService($esp32ConfigFile);
+        $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TempService, $esp32ConfigService);
+
+        // Configure ESP32 sensors
+        $waterAddress = '28:F6:DD:87:00:88:1E:E8';
+        $ambientAddress = '28:D5:AA:87:00:23:16:34';
+        $esp32ConfigService->setSensorRole($waterAddress, 'water');
+        $esp32ConfigService->setSensorRole($ambientAddress, 'ambient');
+
+        // Store ESP32 temperature data
+        $esp32TempService->store([
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'sensors' => [
+                ['address' => $waterAddress, 'temp_c' => 39.0],  // ESP32: 39°C water
+                ['address' => $ambientAddress, 'temp_c' => 18.0],  // ESP32: 18°C ambient
+            ],
+            'uptime_seconds' => 3600,
+        ]);
+
+        // WirelessTag stub has different values (38°C water from setUp)
+        $this->stubHttpClient->setWaterTemperature(38.0);
+        $this->stubHttpClient->setAmbientTemperature(20.0);
+
+        // Create controller with ESP32 service
+        $controller = new TemperatureController(
+            new WirelessTagClient($this->stubHttpClient),
+            null,
+            $this->stateService,
+            $esp32CalibratedService
+        );
+
+        $response = $controller->get();
+
+        $this->assertEquals(200, $response['status']);
+        // Should use ESP32 values, not WirelessTag
+        $this->assertEqualsWithDelta(39.0, $response['body']['water_temp_c'], 0.01);
+        $this->assertEqualsWithDelta(18.0, $response['body']['ambient_temp_c'], 0.01);
+        $this->assertEquals('esp32', $response['body']['source']);
+
+        // Cleanup
+        @unlink($esp32TempFile);
+        @unlink($esp32ConfigFile);
+    }
+
+    /**
+     * @test
+     * When ESP32 service has no data, fall back to WirelessTag.
+     */
+    public function getFallsBackToWirelessTagWhenNoEsp32Data(): void
+    {
+        // Create empty ESP32 services (no data stored)
+        $esp32TempFile = sys_get_temp_dir() . '/test_esp32_temp_' . uniqid() . '.json';
+        $esp32ConfigFile = sys_get_temp_dir() . '/test_esp32_config_' . uniqid() . '.json';
+
+        $esp32TempService = new Esp32TemperatureService($esp32TempFile);
+        $esp32ConfigService = new Esp32SensorConfigService($esp32ConfigFile);
+        $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TempService, $esp32ConfigService);
+
+        // WirelessTag has valid data
+        $this->stubHttpClient->setWaterTemperature(38.0);
+        $this->stubHttpClient->setAmbientTemperature(20.0);
+
+        // Create controller with ESP32 service
+        $controller = new TemperatureController(
+            new WirelessTagClient($this->stubHttpClient),
+            null,
+            $this->stateService,
+            $esp32CalibratedService
+        );
+
+        $response = $controller->get();
+
+        $this->assertEquals(200, $response['status']);
+        // Should use WirelessTag values
+        $this->assertEqualsWithDelta(38.0, $response['body']['water_temp_c'], 0.5);
+        $this->assertEqualsWithDelta(20.0, $response['body']['ambient_temp_c'], 0.5);
+        $this->assertEquals('wirelesstag', $response['body']['source']);
+
+        // Cleanup
+        @unlink($esp32TempFile);
+        @unlink($esp32ConfigFile);
+    }
+
+    /**
+     * @test
+     * When ESP32 data exists but roles aren't assigned, fall back to WirelessTag.
+     */
+    public function getFallsBackToWirelessTagWhenEsp32RolesNotAssigned(): void
+    {
+        // Create ESP32 services
+        $esp32TempFile = sys_get_temp_dir() . '/test_esp32_temp_' . uniqid() . '.json';
+        $esp32ConfigFile = sys_get_temp_dir() . '/test_esp32_config_' . uniqid() . '.json';
+
+        $esp32TempService = new Esp32TemperatureService($esp32TempFile);
+        $esp32ConfigService = new Esp32SensorConfigService($esp32ConfigFile);
+        $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TempService, $esp32ConfigService);
+
+        // Store ESP32 data but DON'T assign roles
+        $esp32TempService->store([
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'sensors' => [
+                ['address' => '28:F6:DD:87:00:88:1E:E8', 'temp_c' => 39.0],
+            ],
+            'uptime_seconds' => 3600,
+        ]);
+
+        // WirelessTag has valid data
+        $this->stubHttpClient->setWaterTemperature(38.0);
+        $this->stubHttpClient->setAmbientTemperature(20.0);
+
+        // Create controller with ESP32 service
+        $controller = new TemperatureController(
+            new WirelessTagClient($this->stubHttpClient),
+            null,
+            $this->stateService,
+            $esp32CalibratedService
+        );
+
+        $response = $controller->get();
+
+        $this->assertEquals(200, $response['status']);
+        // Should use WirelessTag because no ESP32 roles assigned
+        $this->assertEquals('wirelesstag', $response['body']['source']);
+
+        // Cleanup
+        @unlink($esp32TempFile);
+        @unlink($esp32ConfigFile);
+    }
+
+    /**
+     * @test
+     * ESP32 calibration offsets should be applied to returned temperatures.
+     */
+    public function getAppliesEsp32CalibrationOffsets(): void
+    {
+        // Create ESP32 services
+        $esp32TempFile = sys_get_temp_dir() . '/test_esp32_temp_' . uniqid() . '.json';
+        $esp32ConfigFile = sys_get_temp_dir() . '/test_esp32_config_' . uniqid() . '.json';
+
+        $esp32TempService = new Esp32TemperatureService($esp32TempFile);
+        $esp32ConfigService = new Esp32SensorConfigService($esp32ConfigFile);
+        $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TempService, $esp32ConfigService);
+
+        // Configure ESP32 sensors with calibration
+        $waterAddress = '28:F6:DD:87:00:88:1E:E8';
+        $esp32ConfigService->setSensorRole($waterAddress, 'water');
+        $esp32ConfigService->setCalibrationOffset($waterAddress, 0.5);  // +0.5°C calibration
+
+        // Store raw ESP32 temperature
+        $esp32TempService->store([
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'sensors' => [
+                ['address' => $waterAddress, 'temp_c' => 38.0],  // Raw: 38°C
+            ],
+            'uptime_seconds' => 3600,
+        ]);
+
+        // Create controller with ESP32 service
+        $controller = new TemperatureController(
+            new WirelessTagClient($this->stubHttpClient),
+            null,
+            $this->stateService,
+            $esp32CalibratedService
+        );
+
+        $response = $controller->get();
+
+        $this->assertEquals(200, $response['status']);
+        // Should return calibrated value: 38.0 + 0.5 = 38.5°C
+        $this->assertEqualsWithDelta(38.5, $response['body']['water_temp_c'], 0.01);
+
+        // Cleanup
+        @unlink($esp32TempFile);
+        @unlink($esp32ConfigFile);
+    }
+
+    /**
+     * @test
+     * ESP32 response should include device metadata (uptime, device_id).
+     */
+    public function getIncludesEsp32Metadata(): void
+    {
+        // Create ESP32 services
+        $esp32TempFile = sys_get_temp_dir() . '/test_esp32_temp_' . uniqid() . '.json';
+        $esp32ConfigFile = sys_get_temp_dir() . '/test_esp32_config_' . uniqid() . '.json';
+
+        $esp32TempService = new Esp32TemperatureService($esp32TempFile);
+        $esp32ConfigService = new Esp32SensorConfigService($esp32ConfigFile);
+        $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TempService, $esp32ConfigService);
+
+        // Configure ESP32 sensors
+        $waterAddress = '28:F6:DD:87:00:88:1E:E8';
+        $esp32ConfigService->setSensorRole($waterAddress, 'water');
+
+        // Store ESP32 temperature data
+        $esp32TempService->store([
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'sensors' => [
+                ['address' => $waterAddress, 'temp_c' => 39.0],
+            ],
+            'uptime_seconds' => 7200,
+        ]);
+
+        // Create controller with ESP32 service
+        $controller = new TemperatureController(
+            new WirelessTagClient($this->stubHttpClient),
+            null,
+            $this->stateService,
+            $esp32CalibratedService
+        );
+
+        $response = $controller->get();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals('AA:BB:CC:DD:EE:FF', $response['body']['device_id']);
+        $this->assertEquals(7200, $response['body']['uptime_seconds']);
+
+        // Cleanup
+        @unlink($esp32TempFile);
+        @unlink($esp32ConfigFile);
+    }
+
+    // ==================== Dual Source Tests ====================
+
+    /**
+     * @test
+     * When both ESP32 and WirelessTag are available, return both sources.
+     */
+    public function getReturnsBothSourcesWhenBothAvailable(): void
+    {
+        // Create ESP32 services with configured sensor
+        $esp32TempFile = sys_get_temp_dir() . '/test_esp32_temp_' . uniqid() . '.json';
+        $esp32ConfigFile = sys_get_temp_dir() . '/test_esp32_config_' . uniqid() . '.json';
+
+        $esp32TempService = new Esp32TemperatureService($esp32TempFile);
+        $esp32ConfigService = new Esp32SensorConfigService($esp32ConfigFile);
+        $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TempService, $esp32ConfigService);
+
+        // Configure ESP32 sensor
+        $waterAddress = '28:F6:DD:87:00:88:1E:E8';
+        $esp32ConfigService->setSensorRole($waterAddress, 'water');
+
+        // Store ESP32 temperature data
+        $esp32TempService->store([
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'sensors' => [
+                ['address' => $waterAddress, 'temp_c' => 39.0],
+            ],
+            'uptime_seconds' => 3600,
+        ]);
+
+        // WirelessTag stub has different values
+        $this->stubHttpClient->setWaterTemperature(38.0);
+        $this->stubHttpClient->setAmbientTemperature(20.0);
+
+        // Create controller with ESP32 service
+        $controller = new TemperatureController(
+            new WirelessTagClient($this->stubHttpClient),
+            null,
+            $this->stateService,
+            $esp32CalibratedService
+        );
+
+        $response = $controller->getAll();
+
+        $this->assertEquals(200, $response['status']);
+
+        // Should have both sources
+        $this->assertArrayHasKey('esp32', $response['body']);
+        $this->assertArrayHasKey('wirelesstag', $response['body']);
+
+        // ESP32 data
+        $this->assertEqualsWithDelta(39.0, $response['body']['esp32']['water_temp_c'], 0.01);
+
+        // WirelessTag data
+        $this->assertEqualsWithDelta(38.0, $response['body']['wirelesstag']['water_temp_c'], 0.5);
+
+        // Cleanup
+        @unlink($esp32TempFile);
+        @unlink($esp32ConfigFile);
+    }
+
+    /**
+     * @test
+     * When only WirelessTag is available, esp32 should be null.
+     */
+    public function getAllReturnsNullEsp32WhenNotConfigured(): void
+    {
+        // Create ESP32 services but don't configure any sensors
+        $esp32TempFile = sys_get_temp_dir() . '/test_esp32_temp_' . uniqid() . '.json';
+        $esp32ConfigFile = sys_get_temp_dir() . '/test_esp32_config_' . uniqid() . '.json';
+
+        $esp32TempService = new Esp32TemperatureService($esp32TempFile);
+        $esp32ConfigService = new Esp32SensorConfigService($esp32ConfigFile);
+        $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TempService, $esp32ConfigService);
+
+        // WirelessTag has data
+        $this->stubHttpClient->setWaterTemperature(38.0);
+        $this->stubHttpClient->setAmbientTemperature(20.0);
+
+        $controller = new TemperatureController(
+            new WirelessTagClient($this->stubHttpClient),
+            null,
+            $this->stateService,
+            $esp32CalibratedService
+        );
+
+        $response = $controller->getAll();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertNull($response['body']['esp32']);
+        $this->assertNotNull($response['body']['wirelesstag']);
+
+        // Cleanup
+        @unlink($esp32TempFile);
+        @unlink($esp32ConfigFile);
+    }
+
+    /**
+     * @test
+     * When WirelessTag is not configured, it should return an error object.
+     */
+    public function getAllReturnsWirelessTagErrorWhenNotConfigured(): void
+    {
+        // Create mock factory that reports not configured
+        $mockFactory = $this->createMock(\HotTub\Services\WirelessTagClientFactory::class);
+        $mockFactory->method('isConfigured')->willReturn(false);
+        $mockFactory->method('getConfigurationError')->willReturn('WirelessTag not configured');
+
+        $controller = new TemperatureController(
+            new WirelessTagClient($this->stubHttpClient),
+            $mockFactory,
+            $this->stateService,
+            null
+        );
+
+        $response = $controller->getAll();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertNull($response['body']['esp32']);
+        $this->assertArrayHasKey('error', $response['body']['wirelesstag']);
     }
 }

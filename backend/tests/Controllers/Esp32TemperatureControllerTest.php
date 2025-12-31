@@ -195,4 +195,115 @@ class Esp32TemperatureControllerTest extends TestCase
         $this->assertGreaterThanOrEqual($beforeTime, $storedTime);
         $this->assertLessThanOrEqual($afterTime, $storedTime);
     }
+
+    // ==================== Multi-Sensor Tests ====================
+
+    /**
+     * @test
+     */
+    public function receiveAcceptsMultipleSensorsArray(): void
+    {
+        $data = [
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'sensors' => [
+                ['address' => '28:F6:DD:87:00:88:1E:E8', 'temp_c' => 38.5],
+                ['address' => '28:D5:AA:87:00:23:16:34', 'temp_c' => 22.1],
+            ],
+            'uptime_seconds' => 3600,
+        ];
+
+        $response = $this->controller->receive($data, $this->validApiKey);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals('ok', $response['body']['status']);
+    }
+
+    /**
+     * @test
+     */
+    public function receiveStoresMultipleSensors(): void
+    {
+        $data = [
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'sensors' => [
+                ['address' => '28:F6:DD:87:00:88:1E:E8', 'temp_c' => 38.5],
+                ['address' => '28:D5:AA:87:00:23:16:34', 'temp_c' => 22.1],
+            ],
+            'uptime_seconds' => 3600,
+        ];
+
+        $this->controller->receive($data, $this->validApiKey);
+
+        $stored = $this->service->getLatest();
+        $this->assertArrayHasKey('sensors', $stored);
+        $this->assertCount(2, $stored['sensors']);
+        $this->assertEquals('28:F6:DD:87:00:88:1E:E8', $stored['sensors'][0]['address']);
+        $this->assertEquals(38.5, $stored['sensors'][0]['temp_c']);
+        $this->assertEquals('28:D5:AA:87:00:23:16:34', $stored['sensors'][1]['address']);
+        $this->assertEquals(22.1, $stored['sensors'][1]['temp_c']);
+    }
+
+    /**
+     * @test
+     */
+    public function receiveCalculatesTempFForMultipleSensors(): void
+    {
+        $data = [
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'sensors' => [
+                ['address' => '28:F6:DD:87:00:88:1E:E8', 'temp_c' => 20.0],
+            ],
+            'uptime_seconds' => 100,
+        ];
+
+        $this->controller->receive($data, $this->validApiKey);
+
+        $stored = $this->service->getLatest();
+        $this->assertArrayHasKey('temp_f', $stored['sensors'][0]);
+        $this->assertEqualsWithDelta(68.0, $stored['sensors'][0]['temp_f'], 0.1);
+    }
+
+    /**
+     * @test
+     */
+    public function receiveAcceptsSensorsWithProvidedTempF(): void
+    {
+        $data = [
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'sensors' => [
+                ['address' => '28:F6:DD:87:00:88:1E:E8', 'temp_c' => 20.0, 'temp_f' => 68.0],
+            ],
+            'uptime_seconds' => 100,
+        ];
+
+        $response = $this->controller->receive($data, $this->validApiKey);
+
+        $this->assertEquals(200, $response['status']);
+        $stored = $this->service->getLatest();
+        $this->assertEquals(68.0, $stored['sensors'][0]['temp_f']);
+    }
+
+    /**
+     * @test
+     * Legacy format (single temp_c/temp_f) should still work for backward compatibility.
+     */
+    public function receiveStillAcceptsLegacySingleSensorFormat(): void
+    {
+        $data = [
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'temp_c' => 25.0,
+            'temp_f' => 77.0,
+            'uptime_seconds' => 100,
+        ];
+
+        $response = $this->controller->receive($data, $this->validApiKey);
+
+        $this->assertEquals(200, $response['status']);
+
+        $stored = $this->service->getLatest();
+        // Legacy format should be converted to sensors array
+        $this->assertArrayHasKey('sensors', $stored);
+        $this->assertCount(1, $stored['sensors']);
+        $this->assertEquals(25.0, $stored['sensors'][0]['temp_c']);
+    }
 }

@@ -23,17 +23,39 @@ class Esp32TemperatureService
 
     /**
      * Store a temperature reading from ESP32.
+     *
+     * Expects data with 'sensors' array from controller.
      */
     public function store(array $data): void
     {
+        // Process sensors array - calculate temp_f if not provided
+        $sensors = [];
+        foreach ($data['sensors'] as $sensor) {
+            $tempC = (float) $sensor['temp_c'];
+            $tempF = isset($sensor['temp_f'])
+                ? (float) $sensor['temp_f']
+                : $tempC * 9.0 / 5.0 + 32.0;
+
+            $sensors[] = [
+                'address' => $sensor['address'],
+                'temp_c' => $tempC,
+                'temp_f' => $tempF,
+            ];
+        }
+
         $record = [
             'device_id' => $data['device_id'],
-            'temp_c' => (float) $data['temp_c'],
-            'temp_f' => (float) $data['temp_f'],
+            'sensors' => $sensors,
             'uptime_seconds' => (int) ($data['uptime_seconds'] ?? 0),
             'timestamp' => date('c'),
             'received_at' => time(),
         ];
+
+        // Keep legacy fields for backward compatibility (use first sensor)
+        if (!empty($sensors)) {
+            $record['temp_c'] = $sensors[0]['temp_c'];
+            $record['temp_f'] = $sensors[0]['temp_f'];
+        }
 
         $this->ensureDirectory();
         file_put_contents($this->storageFile, json_encode($record, JSON_PRETTY_PRINT));

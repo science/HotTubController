@@ -21,12 +21,26 @@ struct ApiResponse {
     int httpCode;
 };
 
+// Maximum number of sensors supported
+#define MAX_SENSORS 8
+
+struct SensorReading {
+    char address[24];  // DS18B20 address as "XX:XX:XX:XX:XX:XX:XX:XX"
+    float tempC;
+};
+
 class ApiClient {
 public:
     ApiClient(const char* endpoint, const char* apiKey);
 
-    // Post temperature reading, returns next interval in seconds
+    // Post temperature reading (legacy single sensor format)
     ApiResponse postTemperature(const char* deviceId, float tempC, float tempF, unsigned long uptimeSeconds);
+
+    // Post multiple sensor readings
+    ApiResponse postSensors(const char* deviceId, SensorReading* sensors, int sensorCount, unsigned long uptimeSeconds);
+
+    // Format DS18B20 address to string "XX:XX:XX:XX:XX:XX:XX:XX"
+    static void formatAddress(uint8_t* address, char* buffer);
 
     // Get device MAC address as string
     static String getMacAddress();

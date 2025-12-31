@@ -5,6 +5,7 @@
 	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte';
 	import SettingsPanel from '$lib/components/SettingsPanel.svelte';
+	import SensorConfigPanel from '$lib/components/SensorConfigPanel.svelte';
 	import { api } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -184,6 +185,11 @@
 		<!-- Settings Panel (hidden for basic users) -->
 		{#if !isBasicUser}
 			<SettingsPanel />
+		{/if}
+
+		<!-- ESP32 Sensor Configuration (admin only) -->
+		{#if data.user?.role === 'admin'}
+			<SensorConfigPanel />
 		{/if}
 	</main>
 
