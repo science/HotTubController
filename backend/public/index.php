@@ -11,7 +11,9 @@ use HotTub\Controllers\ScheduleController;
 use HotTub\Controllers\UserController;
 use HotTub\Controllers\TemperatureController;
 use HotTub\Controllers\MaintenanceController;
+use HotTub\Controllers\Esp32TemperatureController;
 use HotTub\Services\TemperatureStateService;
+use HotTub\Services\Esp32TemperatureService;
 use HotTub\Services\LogRotationService;
 use HotTub\Services\EnvLoader;
 use HotTub\Services\EquipmentStatusService;
@@ -101,6 +103,12 @@ $wirelessTagClient = $wirelessTagFactory->create();
 $temperatureStateFile = __DIR__ . '/../storage/temperature_state.json';
 $temperatureStateService = new TemperatureStateService($temperatureStateFile);
 $temperatureController = new TemperatureController($wirelessTagClient, $wirelessTagFactory, $temperatureStateService);
+
+// Create ESP32 temperature service and controller
+$esp32TemperatureFile = __DIR__ . '/../storage/state/esp32-temperature.json';
+$esp32TemperatureService = new Esp32TemperatureService($esp32TemperatureFile);
+$esp32ApiKey = $config['ESP32_API_KEY'] ?? '';
+$esp32TemperatureController = new Esp32TemperatureController($esp32TemperatureService, $esp32ApiKey);
 
 // Create scheduler service and controller
 $jobsDir = __DIR__ . '/../storage/scheduled-jobs';
@@ -195,6 +203,9 @@ $router->post('/api/blinds/close', fn() => $blindsController->close(), $requireA
 // Protected temperature routes (with auth middleware)
 $router->get('/api/temperature', fn() => $temperatureController->get(), $requireAuth);
 $router->post('/api/temperature/refresh', fn() => $temperatureController->refresh(), $requireAuth);
+
+// ESP32 temperature endpoint (uses API key auth, not JWT)
+$router->post('/api/esp32/temperature', fn() => handleEsp32Temperature($esp32TemperatureController));
 
 // Protected schedule routes (with auth middleware)
 $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireAuth);
@@ -322,4 +333,11 @@ function handleUserPasswordUpdate(UserController $controller, string $username):
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->updatePassword($username, $input);
+}
+
+function handleEsp32Temperature(Esp32TemperatureController $controller): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    $apiKey = $_SERVER['HTTP_X_ESP32_API_KEY'] ?? null;
+    return $controller->receive($input, $apiKey);
 }

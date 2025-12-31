@@ -24,13 +24,13 @@ The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it
                                  │                        ▼
                                  │              ┌─────────────────┐
                                  │              │ SmartLife/Tuya  │
-                                 │              │ Smart Relays    │
-                                 │              └────────┬────────┘
-                        ┌────────▼────────┐              │
-                        │  WirelessTag    │              ▼
-                        │  Temperature    │     ┌─────────────────┐
-                        │  Sensors        │     │   Hot Tub       │
-                        └─────────────────┘     │   Equipment     │
+                        ┌────────▼────────┐     │ Smart Relays    │
+                        │  ESP32 Sensor   │     └────────┬────────┘
+                        │  (DS18B20)      │              │
+                        └─────────────────┘              ▼
+                                                ┌─────────────────┐
+                                                │   Hot Tub       │
+                                                │   Equipment     │
                                                 └─────────────────┘
 ```
 
@@ -53,6 +53,16 @@ The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it
 
 ### Temperature Monitoring
 
+**Option 1: ESP32 with DS18B20 (Recommended)**
+- **ESP32 Development Board** - WiFi-enabled microcontroller
+  - Any ESP32-WROOM-32 based board (NodeMCU, DevKit, etc.)
+- **DS18B20 Temperature Sensor** - Waterproof digital thermometer
+  - 1-Wire interface, accurate to 0.5C
+  - 4.7K pull-up resistor required (connect between data and VCC)
+- **PlatformIO** - For firmware development and flashing
+  - See `esp32/` directory for firmware code
+
+**Option 2: WirelessTag Cloud Sensors**
 - **WirelessTag Outdoor Probe** - DS18B20 sensor for accurate water temperature
   - Product: [WirelessTag Outdoor Probe Basic](https://store.wirelesstag.net/products/outdoor-probe-basic)
 - **WirelessTag Ethernet Manager** - Bridge device connecting sensors to cloud
@@ -138,6 +148,43 @@ npm run dev    # Starts on http://localhost:5173
 
 Default login: `admin` / `password` (change in production!)
 
+### ESP32 Firmware Setup (Optional)
+
+If using an ESP32 for temperature sensing:
+
+```bash
+cd esp32
+
+# Create .env file with your WiFi and API credentials
+cat > .env << 'EOF'
+WIFI_SSID=your-wifi-network
+WIFI_PASSWORD=your-wifi-password
+ESP32_API_KEY=your-secure-api-key
+API_ENDPOINT=http://your-server.com/api/esp32/temperature
+EOF
+
+# Install PlatformIO (if not already installed)
+# pip install platformio
+
+# Build and upload firmware
+pio run --target upload
+
+# Monitor serial output
+pio device monitor
+```
+
+The ESP32 will:
+- Connect to WiFi and read temperature from DS18B20 sensor (GPIO 4)
+- POST temperature readings to the backend API every 5 minutes
+- Use exponential backoff on failures (10s to 5 min)
+- Auto-reboot after 30 minutes of continuous failures
+
+Hardware wiring:
+- DS18B20 VCC to ESP32 3.3V
+- DS18B20 GND to ESP32 GND
+- DS18B20 DATA to ESP32 GPIO 4
+- 4.7K resistor between DATA and VCC
+
 ## Configuration
 
 All configuration is via `backend/.env`:
@@ -152,7 +199,10 @@ EXTERNAL_API_MODE=stub       # stub (safe) or live (requires keys)
 # IFTTT webhook integration
 IFTTT_WEBHOOK_KEY=your-key   # From IFTTT Maker Webhooks settings
 
-# WirelessTag temperature sensors
+# ESP32 temperature sensor
+ESP32_API_KEY=your-secure-api-key        # Secure API key for ESP32 authentication
+
+# WirelessTag temperature sensors (alternative)
 WIRELESSTAG_OAUTH_TOKEN=your-token       # OAuth token from WirelessTag
 WIRELESSTAG_DEVICE_ID=0                  # Your hot tub sensor device ID
 
@@ -225,6 +275,11 @@ hot-tub-controller/
 │   │   └── routes/          # Pages
 │   └── e2e/                 # Playwright E2E tests
 │
+├── esp32/                   # ESP32 firmware (PlatformIO)
+│   ├── src/                 # Main firmware code
+│   ├── lib/                 # ApiClient library
+│   └── test/                # Unity unit tests
+│
 └── CLAUDE.md                # Development guidelines
 ```
 
@@ -240,6 +295,7 @@ hot-tub-controller/
 | POST | `/api/equipment/heater/off` | Yes | Turn heater off |
 | POST | `/api/equipment/pump/run` | Yes | Run pump (2 hours) |
 | GET | `/api/temperature` | Yes | Get current temperatures |
+| POST | `/api/esp32/temperature` | API Key | Receive temperature from ESP32 |
 | POST | `/api/schedule` | Yes | Schedule a job |
 | GET | `/api/schedule` | Yes | List scheduled jobs |
 | DELETE | `/api/schedule/{id}` | Yes | Cancel a job |
