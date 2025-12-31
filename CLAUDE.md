@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hot tub controller system with a PHP backend API and SvelteKit frontend. Controls real hardware via IFTTT webhooks (heater, pump, ionizer) and monitors temperature via WirelessTag sensors.
+Hot tub controller system with a PHP backend API, SvelteKit frontend, and ESP32 temperature sensor. Controls real hardware via IFTTT webhooks (heater, pump, ionizer) and monitors temperature via ESP32 with DS18B20 probes (or WirelessTag as fallback).
 
 ## Project Structure
 
 ```
 backend/           # PHP API (PHPUnit tests)
 frontend/          # SvelteKit + TypeScript + Tailwind (Vitest unit tests, Playwright E2E)
+esp32/             # ESP32 firmware (PlatformIO, Unity tests)
 ```
 
 ## Build & Test Commands
@@ -45,6 +46,31 @@ npm run check            # TypeScript/Svelte type checking
 ```
 
 **E2E Testing**: Playwright tests in `frontend/e2e/` test frontend-backend integration. They auto-start servers on ports 5174 (frontend) and 8081 (backend). The frontend is served at `/tub` base path.
+
+### ESP32 (PlatformIO)
+```bash
+cd esp32
+pio run                          # Build firmware
+pio run -t upload                # Build and upload to device
+pio test                         # Run unit tests only (safe for CI)
+pio test -e hardware_test        # Run ALL tests including hardware integration
+pio device monitor               # Serial monitor
+```
+
+**Test Environments:**
+- Default (`pio test`): Runs only unit tests from `test/test_unit/`
+- Hardware (`pio test -e hardware_test`): Runs ALL tests including `test/test_hardware_integration/`
+
+Hardware integration tests require physical sensors connected and should only be run manually when working with the ESP32 device.
+
+**ESP32 Configuration:**
+The ESP32 uses build-time secrets injection via `load_env.py`. Create `esp32/.env`:
+```bash
+WIFI_SSID=your-wifi-name
+WIFI_PASSWORD=your-wifi-password
+API_ENDPOINT=http://your-server/backend/public/api/esp32/temperature
+ESP32_API_KEY=your-api-key
+```
 
 ### Test Artifact Cleanup
 
@@ -85,6 +111,9 @@ cd backend && composer cleanup:healthchecks
   - `AuthController` - JWT-based authentication
   - `UserController` - User management (admin only)
   - `MaintenanceController` - Log rotation endpoint for cron
+  - `TemperatureController` - Temperature readings (ESP32 or WirelessTag fallback)
+  - `Esp32TemperatureController` - Receives temperature data from ESP32
+  - `Esp32SensorConfigController` - Sensor role assignment and calibration
 - **Services**:
   - `EnvLoader` - File-based `.env` configuration loading
   - `SchedulerService` - Creates/lists/cancels cron jobs with Healthchecks.io monitoring
@@ -95,6 +124,9 @@ cd backend && composer cleanup:healthchecks
   - `LogRotationService` - Compresses and deletes old log files
   - `CrontabBackupService` - Timestamped backups before crontab modifications
   - `MaintenanceCronService` - Sets up monthly log rotation cron job
+  - `Esp32TemperatureService` - Stores ESP32 temperature readings
+  - `Esp32SensorConfigService` - Manages sensor roles and calibration offsets
+  - `Esp32CalibratedTemperatureService` - Applies calibration to raw ESP32 readings
 - **IFTTT Client Pattern**: Uses interface (`IftttClientInterface`) with unified client:
   - `IftttClient` - Unified client with injectable HTTP layer
   - `StubHttpClient` - Simulates API calls (safe for testing)
@@ -124,6 +156,7 @@ cd backend && composer cleanup:healthchecks
   - `SchedulePanel.svelte` - Scheduled jobs list with auto-refresh
   - `QuickSchedulePanel.svelte` - Quick scheduling UI
   - `TemperaturePanel.svelte` - Water/ambient temperature display
+  - `SensorConfigPanel.svelte` - ESP32 sensor role/calibration configuration (admin only)
 
 ### API Endpoints
 - `GET /api/health` - Health check with equipment status
@@ -133,7 +166,11 @@ cd backend && composer cleanup:healthchecks
 - `POST /api/equipment/heater/on` - Trigger IFTTT `hot-tub-heat-on` (auth required)
 - `POST /api/equipment/heater/off` - Trigger IFTTT `hot-tub-heat-off` (auth required)
 - `POST /api/equipment/pump/run` - Trigger IFTTT `cycle_hot_tub_ionizer` (auth required)
-- `GET /api/temperature` - Get current temperatures (auth required)
+- `GET /api/temperature` - Get current temperatures (uses ESP32 if configured, falls back to WirelessTag)
+- `POST /api/temperature/refresh` - Request fresh reading from WirelessTag sensor
+- `POST /api/esp32/temperature` - Receive temperature data from ESP32 (API key auth)
+- `GET /api/esp32/sensors` - List ESP32 sensors with config (admin only)
+- `PUT /api/esp32/sensors/{address}` - Update sensor role/calibration (admin only)
 - `POST /api/schedule` - Schedule a future action (auth required)
 - `GET /api/schedule` - List scheduled jobs (auth required)
 - `DELETE /api/schedule/{id}` - Cancel scheduled job (auth required)
