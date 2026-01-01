@@ -7,17 +7,21 @@
 
 	let { children, data } = $props();
 
-	// Handle redirect if needed
-	onMount(() => {
-		if (data.redirectTo && $page.url.pathname !== data.redirectTo) {
-			goto(data.redirectTo);
-		}
-	});
+	// Track if we've already redirected to prevent loops
+	let hasRedirected = false;
 
-	// Also watch for changes
-	$effect(() => {
-		if (data.redirectTo && $page.url.pathname !== data.redirectTo) {
-			goto(data.redirectTo);
+	// Handle redirect if needed (only once)
+	onMount(() => {
+		if (data.redirectTo && !hasRedirected) {
+			const currentPath = $page.url.pathname;
+			// Normalize paths for comparison (handle trailing slashes)
+			const normalizedCurrent = currentPath.replace(/\/$/, '') || '/';
+			const normalizedTarget = data.redirectTo.replace(/\/$/, '') || '/';
+
+			if (normalizedCurrent !== normalizedTarget) {
+				hasRedirected = true;
+				goto(data.redirectTo);
+			}
 		}
 	});
 </script>
