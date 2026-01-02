@@ -626,4 +626,83 @@ class TemperatureControllerTest extends TestCase
         $this->assertNull($response['body']['esp32']);
         $this->assertArrayHasKey('error', $response['body']['wirelesstag']);
     }
+
+    // ==================== Timestamp Format Tests (Phase 1) ====================
+
+    /**
+     * @test
+     * ESP32 response in getAll should include timestamp in ISO 8601 format.
+     */
+    public function getAllIncludesEsp32TimestampInIso8601Format(): void
+    {
+        // Create ESP32 services with configured sensor
+        $esp32TempFile = sys_get_temp_dir() . '/test_esp32_temp_' . uniqid() . '.json';
+        $esp32ConfigFile = sys_get_temp_dir() . '/test_esp32_config_' . uniqid() . '.json';
+
+        $esp32TempService = new Esp32TemperatureService($esp32TempFile);
+        $esp32ConfigService = new Esp32SensorConfigService($esp32ConfigFile);
+        $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TempService, $esp32ConfigService);
+
+        // Configure ESP32 sensor
+        $waterAddress = '28:F6:DD:87:00:88:1E:E8';
+        $esp32ConfigService->setSensorRole($waterAddress, 'water');
+
+        // Store ESP32 temperature data
+        $esp32TempService->store([
+            'device_id' => 'AA:BB:CC:DD:EE:FF',
+            'sensors' => [
+                ['address' => $waterAddress, 'temp_c' => 39.0],
+            ],
+            'uptime_seconds' => 3600,
+        ]);
+
+        $controller = new TemperatureController(
+            new WirelessTagClient($this->stubHttpClient),
+            null,
+            $this->stateService,
+            $esp32CalibratedService
+        );
+
+        $response = $controller->getAll();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertNotNull($response['body']['esp32']);
+        $this->assertArrayHasKey('timestamp', $response['body']['esp32']);
+
+        // Verify it's a valid ISO 8601 format (parseable by DateTime)
+        $timestamp = $response['body']['esp32']['timestamp'];
+        $parsed = \DateTimeImmutable::createFromFormat(\DateTimeInterface::ATOM, $timestamp);
+        $this->assertNotFalse($parsed, "ESP32 timestamp '$timestamp' should be valid ISO 8601");
+
+        // Cleanup
+        @unlink($esp32TempFile);
+        @unlink($esp32ConfigFile);
+    }
+
+    /**
+     * @test
+     * WirelessTag response in getAll should include timestamp in ISO 8601 format.
+     */
+    public function getAllIncludesWirelessTagTimestampInIso8601Format(): void
+    {
+        $this->stubHttpClient->setWaterTemperature(38.0);
+
+        $controller = new TemperatureController(
+            new WirelessTagClient($this->stubHttpClient),
+            null,
+            $this->stateService,
+            null
+        );
+
+        $response = $controller->getAll();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertNotNull($response['body']['wirelesstag']);
+        $this->assertArrayHasKey('timestamp', $response['body']['wirelesstag']);
+
+        // Verify it's a valid ISO 8601 format (parseable by DateTime)
+        $timestamp = $response['body']['wirelesstag']['timestamp'];
+        $parsed = \DateTimeImmutable::createFromFormat(\DateTimeInterface::ATOM, $timestamp);
+        $this->assertNotFalse($parsed, "WirelessTag timestamp '$timestamp' should be valid ISO 8601");
+    }
 }

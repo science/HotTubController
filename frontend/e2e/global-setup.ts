@@ -1,5 +1,5 @@
 import { FullConfig } from '@playwright/test';
-import { rmSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { rmSync, readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -60,6 +60,54 @@ function cleanupTestUsers(usersFile: string): number {
 }
 
 /**
+ * Sets up ESP32 test data so temperature tests can verify both sources.
+ */
+function setupEsp32TestData(stateDir: string): void {
+	// Ensure state directory exists
+	if (!existsSync(stateDir)) {
+		mkdirSync(stateDir, { recursive: true });
+	}
+
+	const esp32TempFile = join(stateDir, 'esp32-temperature.json');
+	const esp32ConfigFile = join(stateDir, 'esp32-sensor-config.json');
+
+	// Create test ESP32 temperature data
+	const waterAddress = '28:F6:DD:87:00:88:1E:E8';
+	const ambientAddress = '28:D5:AA:87:00:23:16:34';
+
+	const tempData = {
+		device_id: 'TEST:AA:BB:CC:DD:EE',
+		sensors: [
+			{ address: waterAddress, temp_c: 38.5, temp_f: 101.3 },
+			{ address: ambientAddress, temp_c: 21.0, temp_f: 69.8 }
+		],
+		uptime_seconds: 3600,
+		timestamp: new Date().toISOString(),
+		received_at: Math.floor(Date.now() / 1000)
+	};
+
+	writeFileSync(esp32TempFile, JSON.stringify(tempData, null, 2));
+
+	// Create test ESP32 sensor config with role assignments
+	const configData = {
+		sensors: {
+			[waterAddress]: {
+				role: 'water',
+				calibration_offset: 0,
+				name: 'Test Water Sensor'
+			},
+			[ambientAddress]: {
+				role: 'ambient',
+				calibration_offset: 0,
+				name: 'Test Ambient Sensor'
+			}
+		}
+	};
+
+	writeFileSync(esp32ConfigFile, JSON.stringify(configData, null, 2));
+}
+
+/**
  * Cleans up scheduled job files from previous test runs.
  */
 function cleanupJobFiles(jobsDir: string): number {
@@ -84,6 +132,8 @@ function cleanupJobFiles(jobsDir: string): number {
  * Cleans up artifacts from previous test runs to ensure test isolation:
  * - Scheduled job files
  * - Test user accounts
+ * Also sets up test data:
+ * - ESP32 sensor data and configuration
  */
 async function globalSetup(config: FullConfig) {
 	const __filename = fileURLToPath(import.meta.url);
@@ -91,6 +141,7 @@ async function globalSetup(config: FullConfig) {
 	const backendDir = join(__dirname, '../../backend');
 	const jobsDir = join(backendDir, 'storage/scheduled-jobs');
 	const usersFile = join(backendDir, 'storage/users/users.json');
+	const stateDir = join(backendDir, 'storage/state');
 
 	// Clean up job files
 	const jobsCount = cleanupJobFiles(jobsDir);
@@ -101,6 +152,10 @@ async function globalSetup(config: FullConfig) {
 	if (usersCount > 0) {
 		console.log(`[E2E Setup] Cleaned up ${usersCount} stale test user(s)`);
 	}
+
+	// Set up ESP32 test data so temperature tests can verify both sources
+	setupEsp32TestData(stateDir);
+	console.log(`[E2E Setup] Set up ESP32 test data`);
 }
 
 export default globalSetup;
