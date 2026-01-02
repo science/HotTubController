@@ -86,10 +86,10 @@
 		refreshingEsp32 = true;
 
 		try {
-			// Just re-fetch all temperatures - ESP32 timestamp comes from backend
+			// Re-fetch all temperatures - ESP32 timestamp comes from backend
+			// Note: We do NOT update wirelesstagFetchedAt here since we're only refreshing ESP32
 			const data = await api.getAllTemperatures();
 			allTemps = data;
-			wirelesstagFetchedAt = Date.now();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to refresh';
 		} finally {

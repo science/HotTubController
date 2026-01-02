@@ -210,6 +210,31 @@ test.describe('Temperature Display Feature', () => {
 			// Temperature should still be visible in WirelessTag section after refresh
 			await expect(page.locator('[data-testid="wirelesstag-readings"]').getByText('Water:')).toBeVisible({ timeout: 15000 });
 		});
+
+		test('clicking ESP32 refresh does NOT update WirelessTag timestamp', async ({ page }) => {
+			// Wait for both sections to load
+			await expect(page.locator('[data-testid="esp32-readings"]')).toBeVisible({ timeout: 10000 });
+			await expect(page.locator('[data-testid="wirelesstag-readings"]')).toBeVisible({ timeout: 10000 });
+
+			// Get the initial WirelessTag timestamp
+			const wirelesstagTimestamp = page.locator('[data-testid="wirelesstag-timestamp"]');
+			await expect(wirelesstagTimestamp).toBeVisible();
+			const initialTimestamp = await wirelesstagTimestamp.textContent();
+
+			// Wait a moment to ensure any timestamp would be different
+			await page.waitForTimeout(1500);
+
+			// Click ESP32 refresh
+			const esp32Refresh = page.locator('[data-testid="esp32-refresh"]');
+			await esp32Refresh.click();
+
+			// Wait for refresh to complete
+			await expect(page.locator('[data-testid="esp32-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
+
+			// WirelessTag timestamp should NOT have changed
+			const afterTimestamp = await wirelesstagTimestamp.textContent();
+			expect(afterTimestamp).toBe(initialTimestamp);
+		});
 	});
 
 	test.describe('No Global Refresh Button', () => {
