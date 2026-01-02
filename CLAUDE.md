@@ -179,6 +179,23 @@ cd backend && composer cleanup:healthchecks
 - `DELETE /api/users/{username}` - Delete user (admin only)
 - `POST /api/maintenance/logs/rotate` - Rotate log files (cron auth)
 
+## Git Workflow
+
+**IMPORTANT: Never work directly on the `production` branch without explicit user approval.**
+
+- Local development should always be on `main` branch
+- Create PRs from `main` to `production` for deployment
+- If you find yourself on `production`, switch to `main` before making changes
+- The `production` branch represents what's deployed to the live server
+
+```bash
+# Check current branch
+git branch
+
+# Switch to main if on production
+git checkout main
+```
+
 ## Development Methodology: TDD Red/Green
 
 **All new functionality MUST follow Test-Driven Development:**
