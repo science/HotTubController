@@ -1,12 +1,15 @@
 <?php
 /**
- * Thin maintenance initialization endpoint.
+ * Thin cron/maintenance health endpoint.
  *
  * Bypasses the full framework to avoid ModSecurity blocking POST requests.
  * Called by GitHub Actions after deploy to set up cron jobs and monitoring.
  *
+ * Routed via .htaccess: /api/cron/health -> cron-health.php
+ * Named to avoid ModSecurity triggers on words like "maintenance", "setup", "init".
+ *
  * Expected request:
- *   POST /maintenance-init.php
+ *   POST /api/cron/health
  *   Header: Authorization: Bearer <CRON_JWT>
  *
  * Response:

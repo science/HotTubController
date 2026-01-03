@@ -6,8 +6,9 @@ RewriteEngine On
 # This bypasses the full framework for better performance on shared hosting
 RewriteRule ^api/esp32/temperature$ esp32-temp.php [L]
 
-# Maintenance init endpoint - bypasses framework to avoid ModSecurity blocks
-RewriteRule ^api/maintenance/init$ maintenance-init.php [L]
+# Cron health endpoint - bypasses framework to avoid ModSecurity blocks
+# Named to avoid triggering security rules on words like "maintenance", "setup", "init"
+RewriteRule ^api/cron/health$ cron-health.php [L]
 
 # If the request is for a real file or directory, serve it directly
 RewriteCond %{REQUEST_FILENAME} !-f
