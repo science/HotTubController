@@ -60,6 +60,7 @@ jobs:
           cat > backend/.env << 'EOF'
           APP_ENV=production
           EXTERNAL_API_MODE=live
+          API_BASE_URL=${{ vars.API_BASE_URL }}
           IFTTT_WEBHOOK_KEY=${{ secrets.IFTTT_WEBHOOK_KEY }}
           AUTH_ADMIN_USERNAME=${{ secrets.AUTH_ADMIN_USERNAME }}
           AUTH_ADMIN_PASSWORD=${{ secrets.AUTH_ADMIN_PASSWORD }}
@@ -85,6 +86,7 @@ jobs:
         run: |
           chmod +x backend/storage/bin/cron-runner.sh
           chmod +x backend/storage/bin/rotate-logs.php
+          chmod +x backend/storage/bin/log-rotation-cron.sh
 
       # Deploy backend via FTP
       - name: Deploy backend to cPanel
@@ -115,6 +117,7 @@ jobs:
             "ftp://${{ secrets.FTP_HOST }}" \
             -Q "SITE CHMOD 755 /public_html/tub/backend/storage/bin/cron-runner.sh" \
             -Q "SITE CHMOD 755 /public_html/tub/backend/storage/bin/rotate-logs.php" \
+            -Q "SITE CHMOD 755 /public_html/tub/backend/storage/bin/log-rotation-cron.sh" \
             || echo "Warning: SITE CHMOD may not be supported - permissions may need manual fix"
 
       # Deploy frontend via FTP
@@ -133,3 +136,30 @@ jobs:
           exclude: |
             **/.git*
             **/.git*/**
+
+      # Set up maintenance infrastructure (cron + healthcheck monitoring)
+      # This calls the deployed API to create cron jobs and healthchecks.io monitoring
+      - name: Setup maintenance cron and monitoring
+        run: |
+          # Read CRON_JWT from the .env file we generated earlier
+          CRON_JWT=$(grep '^CRON_JWT=' backend/.env | cut -d'=' -f2-)
+
+          echo "Calling maintenance setup endpoint..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ vars.API_BASE_URL }}/api/maintenance/setup" \
+            -H "Authorization: Bearer $CRON_JWT" \
+            -H "Content-Type: application/json" \
+            --max-time 30)
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Response: $BODY"
+          echo "HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Maintenance setup failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "Maintenance setup completed successfully"

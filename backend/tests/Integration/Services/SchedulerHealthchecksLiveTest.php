@@ -27,6 +27,7 @@ class SchedulerHealthchecksLiveTest extends TestCase
     private string $jobsDir;
     private string $apiKey;
     private string $channelId;
+    private ?string $originalExternalApiMode = null;
 
     /** @var array<string> UUIDs of checks to clean up */
     private array $createdChecks = [];
@@ -36,6 +37,10 @@ class SchedulerHealthchecksLiveTest extends TestCase
 
     protected function setUp(): void
     {
+        // Save and clear the environment variable to allow live client instantiation
+        $this->originalExternalApiMode = getenv('EXTERNAL_API_MODE') ?: null;
+        putenv('EXTERNAL_API_MODE=live');
+
         // Load API key from env.production config
         $envFile = dirname(__DIR__, 3) . '/config/env.production';
         $config = [];
@@ -92,6 +97,13 @@ class SchedulerHealthchecksLiveTest extends TestCase
                 }
             }
             rmdir($this->jobsDir);
+        }
+
+        // Restore original environment mode
+        if ($this->originalExternalApiMode !== null) {
+            putenv("EXTERNAL_API_MODE={$this->originalExternalApiMode}");
+        } else {
+            putenv('EXTERNAL_API_MODE');
         }
     }
 
