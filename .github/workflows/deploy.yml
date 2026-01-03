@@ -70,6 +70,7 @@ jobs:
           WIRELESSTAG_DEVICE_ID=${{ secrets.WIRELESSTAG_DEVICE_ID }}
           HEALTHCHECKS_IO_KEY=${{ secrets.HEALTHCHECKS_IO_KEY }}
           HEALTHCHECKS_IO_CHANNEL=${{ secrets.HEALTHCHECKS_IO_CHANNEL }}
+          # ESP32 Temperature Sensor
           ESP32_API_KEY=${{ secrets.ESP32_API_KEY }}
           # Optional Features
           BLINDS_FEATURE_ENABLED=true
