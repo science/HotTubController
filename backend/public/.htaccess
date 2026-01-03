@@ -1,7 +1,10 @@
 # Hot Tub Controller API - Apache URL Rewriting
-# Routes all /api/* requests to index.php
 
 RewriteEngine On
+
+# ESP32 temperature endpoint - route to lightweight handler
+# This bypasses the full framework for better performance on shared hosting
+RewriteRule ^api/esp32/temperature$ esp32-temp.php [L]
 
 # If the request is for a real file or directory, serve it directly
 RewriteCond %{REQUEST_FILENAME} !-f
