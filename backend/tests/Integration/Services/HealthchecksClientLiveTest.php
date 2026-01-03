@@ -23,9 +23,14 @@ class HealthchecksClientLiveTest extends TestCase
 {
     private ?HealthchecksClient $client = null;
     private array $createdChecks = [];
+    private ?string $originalExternalApiMode = null;
 
     protected function setUp(): void
     {
+        // Save and clear the environment variable to allow live client instantiation
+        $this->originalExternalApiMode = getenv('EXTERNAL_API_MODE') ?: null;
+        putenv('EXTERNAL_API_MODE=live');
+
         // Load API key from env.production config
         $envFile = dirname(__DIR__, 3) . '/config/env.production';
         $config = [];
@@ -62,6 +67,13 @@ class HealthchecksClientLiveTest extends TestCase
             foreach ($this->createdChecks as $uuid) {
                 $this->client->delete($uuid);
             }
+        }
+
+        // Restore original environment mode
+        if ($this->originalExternalApiMode !== null) {
+            putenv("EXTERNAL_API_MODE={$this->originalExternalApiMode}");
+        } else {
+            putenv('EXTERNAL_API_MODE');
         }
     }
 

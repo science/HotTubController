@@ -142,15 +142,14 @@ class WirelessTagClientModeTest extends TestCase
 
     /**
      * @test
-     * Auto mode should use stub when in testing environment.
+     * Auto mode should use stub when EXTERNAL_API_MODE is stub.
      */
-    public function autoModeUsesStubInTestingEnvironment(): void
+    public function autoModeUsesStubWhenExternalApiModeIsStub(): void
     {
         $config = [
-            'APP_ENV' => 'testing',
+            'EXTERNAL_API_MODE' => 'stub',
             'WIRELESSTAG_OAUTH_TOKEN' => $this->oauthToken ?? 'some-token',
             'WIRELESSTAG_DEVICE_ID' => $this->deviceId,
-            'WIRELESSTAG_MODE' => 'auto',
         ];
 
         $factory = new WirelessTagClientFactory($config);
@@ -161,25 +160,36 @@ class WirelessTagClientModeTest extends TestCase
 
     /**
      * @test
-     * Auto mode should use live when token available and not testing.
+     * Auto mode should use live when EXTERNAL_API_MODE is live.
      */
-    public function autoModeUsesLiveWhenTokenAvailable(): void
+    public function autoModeUsesLiveWhenExternalApiModeIsLive(): void
     {
         if ($this->oauthToken === null) {
             $this->markTestSkipped('WirelessTag OAuth token not configured');
         }
 
-        $config = [
-            'APP_ENV' => 'development',
-            'WIRELESSTAG_OAUTH_TOKEN' => $this->oauthToken,
-            'WIRELESSTAG_DEVICE_ID' => $this->deviceId,
-            'WIRELESSTAG_MODE' => 'auto',
-        ];
+        // Clear the environment variable set by phpunit.xml so we can test config-based behavior
+        $originalEnvMode = getenv('EXTERNAL_API_MODE');
+        putenv('EXTERNAL_API_MODE');
+        unset($_ENV['EXTERNAL_API_MODE']);
 
-        $factory = new WirelessTagClientFactory($config);
-        $client = $factory->create('auto');
+        try {
+            $config = [
+                'EXTERNAL_API_MODE' => 'live',
+                'WIRELESSTAG_OAUTH_TOKEN' => $this->oauthToken,
+                'WIRELESSTAG_DEVICE_ID' => $this->deviceId,
+            ];
 
-        $this->assertEquals('live', $client->getMode());
+            $factory = new WirelessTagClientFactory($config);
+            $client = $factory->create('auto');
+
+            $this->assertEquals('live', $client->getMode());
+        } finally {
+            // Restore original environment
+            if ($originalEnvMode !== false) {
+                putenv("EXTERNAL_API_MODE=$originalEnvMode");
+            }
+        }
     }
 
     /**

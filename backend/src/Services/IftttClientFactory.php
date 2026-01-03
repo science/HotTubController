@@ -107,25 +107,32 @@ class IftttClientFactory
      * Resolve auto mode to either stub or live.
      *
      * Priority:
-     * 1. EXTERNAL_API_MODE from config (unified system mode)
-     * 2. IFTTT_MODE from config (legacy fallback)
-     * 3. Default to 'stub' (fail-safe)
+     * 1. EXTERNAL_API_MODE from environment variable (allows test override via phpunit.xml)
+     * 2. EXTERNAL_API_MODE from config (unified system mode from .env file)
+     * 3. IFTTT_MODE from config (legacy fallback)
+     * 4. Default to 'stub' (fail-safe)
      */
     private function resolveAutoMode(): string
     {
-        // Priority 1: Check EXTERNAL_API_MODE (unified system mode)
+        // Priority 1: Check environment variable (for test isolation via phpunit.xml)
+        $envMode = getenv('EXTERNAL_API_MODE') ?: ($_ENV['EXTERNAL_API_MODE'] ?? null);
+        if ($envMode !== null && $envMode !== '' && in_array($envMode, ['stub', 'live'], true)) {
+            return $envMode;
+        }
+
+        // Priority 2: Check EXTERNAL_API_MODE from config (unified system mode)
         $externalApiMode = $this->config['EXTERNAL_API_MODE'] ?? null;
         if ($externalApiMode !== null && in_array($externalApiMode, ['stub', 'live'], true)) {
             return $externalApiMode;
         }
 
-        // Priority 2: Check legacy IFTTT_MODE
+        // Priority 3: Check legacy IFTTT_MODE
         $iftttMode = $this->config['IFTTT_MODE'] ?? null;
         if ($iftttMode !== null && in_array($iftttMode, ['stub', 'live'], true)) {
             return $iftttMode;
         }
 
-        // Priority 3: Default to stub (fail-safe)
+        // Priority 4: Default to stub (fail-safe)
         return 'stub';
     }
 

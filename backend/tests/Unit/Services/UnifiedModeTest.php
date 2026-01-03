@@ -235,6 +235,10 @@ class UnifiedModeTest extends TestCase
      */
     public function externalApiModeLiveWithoutIftttKeyThrows(): void
     {
+        // Clear environment variable so config takes effect
+        putenv('EXTERNAL_API_MODE');
+        unset($_ENV['EXTERNAL_API_MODE']);
+
         $config = [
             'EXTERNAL_API_MODE' => 'live',
             // No IFTTT_WEBHOOK_KEY
@@ -254,6 +258,10 @@ class UnifiedModeTest extends TestCase
      */
     public function externalApiModeLiveWithoutWirelessTagTokenThrows(): void
     {
+        // Clear environment variable so config takes effect
+        putenv('EXTERNAL_API_MODE');
+        unset($_ENV['EXTERNAL_API_MODE']);
+
         $config = [
             'EXTERNAL_API_MODE' => 'live',
             // No WIRELESSTAG_OAUTH_TOKEN

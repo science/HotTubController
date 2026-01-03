@@ -262,4 +262,31 @@ class IftttClientFactoryTest extends TestCase
 
         $this->assertInstanceOf(IftttClient::class, $client);
     }
+
+    /**
+     * Test that environment variable EXTERNAL_API_MODE overrides config.
+     *
+     * This is critical for test isolation: PHPUnit sets EXTERNAL_API_MODE=stub
+     * via phpunit.xml, and this should override any .env file settings.
+     */
+    public function testEnvironmentVariableOverridesConfig(): void
+    {
+        putenv('EXTERNAL_API_MODE=stub');
+
+        $output = fopen('php://memory', 'w+');
+        $factory = new IftttClientFactory(
+            [
+                'EXTERNAL_API_MODE' => 'live',  // Config says live
+                'IFTTT_WEBHOOK_KEY' => 'real-key',
+            ],
+            $this->testLogFile,
+            $output
+        );
+
+        $client = $factory->create('auto');
+
+        // Environment variable should win
+        $this->assertEquals('stub', $client->getMode());
+        fclose($output);
+    }
 }
