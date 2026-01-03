@@ -188,12 +188,23 @@ cd backend && composer cleanup:healthchecks
 - If you find yourself on `production`, switch to `main` before making changes
 - The `production` branch represents what's deployed to the live server
 
+**IMPORTANT: Code flows one direction only: main → production. Never merge production back into main.**
+
+- Do NOT run `git merge origin/production` or similar commands
+- After a PR is merged to production, the merge commits belong to production's history, not main's
+- If you need to sync local main, use `git pull origin main` (not production)
+- The only exception: hotfixes made directly on production (which should be rare and require user approval)
+- If uncertain about branch operations, ask the user before proceeding
+
 ```bash
 # Check current branch
 git branch
 
 # Switch to main if on production
 git checkout main
+
+# Sync local main with origin (correct way)
+git pull origin main
 ```
 
 ## Development Methodology: TDD Red/Green
