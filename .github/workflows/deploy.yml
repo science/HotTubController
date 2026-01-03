@@ -144,9 +144,9 @@ jobs:
           # Read CRON_JWT from the .env file we generated earlier
           CRON_JWT=$(grep '^CRON_JWT=' backend/.env | cut -d'=' -f2-)
 
-          echo "Calling maintenance setup endpoint..."
+          echo "Calling maintenance init endpoint..."
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "${{ vars.API_BASE_URL }}/api/maintenance/setup" \
+            "${{ vars.API_BASE_URL }}/api/maintenance/init" \
             -H "Authorization: Bearer $CRON_JWT" \
             -H "Content-Type: application/json" \
             --max-time 30)

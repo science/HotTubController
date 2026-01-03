@@ -255,7 +255,7 @@ $router->put('/api/users/{username}/password', fn($params) => handleUserPassword
 
 // Protected maintenance routes (called by cron with CRON_JWT)
 $router->post('/api/maintenance/logs/rotate', fn() => $maintenanceController->rotateLogs(), $requireAuth);
-$router->post('/api/maintenance/setup', fn() => $maintenanceSetupController->setup(), $requireAuth);
+$router->post('/api/maintenance/init', fn() => $maintenanceSetupController->setup(), $requireAuth);
 
 // Dispatch request
 $response = $router->dispatch($method, $uri);
