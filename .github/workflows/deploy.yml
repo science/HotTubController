@@ -144,9 +144,9 @@ jobs:
           # Read CRON_JWT from the .env file we generated earlier
           CRON_JWT=$(grep '^CRON_JWT=' backend/.env | cut -d'=' -f2-)
 
-          echo "Calling maintenance init endpoint..."
+          echo "Calling cron health endpoint..."
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "${{ vars.API_BASE_URL }}/api/maintenance/init" \
+            "${{ vars.API_BASE_URL }}/api/cron/health" \
             -H "Authorization: Bearer $CRON_JWT" \
             -H "Content-Type: application/json" \
             --max-time 30)
@@ -158,8 +158,8 @@ jobs:
           echo "HTTP Status: $HTTP_CODE"
 
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Maintenance setup failed with HTTP $HTTP_CODE"
+            echo "::error::Cron health setup failed with HTTP $HTTP_CODE"
             exit 1
           fi
 
-          echo "Maintenance setup completed successfully"
+          echo "Cron health setup completed successfully"
