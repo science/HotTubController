@@ -32,8 +32,15 @@
 	let pumpOn = $derived(getPumpOn());
 	let blindsEnabled = $derived(getBlindsEnabled());
 
-	// Fetch equipment status on mount
+	// Fetch equipment status on mount, and verify auth state
 	onMount(() => {
+		// If we reach this page without a valid user, redirect to login
+		// This handles the edge case where sessionStorage blocks the layout redirect
+		// but the user's auth cookie is missing/expired
+		if (!data.user) {
+			goto(`${base}/login`, { replaceState: true });
+			return;
+		}
 		fetchStatus();
 	});
 

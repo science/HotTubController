@@ -13,8 +13,6 @@
 	let allTemps = $state<AllTemperaturesResponse | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
-	// Track when WirelessTag data was last fetched (frontend timestamp)
-	let wirelesstagFetchedAt = $state<number | null>(null);
 	// Track refresh state separately for each source
 	let refreshingWirelesstag = $state(false);
 	let refreshingEsp32 = $state(false);
@@ -35,7 +33,6 @@
 		try {
 			const data = await api.getAllTemperatures();
 			allTemps = data;
-			wirelesstagFetchedAt = Date.now();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load temperature';
 		} finally {
@@ -52,7 +49,6 @@
 		try {
 			const data = await api.getAllTemperatures();
 			allTemps = data;
-			wirelesstagFetchedAt = Date.now();
 
 			// Check WirelessTag refresh status
 			if (data.wirelesstag?.refresh_in_progress) {
@@ -218,10 +214,10 @@
 							<span class="text-xs text-purple-400 font-medium">WirelessTag</span>
 						</div>
 						<div class="flex items-center gap-1.5">
-							<!-- WirelessTag timestamp (when data was fetched from API) -->
-							{#if wirelesstagFetchedAt}
+							<!-- WirelessTag timestamp (when sensor took the reading) -->
+							{#if allTemps.wirelesstag?.timestamp}
 								<span data-testid="wirelesstag-timestamp" class="text-xs text-slate-500">
-									Last fetched: {formatTimestamp(wirelesstagFetchedAt)}
+									Last reading: {formatTimestamp(allTemps.wirelesstag.timestamp)}
 								</span>
 							{/if}
 							<!-- WirelessTag refresh button -->

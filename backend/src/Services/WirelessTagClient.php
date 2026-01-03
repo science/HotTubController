@@ -50,6 +50,12 @@ class WirelessTagClient
         $waterTempC = $device['temperature'] ?? null;
         $ambientTempC = $device['cap'] ?? null;
 
+        // Extract timestamp from lastComm (.NET ticks since 0001-01-01)
+        $timestamp = time(); // fallback
+        if (isset($device['lastComm'])) {
+            $timestamp = $this->netTicksToUnixTimestamp($device['lastComm']);
+        }
+
         return [
             'water_temp_c' => $waterTempC,
             'water_temp_f' => $waterTempC !== null ? $this->celsiusToFahrenheit($waterTempC) : null,
@@ -59,7 +65,7 @@ class WirelessTagClient
             'signal_dbm' => $device['signaldBm'] ?? null,
             'device_uuid' => $device['uuid'] ?? null,
             'device_name' => $device['name'] ?? null,
-            'timestamp' => time(),
+            'timestamp' => $timestamp,
         ];
     }
 
@@ -135,5 +141,18 @@ class WirelessTagClient
     private function celsiusToFahrenheit(float $celsius): float
     {
         return round(($celsius * 1.8) + 32, 1);
+    }
+
+    /**
+     * Convert .NET ticks to Unix timestamp.
+     *
+     * .NET uses ticks since 0001-01-01 00:00:00 UTC (1 tick = 100 nanoseconds).
+     * Unix epoch is 1970-01-01 00:00:00 UTC.
+     * Offset between epochs: 621355968000000000 ticks.
+     */
+    private function netTicksToUnixTimestamp(int $netTicks): int
+    {
+        $dotNetEpochOffset = 621355968000000000;
+        return (int) (($netTicks - $dotNetEpochOffset) / 10000000);
     }
 }
