@@ -145,10 +145,12 @@ jobs:
           CRON_JWT=$(grep '^CRON_JWT=' backend/.env | cut -d'=' -f2-)
 
           echo "Calling cron health endpoint..."
+          # Note: -d '{}' is required - ModSecurity blocks POST requests without a body
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             "${{ vars.API_BASE_URL }}/api/cron/health" \
             -H "Authorization: Bearer $CRON_JWT" \
             -H "Content-Type: application/json" \
+            -d '{}' \
             --max-time 30)
 
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
