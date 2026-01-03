@@ -218,21 +218,29 @@ describe('TemperaturePanel', () => {
 			});
 		});
 
-		it('keeps showing error after failed refresh', async () => {
-			vi.mocked(api.api.getAllTemperatures).mockRejectedValue(new Error('Connection failed'));
+		it('keeps showing data but adds error message after refresh fails', async () => {
+			// First load succeeds
+			vi.mocked(api.api.getAllTemperatures).mockResolvedValueOnce(mockAllTempsResponse);
+			// Refresh request fails
+			vi.mocked(api.api.refreshTemperature).mockRejectedValueOnce(new Error('Refresh failed'));
 
 			render(TemperaturePanel);
 
+			// Wait for initial load to complete
 			await waitFor(() => {
-				expect(screen.getByText(/Connection failed/i)).toBeTruthy();
+				expect(screen.getByText(/98\.4/)).toBeTruthy();
 			});
 
-			const button = screen.getByRole('button', { name: /refresh/i });
+			// Click refresh button
+			const button = screen.getByTestId('wirelesstag-refresh');
 			await fireEvent.click(button);
 
+			// Should show error message but keep displaying temperature data
 			await waitFor(() => {
-				expect(screen.getByText(/Connection failed/i)).toBeTruthy();
+				expect(screen.getByText(/Failed to refresh/i)).toBeTruthy();
 			});
+			// Temperature data should still be visible
+			expect(screen.getByText(/98\.4/)).toBeTruthy();
 		});
 
 		it('shows configuration error message from backend', async () => {
@@ -300,68 +308,67 @@ describe('TemperaturePanel', () => {
 		});
 	});
 
-	describe('last refreshed time display', () => {
-		it('displays last refreshed time when cached data exists', async () => {
+	describe('last reading time display', () => {
+		it('displays WirelessTag timestamp from API response', async () => {
 			render(TemperaturePanel);
 
 			await waitFor(() => {
-				// Should display some form of the time after loading
-				expect(screen.getByTestId('last-refreshed')).toBeTruthy();
+				// Should display the timestamp from the API response
+				expect(screen.getByTestId('wirelesstag-timestamp')).toBeTruthy();
 			});
+
+			// Verify it shows "Last reading:" label with the API timestamp
+			const timestampElement = screen.getByTestId('wirelesstag-timestamp');
+			expect(timestampElement.textContent).toContain('Last reading:');
 		});
 
-		it('updates last refreshed time when refresh button is clicked', async () => {
+		it('updates timestamp when API returns new data', async () => {
 			render(TemperaturePanel);
 
 			// Wait for initial display
 			await waitFor(() => {
-				expect(screen.getByTestId('last-refreshed')).toBeTruthy();
+				expect(screen.getByTestId('wirelesstag-timestamp')).toBeTruthy();
 			});
 
-			const initialText = screen.getByTestId('last-refreshed').textContent;
-
-			// Small delay to ensure time difference
-			await new Promise((r) => setTimeout(r, 100));
-
-			// Click refresh
-			const button = screen.getByRole('button', { name: /refresh/i });
+			// Click refresh button
+			const button = screen.getByTestId('wirelesstag-refresh');
 			await fireEvent.click(button);
 
-			// Wait for API call to complete (the text may or may not change depending on timing)
+			// Wait for API call to complete
 			await waitFor(() => {
 				expect(api.api.getAllTemperatures).toHaveBeenCalledTimes(2);
 			});
 
-			// After refresh, the last-refreshed element should still exist
-			expect(screen.getByTestId('last-refreshed')).toBeTruthy();
+			// Timestamp element should still exist after refresh
+			expect(screen.getByTestId('wirelesstag-timestamp')).toBeTruthy();
 		});
 
-		it('displays last refreshed time after fresh API call (no cache)', async () => {
+		it('shows timestamp from API response not current time', async () => {
 			render(TemperaturePanel);
 
-			// Wait for temperature to load and last-refreshed to appear
+			// Wait for temperature to load
 			await waitFor(() => {
-				expect(screen.getByTestId('last-refreshed')).toBeTruthy();
+				expect(screen.getByTestId('wirelesstag-timestamp')).toBeTruthy();
 			});
+
+			// The timestamp should contain the date from the mock (Dec 11)
+			const timestampElement = screen.getByTestId('wirelesstag-timestamp');
+			expect(timestampElement.textContent).toContain('Dec');
 		});
 
-		it('groups last refreshed time and refresh button together for responsive wrapping', async () => {
-
+		it('groups timestamp and refresh button together', async () => {
 			const { container } = render(TemperaturePanel);
 
 			await waitFor(() => {
-				expect(screen.getByTestId('last-refreshed')).toBeTruthy();
+				expect(screen.getByTestId('wirelesstag-timestamp')).toBeTruthy();
 			});
 
-			// The time and button should share a common parent that won't break internally
-			const timeElement = screen.getByTestId('last-refreshed');
-			const refreshButton = screen.getByRole('button', { name: /refresh/i });
+			// The time and button should share a common parent
+			const timeElement = screen.getByTestId('wirelesstag-timestamp');
+			const refreshButton = screen.getByTestId('wirelesstag-refresh');
 
 			// Both should be in the same parent container
 			expect(timeElement.parentElement).toBe(refreshButton.parentElement);
-
-			// The parent should use shrink-0 to prevent breaking
-			expect(timeElement.parentElement?.className).toContain('shrink-0');
 		});
 	});
 

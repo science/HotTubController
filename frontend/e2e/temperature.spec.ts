@@ -142,8 +142,8 @@ test.describe('Temperature Display Feature', () => {
 			// WirelessTag section should have its own timestamp display
 			const wirelesstagTimestamp = page.locator('[data-testid="wirelesstag-timestamp"]');
 			await expect(wirelesstagTimestamp).toBeVisible();
-			// Should contain "Last fetched:" label
-			await expect(wirelesstagTimestamp).toContainText(/Last fetched:/i);
+			// Should contain "Last reading:" label (shows when sensor took reading, not when fetched)
+			await expect(wirelesstagTimestamp).toContainText(/Last reading:/i);
 		});
 
 		test('ESP32 and WirelessTag have separate timestamps', async ({ page }) => {

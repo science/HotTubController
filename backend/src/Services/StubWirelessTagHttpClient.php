@@ -36,6 +36,7 @@ class StubWirelessTagHttpClient implements WirelessTagHttpClientInterface
     private int $signalDbm = -65;
     private string $deviceUuid = 'stub-device-uuid-12345';
     private string $deviceName = 'Hot tub temperature (stub)';
+    private ?int $lastCommTimestamp = null; // Unix timestamp, null = use current time
 
     /**
      * Configure stub temperature for testing specific scenarios.
@@ -80,6 +81,17 @@ class StubWirelessTagHttpClient implements WirelessTagHttpClientInterface
     {
         $this->deviceUuid = $uuid;
         $this->deviceName = $name;
+        return $this;
+    }
+
+    /**
+     * Configure stub lastComm timestamp for testing timestamp handling.
+     *
+     * @param int $unixTimestamp Unix timestamp for when sensor "took" the reading
+     */
+    public function setLastCommTimestamp(int $unixTimestamp): self
+    {
+        $this->lastCommTimestamp = $unixTimestamp;
         return $this;
     }
 
@@ -133,8 +145,9 @@ class StubWirelessTagHttpClient implements WirelessTagHttpClientInterface
      */
     private function generateNetTimestamp(): int
     {
-        // Convert current Unix timestamp to .NET ticks
-        $unixTimestamp = time();
+        // Use configured timestamp or current time
+        $unixTimestamp = $this->lastCommTimestamp ?? time();
+        // Convert Unix timestamp to .NET ticks
         $dotNetEpochOffset = 621355968000000000;
         return ($unixTimestamp * 10000000) + $dotNetEpochOffset;
     }
