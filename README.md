@@ -1,6 +1,6 @@
 # Hot Tub Controller
 
-A web-based automation system for intelligent hot tub temperature management and equipment control. Control your hot tub heater, pump, and ionizer remotely via a mobile-friendly web interface with scheduling, temperature monitoring, and safety features.
+A web-based automation system for intelligent hot tub temperature management and equipment control. Control your hot tub heater, pump, and ionizer remotely via a mobile-friendly web interface with scheduling, temperature monitoring, and safety features. 
 
 ## Why Use This?
 
@@ -14,12 +14,14 @@ If you have a hot tub without built-in smart controls, this project lets you:
 
 The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it compatible with most affordable smart home equipment.
 
+The system is designed to run on "garbage hosts" such as cPanel. The main requirement is that your host must allow cron job scheduling (and scheduled crons must execute reliable). Otherwise it uses only basic http APIs between front and backend, and between backend. And calls to IFTTT and Wirelesstag are similarly basic. The ESP32 thermometer integration is "receive only" - so the ESP32 device sends temperature on a schedule, which the backend can alter whenever the device phones in (to increase or decrease the frequency of reporting). 
+
 ## System Architecture
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Web Browser    │────▶│   PHP Backend   │────▶│  IFTTT Webhooks │
-│  (SvelteKit)    │◀────│   REST API      │     └────────┬────────┘
+│  Web Browser    │───▶│   PHP Backend   │───▶│  IFTTT Webhooks │
+│  (SvelteKit)    │◀───│   REST API      │     └────────┬────────┘
 └─────────────────┘     └────────┬────────┘              │
                                  │                        ▼
                                  │              ┌─────────────────┐
@@ -55,10 +57,10 @@ The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it
 
 **Option 1: ESP32 with DS18B20 (Recommended)**
 - **ESP32 Development Board** - WiFi-enabled microcontroller
-  - Any ESP32-WROOM-32 based board (NodeMCU, DevKit, etc.)
+  - ESP32-WROOM-32 based board (NodeMCU, DevKit, etc.) uch as [this one](https://www.amazon.com/dp/B0DNFN7FHD).
 - **DS18B20 Temperature Sensor** - Waterproof digital thermometer
   - 1-Wire interface, accurate to 0.5C
-  - 4.7K pull-up resistor required (connect between data and VCC)
+  - 4.7K pull-up resistor required (connect between data and VCC) such as [this one](https://www.amazon.com/dp/B08V93CTM2)
 - **PlatformIO** - For firmware development and flashing
   - See `esp32/` directory for firmware code
 
@@ -73,14 +75,16 @@ The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it
 ### Equipment Control
 
 - **Smart Relay Controller** - IFTTT-compatible device for pump and heater control
-  - Compatible: SmartLife or Tuya-based smart switches/relays
+  - Compatible: SmartLife or Tuya-based smart switches/relays such as [this one](https://www.amazon.com/dp/B08M3B1TZW)
   - Example: 4-channel WiFi relay modules with smartphone app
 - **IFTTT Account** - Free tier works fine for webhook integrations
   - Sign up: [IFTTT.com](https://ifttt.com)
 
 ## IFTTT Webhook Setup
 
-The system requires IFTTT webhook events connected to SmartLife/Tuya "scenes". Since IFTTT cannot directly control individual SmartLife switches, you create scenes that IFTTT can trigger.
+The system requires IFTTT webhook events connected to SmartLife/Tuya "scenes". Since IFTTT cannot directly control individual SmartLife switches, you create scenes that IFTTT can trigger. 
+
+If you use other smart home control systems, they will work fine as long as IFTTT can trigger the appropriate events associated with the Webhooks described below.
 
 ### Required Webhooks
 
@@ -113,8 +117,8 @@ This sequencing protects heating elements by ensuring proper water flow during o
 1. Go to [IFTTT Create](https://ifttt.com/create)
 2. **If This**: Choose "Webhooks" → "Receive a web request"
 3. **Event Name**: Enter exactly `hot-tub-heat-on` (case-sensitive)
-4. **Then That**: Choose "SmartLife" → "Activate scene"
-5. **Scene**: Select your "Heat On" scene
+4. **Then That**: Choose your controller system such as "SmartLife" → "Activate scene"
+5. **Scene**: Select your "Heat On" scene or however your backend controller works
 6. Save and repeat for other webhooks
 
 Get your webhook key from: https://ifttt.com/maker_webhooks/settings
