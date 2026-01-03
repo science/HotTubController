@@ -148,6 +148,16 @@ class MaintenanceCronService
     }
 
     /**
+     * Get the server timezone used for cron scheduling.
+     *
+     * @return string Timezone identifier (e.g., "America/New_York")
+     */
+    public function getServerTimezone(): string
+    {
+        return $this->serverTimezone ?? TimeConverter::getSystemTimezone();
+    }
+
+    /**
      * Build the cron entry for log rotation.
      *
      * Calls the log-rotation-cron.sh script which handles:

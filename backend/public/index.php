@@ -11,6 +11,7 @@ use HotTub\Controllers\ScheduleController;
 use HotTub\Controllers\UserController;
 use HotTub\Controllers\TemperatureController;
 use HotTub\Controllers\MaintenanceController;
+use HotTub\Controllers\MaintenanceSetupController;
 use HotTub\Controllers\Esp32TemperatureController;
 use HotTub\Controllers\Esp32SensorConfigController;
 use HotTub\Services\TemperatureStateService;
@@ -28,6 +29,8 @@ use HotTub\Services\SchedulerService;
 use HotTub\Services\CrontabAdapter;
 use HotTub\Services\CrontabBackupService;
 use HotTub\Services\HealthchecksClientFactory;
+use HotTub\Services\MaintenanceCronService;
+use HotTub\Services\TimeConverter;
 use HotTub\Services\RequestLogger;
 use HotTub\Middleware\AuthMiddleware;
 use HotTub\Middleware\CorsMiddleware;
@@ -170,6 +173,19 @@ $maintenanceController = new MaintenanceController(
     $logRotationPingUrl
 );
 
+// Create maintenance setup controller for deploy-time configuration
+// This endpoint is called by GitHub Actions after FTP deploy to set up cron + healthcheck
+$logRotationCronScript = __DIR__ . '/../storage/bin/log-rotation-cron.sh';
+$serverTimezone = TimeConverter::getSystemTimezone();
+$maintenanceCronService = new MaintenanceCronService(
+    $crontabAdapter,
+    $logRotationCronScript,
+    $healthchecksClient,
+    $logRotationHealthcheckStateFile,
+    $serverTimezone
+);
+$maintenanceSetupController = new MaintenanceSetupController($maintenanceCronService);
+
 // Parse request URI
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
@@ -239,6 +255,7 @@ $router->put('/api/users/{username}/password', fn($params) => handleUserPassword
 
 // Protected maintenance routes (called by cron with CRON_JWT)
 $router->post('/api/maintenance/logs/rotate', fn() => $maintenanceController->rotateLogs(), $requireAuth);
+$router->post('/api/maintenance/setup', fn() => $maintenanceSetupController->setup(), $requireAuth);
 
 // Dispatch request
 $response = $router->dispatch($method, $uri);
