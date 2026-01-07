@@ -3,6 +3,7 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <api_client.h>
+#include <telnet_debugger.h>
 
 // Hardware pins
 #define ONE_WIRE_BUS 4
@@ -14,6 +15,7 @@ OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 ApiClient* apiClient = nullptr;
 BackoffTimer backoffTimer;
+TelnetDebugger* debugger = nullptr;
 
 String deviceId;
 unsigned long lastReportTime = 0;
@@ -66,11 +68,20 @@ void setup() {
     Serial.printf("API Endpoint: %s\n", API_ENDPOINT);
     Serial.printf("Default interval: %d seconds\n", DEFAULT_INTERVAL_SEC);
 
+    // Initialize telnet debugger for remote diagnostics
+    debugger = new TelnetDebugger(&sensors, &oneWire, ONE_WIRE_BUS);
+    if (debugger->begin()) {
+        Serial.printf("Telnet debugger available at %s:23\n", WiFi.localIP().toString().c_str());
+    }
+
     // Trigger immediate first report
     lastReportTime = millis() - currentIntervalMs - 1000;
 }
 
 void loop() {
+    // Handle telnet connections
+    debugger->loop();
+
     unsigned long now = millis();
 
     // Check if it's time to report
