@@ -183,6 +183,35 @@ class Esp32SensorConfigServiceTest extends TestCase
 
     /**
      * @test
+     * This test reproduces a bug where assigning a role to a new sensor
+     * doesn't clear the role from the old sensor, causing getSensorByRole
+     * to return the wrong (old) sensor address.
+     */
+    public function setSensorRoleClearsPreviousRoleFromOtherSensors(): void
+    {
+        $oldSensor = '28:AA:AA:AA:AA:AA:AA:AA';
+        $newSensor = '28:BB:BB:BB:BB:BB:BB:BB';
+
+        // Old sensor has water role
+        $this->service->setSensorRole($oldSensor, 'water');
+        $this->assertEquals('water', $this->service->getSensorConfig($oldSensor)['role']);
+        $this->assertEquals($oldSensor, $this->service->getSensorByRole('water'));
+
+        // Assign water role to new sensor
+        $this->service->setSensorRole($newSensor, 'water');
+
+        // New sensor should have water role
+        $this->assertEquals('water', $this->service->getSensorConfig($newSensor)['role']);
+
+        // Old sensor should NO LONGER have water role (should be unassigned)
+        $this->assertEquals('unassigned', $this->service->getSensorConfig($oldSensor)['role']);
+
+        // getSensorByRole should return the NEW sensor
+        $this->assertEquals($newSensor, $this->service->getSensorByRole('water'));
+    }
+
+    /**
+     * @test
      */
     public function getSensorByRoleReturnsCorrectSensor(): void
     {

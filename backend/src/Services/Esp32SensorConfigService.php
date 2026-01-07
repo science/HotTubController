@@ -33,6 +33,9 @@ class Esp32SensorConfigService
     /**
      * Set the role for a sensor.
      *
+     * When assigning a non-'unassigned' role, clears that role from any
+     * other sensor that previously had it (roles are exclusive).
+     *
      * @throws \InvalidArgumentException if role is invalid
      */
     public function setSensorRole(string $address, string $role): void
@@ -41,6 +44,15 @@ class Esp32SensorConfigService
             throw new \InvalidArgumentException(
                 "Invalid role '$role'. Valid roles: " . implode(', ', self::VALID_ROLES)
             );
+        }
+
+        // Clear this role from any other sensor (roles are exclusive)
+        if ($role !== 'unassigned') {
+            foreach ($this->config['sensors'] as $existingAddress => $config) {
+                if ($existingAddress !== $address && ($config['role'] ?? null) === $role) {
+                    $this->config['sensors'][$existingAddress]['role'] = 'unassigned';
+                }
+            }
         }
 
         $this->ensureSensorExists($address);
