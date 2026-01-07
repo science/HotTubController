@@ -1,0 +1,56 @@
+# Baseline diagnostic capture - Known Good Test Probes
+# Captured: 2026-01-07T14:33:57-08:00
+# Purpose: Compare against problematic hot tub probe
+
+=================================
+ESP32 Hot Tub Diagnostic Console
+=================================
+Type 'help' for commands
+
+
+========== FULL DIAGNOSTICS ==========
+
+--- Connection Info ---
+WiFi SSID: misuse
+IP Address: 10.21.11.148
+Signal Strength: -35 dBm
+Uptime: 227 seconds
+
+--- Hardware Config ---
+OneWire Pin: GPIO4
+
+--- OneWire Bus Scan ---
+Bus State: Presence pulse detected (OK)
+Power Mode: PARASITIC (2-wire)
+Devices Found: 2
+
+--- Device Details ---
+
+Device 0:
+  Address: 28:F6:DD:87:00:88:1E:E8
+  Family: DS18B20 (0x28)
+  Resolution: 12 bits
+  CRC: Valid
+
+Device 1:
+  Address: 28:D5:AA:87:00:23:16:34
+  Family: DS18B20 (0x28)
+  Resolution: 12 bits
+  CRC: Valid
+
+--- Sensor Readings ---
+Requesting temperatures...
+Conversion time: 492 ms
+
+Sensor 0 (28:F6:DD:87:00:88:1E:E8):
+  Temperature: 18.81 C / 65.86 F
+  Status: OK
+
+Sensor 1 (28:D5:AA:87:00:23:16:34):
+  Temperature: 18.19 C / 64.74 F
+  Status: OK
+
+
+========== END DIAGNOSTICS ==========
+
+

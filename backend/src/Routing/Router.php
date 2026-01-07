@@ -133,10 +133,10 @@ class Router
         // Extract parameter names from pattern
         preg_match_all('/\{([^}]+)\}/', $pattern, $paramNames);
 
-        // Build params array
+        // Build params array (URL-decode values since they come from the URL)
         $params = [];
         foreach ($paramNames[1] as $index => $name) {
-            $params[$name] = $matches[$index + 1];
+            $params[$name] = urldecode($matches[$index + 1]);
         }
 
         return $params;

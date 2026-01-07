@@ -118,4 +118,54 @@ class RouterTest extends TestCase
         $this->assertSame(401, $result['status']);
         $this->assertSame('Unauthorized', $result['body']['error']);
     }
+
+    public function testDynamicRouteWithParameter(): void
+    {
+        $handler = fn(array $params) => [
+            'status' => 200,
+            'body' => ['id' => $params['id']],
+        ];
+
+        $this->router->get('/api/items/{id}', $handler);
+
+        $result = $this->router->dispatch('GET', '/api/items/123');
+
+        $this->assertSame(200, $result['status']);
+        $this->assertSame('123', $result['body']['id']);
+    }
+
+    public function testDynamicRouteDecodesUrlEncodedParameters(): void
+    {
+        // This tests the bug where sensor addresses like "28:F6:DD:87:00:88:1E:E8"
+        // get URL-encoded to "28%3AF6%3ADD%3A87%3A00%3A88%3A1E%3AE8" in the URL
+        $handler = fn(array $params) => [
+            'status' => 200,
+            'body' => ['address' => $params['address']],
+        ];
+
+        $this->router->put('/api/sensors/{address}', $handler);
+
+        // Dispatch with URL-encoded address (as browser would send)
+        $result = $this->router->dispatch('PUT', '/api/sensors/28%3AF6%3ADD%3A87%3A00%3A88%3A1E%3AE8');
+
+        $this->assertSame(200, $result['status']);
+        // The handler should receive the DECODED address
+        $this->assertSame('28:F6:DD:87:00:88:1E:E8', $result['body']['address']);
+    }
+
+    public function testDynamicRouteWithMultipleParameters(): void
+    {
+        $handler = fn(array $params) => [
+            'status' => 200,
+            'body' => ['user' => $params['user'], 'post' => $params['post']],
+        ];
+
+        $this->router->get('/api/users/{user}/posts/{post}', $handler);
+
+        $result = $this->router->dispatch('GET', '/api/users/john/posts/456');
+
+        $this->assertSame(200, $result['status']);
+        $this->assertSame('john', $result['body']['user']);
+        $this->assertSame('456', $result['body']['post']);
+    }
 }
