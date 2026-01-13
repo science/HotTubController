@@ -10,15 +10,18 @@ namespace HotTub\Services;
 class Esp32TemperatureService
 {
     private string $storageFile;
+    private ?EquipmentStatusService $equipmentStatus;
 
     // Interval bounds (seconds)
     public const MIN_INTERVAL = 10;
     public const MAX_INTERVAL = 1800;  // 30 minutes
     public const DEFAULT_INTERVAL = 300;  // 5 minutes
+    public const HEATING_INTERVAL = 60;   // 1 minute when heater is on
 
-    public function __construct(string $storageFile)
+    public function __construct(string $storageFile, ?EquipmentStatusService $equipmentStatus = null)
     {
         $this->storageFile = $storageFile;
+        $this->equipmentStatus = $equipmentStatus;
     }
 
     /**
@@ -81,10 +84,17 @@ class Esp32TemperatureService
 
     /**
      * Get the interval to return to ESP32.
-     * For now returns default, but can be extended to support dynamic control.
+     * Returns shorter interval when heater is on for faster temperature updates.
      */
     public function getInterval(): int
     {
+        if ($this->equipmentStatus !== null) {
+            $status = $this->equipmentStatus->getStatus();
+            if ($status['heater']['on']) {
+                return self::HEATING_INTERVAL;
+            }
+        }
+
         return self::DEFAULT_INTERVAL;
     }
 
