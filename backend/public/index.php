@@ -109,7 +109,7 @@ $temperatureStateService = new TemperatureStateService($temperatureStateFile);
 // (must be created before TemperatureController so we can inject it)
 $esp32TemperatureFile = __DIR__ . '/../storage/state/esp32-temperature.json';
 $esp32ConfigFile = __DIR__ . '/../storage/state/esp32-sensor-config.json';
-$esp32TemperatureService = new Esp32TemperatureService($esp32TemperatureFile);
+$esp32TemperatureService = new Esp32TemperatureService($esp32TemperatureFile, $equipmentStatusService);
 $esp32SensorConfigService = new Esp32SensorConfigService($esp32ConfigFile);
 $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TemperatureService, $esp32SensorConfigService);
 $esp32ApiKey = $config['ESP32_API_KEY'] ?? '';
