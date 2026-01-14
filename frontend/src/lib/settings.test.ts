@@ -4,8 +4,13 @@ import {
 	setRefreshTempOnHeaterOff,
 	getCachedTemperature,
 	setCachedTemperature,
+	getTargetTempEnabled,
+	setTargetTempEnabled,
+	getTargetTempF,
+	setTargetTempF,
 	type CachedTemperature,
-	SETTINGS_DEFAULTS
+	SETTINGS_DEFAULTS,
+	TARGET_TEMP_DEFAULTS
 } from './settings';
 
 describe('settings', () => {
@@ -135,6 +140,103 @@ describe('settings', () => {
 
 			const cached = getCachedTemperature();
 			expect(cached!.water_temp_f).toBe(102.0);
+		});
+	});
+
+	describe('TARGET_TEMP_DEFAULTS', () => {
+		it('has enabled default as false', () => {
+			expect(TARGET_TEMP_DEFAULTS.enabled).toBe(false);
+		});
+
+		it('has targetTempF default as 103', () => {
+			expect(TARGET_TEMP_DEFAULTS.targetTempF).toBe(103);
+		});
+
+		it('has minTempF as 80', () => {
+			expect(TARGET_TEMP_DEFAULTS.minTempF).toBe(80);
+		});
+
+		it('has maxTempF as 110', () => {
+			expect(TARGET_TEMP_DEFAULTS.maxTempF).toBe(110);
+		});
+	});
+
+	describe('getTargetTempEnabled', () => {
+		it('returns default value when not set', () => {
+			expect(getTargetTempEnabled()).toBe(TARGET_TEMP_DEFAULTS.enabled);
+		});
+
+		it('returns true when stored as "true"', () => {
+			localStorage.setItem('hotTubTargetTempEnabled', 'true');
+			expect(getTargetTempEnabled()).toBe(true);
+		});
+
+		it('returns false when stored as "false"', () => {
+			localStorage.setItem('hotTubTargetTempEnabled', 'false');
+			expect(getTargetTempEnabled()).toBe(false);
+		});
+	});
+
+	describe('setTargetTempEnabled', () => {
+		it('stores true value', () => {
+			setTargetTempEnabled(true);
+			expect(localStorage.getItem('hotTubTargetTempEnabled')).toBe('true');
+		});
+
+		it('stores false value', () => {
+			setTargetTempEnabled(false);
+			expect(localStorage.getItem('hotTubTargetTempEnabled')).toBe('false');
+		});
+
+		it('persists value that can be retrieved', () => {
+			setTargetTempEnabled(true);
+			expect(getTargetTempEnabled()).toBe(true);
+
+			setTargetTempEnabled(false);
+			expect(getTargetTempEnabled()).toBe(false);
+		});
+	});
+
+	describe('getTargetTempF', () => {
+		it('returns default value when not set', () => {
+			expect(getTargetTempF()).toBe(TARGET_TEMP_DEFAULTS.targetTempF);
+		});
+
+		it('returns stored value', () => {
+			localStorage.setItem('hotTubTargetTempF', '100');
+			expect(getTargetTempF()).toBe(100);
+		});
+
+		it('returns default if stored value is not a valid number', () => {
+			localStorage.setItem('hotTubTargetTempF', 'invalid');
+			expect(getTargetTempF()).toBe(TARGET_TEMP_DEFAULTS.targetTempF);
+		});
+	});
+
+	describe('setTargetTempF', () => {
+		it('stores temperature value', () => {
+			setTargetTempF(105);
+			expect(localStorage.getItem('hotTubTargetTempF')).toBe('105');
+		});
+
+		it('clamps value to minimum', () => {
+			setTargetTempF(50);
+			expect(getTargetTempF()).toBe(TARGET_TEMP_DEFAULTS.minTempF);
+		});
+
+		it('clamps value to maximum', () => {
+			setTargetTempF(150);
+			expect(getTargetTempF()).toBe(TARGET_TEMP_DEFAULTS.maxTempF);
+		});
+
+		it('allows values within range', () => {
+			setTargetTempF(95);
+			expect(getTargetTempF()).toBe(95);
+		});
+
+		it('persists value that can be retrieved', () => {
+			setTargetTempF(100);
+			expect(getTargetTempF()).toBe(100);
 		});
 	});
 });

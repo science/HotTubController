@@ -6,6 +6,7 @@
 		getAutoHeatOffMinutes,
 		calculateHeatOffTime
 	} from '$lib/autoHeatOff';
+	import { getTargetTempEnabled, getTargetTempF } from '$lib/settings';
 
 	interface Props {
 		onScheduled?: (result: { success: boolean; message: string }) => void;
@@ -22,36 +23,52 @@
 
 		try {
 			const scheduledTime = getScheduleTime(option);
-			await api.scheduleJob('heater-on', scheduledTime);
-
 			const date = new Date(scheduledTime);
 			const timeStr = date.toLocaleTimeString(undefined, {
 				hour: 'numeric',
 				minute: '2-digit'
 			});
 
-			// Check if auto heat-off is enabled and schedule heater-off
-			const autoHeatOffEnabled = getAutoHeatOffEnabled();
-			if (autoHeatOffEnabled) {
-				const autoHeatOffMinutes = getAutoHeatOffMinutes();
-				const heatOffTime = calculateHeatOffTime(scheduledTime, autoHeatOffMinutes);
-				await api.scheduleJob('heater-off', heatOffTime);
+			// Check if target temp mode is enabled
+			const targetTempEnabled = getTargetTempEnabled();
 
-				const offDate = new Date(heatOffTime);
-				const offTimeStr = offDate.toLocaleTimeString(undefined, {
-					hour: 'numeric',
-					minute: '2-digit'
-				});
+			if (targetTempEnabled) {
+				// Use heat-to-target instead of heater-on
+				const targetTempF = getTargetTempF();
+				await api.scheduleJob('heat-to-target', scheduledTime, false, { target_temp_f: targetTempF });
 
+				// No auto heat-off needed - target temp system handles turn-off automatically
 				onScheduled?.({
 					success: true,
-					message: `Heat scheduled for ${timeStr}, auto off at ${offTimeStr}`
+					message: `Heat to ${targetTempF}°F scheduled for ${timeStr}`
 				});
 			} else {
-				onScheduled?.({
-					success: true,
-					message: `Heat scheduled for ${timeStr}`
-				});
+				// Standard heater-on behavior
+				await api.scheduleJob('heater-on', scheduledTime);
+
+				// Check if auto heat-off is enabled and schedule heater-off
+				const autoHeatOffEnabled = getAutoHeatOffEnabled();
+				if (autoHeatOffEnabled) {
+					const autoHeatOffMinutes = getAutoHeatOffMinutes();
+					const heatOffTime = calculateHeatOffTime(scheduledTime, autoHeatOffMinutes);
+					await api.scheduleJob('heater-off', heatOffTime);
+
+					const offDate = new Date(heatOffTime);
+					const offTimeStr = offDate.toLocaleTimeString(undefined, {
+						hour: 'numeric',
+						minute: '2-digit'
+					});
+
+					onScheduled?.({
+						success: true,
+						message: `Heat scheduled for ${timeStr}, auto off at ${offTimeStr}`
+					});
+				} else {
+					onScheduled?.({
+						success: true,
+						message: `Heat scheduled for ${timeStr}`
+					});
+				}
 			}
 		} catch (e) {
 			onScheduled?.({

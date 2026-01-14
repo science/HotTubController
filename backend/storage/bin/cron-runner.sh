@@ -137,17 +137,34 @@ fi
 
 FULL_URL="${API_BASE_URL}${ENDPOINT}"
 
+# Extract params object if present (for heat-to-target jobs)
+# This extracts the entire params JSON object: {"target_temp_f": 103.5}
+REQUEST_BODY=""
+if grep -q '"params"' "$JOB_FILE" 2>/dev/null; then
+    # Extract the params value - handles nested JSON object
+    # Use sed to extract everything between "params": and the next closing brace that matches
+    REQUEST_BODY=$(sed -n 's/.*"params"[[:space:]]*:[[:space:]]*\({[^}]*}\).*/\1/p' "$JOB_FILE" || true)
+    if [ -n "$REQUEST_BODY" ]; then
+        log "Using request body: $REQUEST_BODY"
+    fi
+fi
+
 # ============================================================
 # STEP 4: Call API endpoint with Bearer token
 # ============================================================
 log "Calling API: POST $FULL_URL"
+
+# Use params as request body if present, otherwise empty JSON object
+if [ -z "$REQUEST_BODY" ]; then
+    REQUEST_BODY="{}"
+fi
 
 HTTP_RESPONSE=$(mktemp)
 HTTP_CODE=$(curl -s -w "%{http_code}" -o "$HTTP_RESPONSE" \
     -X POST "$FULL_URL" \
     -H "Authorization: Bearer $CRON_JWT" \
     -H "Content-Type: application/json" \
-    -d "" \
+    -d "$REQUEST_BODY" \
     --max-time 30 \
     2>&1) || HTTP_CODE="000"
 

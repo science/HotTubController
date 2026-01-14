@@ -20,7 +20,7 @@ class ScheduleController
     /**
      * POST /api/schedule - Create a new scheduled job.
      *
-     * @param array{action?: string, scheduledTime?: string, recurring?: bool} $data Request body
+     * @param array{action?: string, scheduledTime?: string, recurring?: bool, target_temp_f?: float} $data Request body
      * @return array{status: int, body: array}
      */
     public function create(array $data): array
@@ -40,9 +40,21 @@ class ScheduleController
             ];
         }
 
+        // Extract action-specific params (e.g., target_temp_f for heat-to-target)
+        $params = [];
+        if ($data['action'] === 'heat-to-target') {
+            if (!isset($data['target_temp_f'])) {
+                return [
+                    'status' => 400,
+                    'body' => ['error' => 'Missing required field: target_temp_f for heat-to-target action'],
+                ];
+            }
+            $params['target_temp_f'] = (float) $data['target_temp_f'];
+        }
+
         try {
             $recurring = isset($data['recurring']) && $data['recurring'] === true;
-            $result = $this->scheduler->scheduleJob($data['action'], $data['scheduledTime'], $recurring);
+            $result = $this->scheduler->scheduleJob($data['action'], $data['scheduledTime'], $recurring, $params);
 
             return [
                 'status' => 201,

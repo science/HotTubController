@@ -10,6 +10,8 @@ const STORAGE_KEY_REFRESH_TEMP_ON_HEATER_OFF = 'hotTubRefreshTempOnHeaterOff';
 const STORAGE_KEY_TEMPERATURE_CACHE = 'hotTubTemperatureCache';
 const STORAGE_KEY_TEMP_SOURCE_ESP32 = 'hotTubTempSourceEsp32Enabled';
 const STORAGE_KEY_TEMP_SOURCE_WIRELESSTAG = 'hotTubTempSourceWirelessTagEnabled';
+const STORAGE_KEY_TARGET_TEMP_ENABLED = 'hotTubTargetTempEnabled';
+const STORAGE_KEY_TARGET_TEMP_F = 'hotTubTargetTempF';
 
 export interface CachedTemperature extends TemperatureData {
 	cachedAt: number;
@@ -24,6 +26,13 @@ export const SETTINGS_DEFAULTS = {
 	refreshTempOnHeaterOff: true,
 	esp32Enabled: true,
 	wirelessTagEnabled: true
+} as const;
+
+export const TARGET_TEMP_DEFAULTS = {
+	enabled: false, // Off by default (explicit opt-in)
+	targetTempF: 103, // Typical hot tub temperature
+	minTempF: 80,
+	maxTempF: 110
 } as const;
 
 /**
@@ -98,4 +107,49 @@ export function setEsp32Enabled(enabled: boolean): void {
  */
 export function setWirelessTagEnabled(enabled: boolean): void {
 	localStorage.setItem(STORAGE_KEY_TEMP_SOURCE_WIRELESSTAG, enabled ? 'true' : 'false');
+}
+
+/**
+ * Get target temperature mode enabled state from localStorage
+ */
+export function getTargetTempEnabled(): boolean {
+	const stored = localStorage.getItem(STORAGE_KEY_TARGET_TEMP_ENABLED);
+	if (stored === null) {
+		return TARGET_TEMP_DEFAULTS.enabled;
+	}
+	return stored === 'true';
+}
+
+/**
+ * Set target temperature mode enabled state to localStorage
+ */
+export function setTargetTempEnabled(enabled: boolean): void {
+	localStorage.setItem(STORAGE_KEY_TARGET_TEMP_ENABLED, enabled ? 'true' : 'false');
+}
+
+/**
+ * Get target temperature in Fahrenheit from localStorage
+ */
+export function getTargetTempF(): number {
+	const stored = localStorage.getItem(STORAGE_KEY_TARGET_TEMP_F);
+	if (stored === null) {
+		return TARGET_TEMP_DEFAULTS.targetTempF;
+	}
+	const parsed = parseInt(stored, 10);
+	if (isNaN(parsed)) {
+		return TARGET_TEMP_DEFAULTS.targetTempF;
+	}
+	return parsed;
+}
+
+/**
+ * Set target temperature in Fahrenheit to localStorage
+ * Clamps value between min (80) and max (110)
+ */
+export function setTargetTempF(temp: number): void {
+	const clamped = Math.max(
+		TARGET_TEMP_DEFAULTS.minTempF,
+		Math.min(TARGET_TEMP_DEFAULTS.maxTempF, temp)
+	);
+	localStorage.setItem(STORAGE_KEY_TARGET_TEMP_F, clamped.toString());
 }
