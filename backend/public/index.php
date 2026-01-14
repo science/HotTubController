@@ -13,10 +13,12 @@ use HotTub\Controllers\TemperatureController;
 use HotTub\Controllers\MaintenanceController;
 use HotTub\Controllers\Esp32TemperatureController;
 use HotTub\Controllers\Esp32SensorConfigController;
+use HotTub\Controllers\TargetTemperatureController;
 use HotTub\Services\TemperatureStateService;
 use HotTub\Services\Esp32TemperatureService;
 use HotTub\Services\Esp32SensorConfigService;
 use HotTub\Services\Esp32CalibratedTemperatureService;
+use HotTub\Services\TargetTemperatureService;
 use HotTub\Services\LogRotationService;
 use HotTub\Services\EnvLoader;
 use HotTub\Services\CookieHelper;
@@ -141,6 +143,20 @@ $apiBaseUrl = $protocol . '://' . $host . $scriptDir;
 $crontabBackupService = new CrontabBackupService($crontabBackupDir);
 $crontabAdapter = new CrontabAdapter($crontabBackupService);
 
+// Create target temperature service and controller
+// (for automated heating to target temperature)
+$targetTempStateFile = __DIR__ . '/../storage/state/target-temperature.json';
+$targetTemperatureService = new TargetTemperatureService(
+    $targetTempStateFile,
+    $iftttClient,
+    $equipmentStatusService,
+    $esp32TemperatureService,
+    $crontabAdapter,
+    $cronRunnerPath,
+    $apiBaseUrl
+);
+$targetTemperatureController = new TargetTemperatureController($targetTemperatureService);
+
 // Create Healthchecks.io client for job monitoring (feature flag: disabled if no API key)
 $healthchecksFactory = new HealthchecksClientFactory($config);
 $healthchecksClient = $healthchecksFactory->create();
@@ -214,6 +230,11 @@ $router->post('/api/equipment/heater/on', fn() => $equipmentController->heaterOn
 $router->post('/api/equipment/heater/off', fn() => $equipmentController->heaterOff(), $requireAuth);
 $router->post('/api/equipment/pump/run', fn() => $equipmentController->pumpRun(), $requireAuth);
 
+// Target temperature routes (heat to specific temperature)
+$router->post('/api/equipment/heat-to-target', fn() => handleHeatToTarget($targetTemperatureController), $requireAuth);
+$router->get('/api/equipment/heat-to-target', fn() => $targetTemperatureController->status(), $requireAuth);
+$router->delete('/api/equipment/heat-to-target', fn() => $targetTemperatureController->cancel(), $requireAuth);
+
 // Protected blinds routes (optional feature - returns 404 if not enabled)
 $router->post('/api/blinds/open', fn() => $blindsController->open(), $requireAuth);
 $router->post('/api/blinds/close', fn() => $blindsController->close(), $requireAuth);
@@ -244,6 +265,7 @@ $router->put('/api/users/{username}/password', fn($params) => handleUserPassword
 // Protected maintenance routes (called by cron with CRON_JWT)
 // Note: /api/cron/health bypasses framework via .htaccess -> cron-health.php
 $router->post('/api/maintenance/logs/rotate', fn() => $maintenanceController->rotateLogs(), $requireAuth);
+$router->post('/api/maintenance/heat-target-check', fn() => $targetTemperatureController->check(), $requireAuth);
 
 // Dispatch request
 $response = $router->dispatch($method, $uri);
@@ -359,4 +381,10 @@ function handleEsp32SensorUpdate(Esp32SensorConfigController $controller, string
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->update($address, $input);
+}
+
+function handleHeatToTarget(TargetTemperatureController $controller): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->start($input);
 }
