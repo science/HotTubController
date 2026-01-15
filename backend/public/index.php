@@ -19,6 +19,7 @@ use HotTub\Services\Esp32SensorConfigService;
 use HotTub\Services\Esp32CalibratedTemperatureService;
 use HotTub\Services\LogRotationService;
 use HotTub\Services\EnvLoader;
+use HotTub\Services\CookieHelper;
 use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\IftttClientFactory;
 use HotTub\Services\WirelessTagClientFactory;
@@ -83,6 +84,7 @@ $userRepository = $userRepoFactory->create();
 $authService = new AuthService($userRepository, $config);
 $authMiddleware = new AuthMiddleware($authService);
 $authController = new AuthController($authService);
+$cookieHelper = new CookieHelper(CookieHelper::deriveAppBasePath());
 $userController = new UserController($userRepository);
 
 // Create IFTTT client via factory (uses EXTERNAL_API_MODE from config)
@@ -203,8 +205,8 @@ $router->get('/api/health', function() use ($equipmentController, $blindsControl
 });
 
 // Auth routes
-$router->post('/api/auth/login', fn() => handleLogin($authController, $config));
-$router->post('/api/auth/logout', fn() => handleLogout($authController));
+$router->post('/api/auth/login', fn() => handleLogin($authController, $config, $cookieHelper));
+$router->post('/api/auth/logout', fn() => handleLogout($authController, $cookieHelper));
 $router->get('/api/auth/me', fn() => handleMe($authController, $headers, $cookies));
 
 // Protected equipment routes (with auth middleware)
@@ -275,7 +277,7 @@ $requestLogger->log(
 );
 
 // Auth route handlers
-function handleLogin(AuthController $controller, array $config): array
+function handleLogin(AuthController $controller, array $config, CookieHelper $cookieHelper): array
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     $username = $input['username'] ?? '';
@@ -285,35 +287,24 @@ function handleLogin(AuthController $controller, array $config): array
 
     // Set httpOnly cookie if login successful
     if ($response['status'] === 200 && isset($response['body']['token'])) {
+        $expirySeconds = (int)($config['JWT_EXPIRY_HOURS'] ?? 24) * 3600;
         setcookie(
-            'auth_token',
+            $cookieHelper->getCookieName(),
             $response['body']['token'],
-            [
-                'expires' => time() + ((int)($config['JWT_EXPIRY_HOURS'] ?? 24) * 3600),
-                'path' => '/',
-                'httponly' => true,
-                'samesite' => 'Lax',
-                'secure' => isset($_SERVER['HTTPS']),
-            ]
+            $cookieHelper->getAuthCookieOptions($response['body']['token'], $expirySeconds)
         );
     }
 
     return $response;
 }
 
-function handleLogout(AuthController $controller): array
+function handleLogout(AuthController $controller, CookieHelper $cookieHelper): array
 {
     // Clear the auth cookie
     setcookie(
-        'auth_token',
+        $cookieHelper->getCookieName(),
         '',
-        [
-            'expires' => time() - 3600,
-            'path' => '/',
-            'httponly' => true,
-            'samesite' => 'Lax',
-            'secure' => isset($_SERVER['HTTPS']),
-        ]
+        $cookieHelper->getClearCookieOptions()
     );
 
     return $controller->logout();
