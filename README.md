@@ -14,8 +14,6 @@ If you have a hot tub without built-in smart controls, this project lets you:
 
 The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it compatible with most affordable smart home equipment.
 
-The system is designed to run on "garbage hosts" such as cPanel. The main requirement is that your host must allow cron job scheduling (and scheduled crons must execute reliable). Otherwise it uses only basic http APIs between front and backend, and between backend. And calls to IFTTT and Wirelesstag are similarly basic. The ESP32 thermometer integration is "receive only" - so the ESP32 device sends temperature on a schedule, which the backend can alter whenever the device phones in (to increase or decrease the frequency of reporting). 
-
 ## System Architecture
 
 ```
@@ -322,6 +320,16 @@ Never deploy to production without:
 2. Setting a secure JWT_SECRET
 3. Configuring HTTPS
 4. Testing equipment sequencing with your actual setup
+
+## Deployment Notes
+The system is designed to run on "low cost web hosting services" such as cPanel hosts. The main requirement is that your host must allow cron job scheduling (and scheduled crons must execute reliable). Otherwise it uses only basic http APIs between front and backend, and between backend. And calls to IFTTT and Wirelesstag are similarly basic. The ESP32 thermometer integration is "receive only" - so the ESP32 device sends temperature on a schedule, which the backend can alter whenever the device phones in (to increase or decrease the frequency of reporting). 
+
+### FTP Deploy Action Tool for FTP+SSL - Thanks Sam!
+Due to the low cost host, "real" deployment techniques may not be available. Currently I'm deploying this to my host via FTP+SSL in a Github Action, which is working perfectly thanks to this free tool:
+
+[<img alt="Website Deployed for Free with FTP Deploy Action" src="https://img.shields.io/badge/Website deployed for free with-FTP DEPLOY ACTION-%3CCOLOR%3E?style=for-the-badge&color=d00000">](https://github.com/SamKirkland/FTP-Deploy-Action)
+
+
 
 ## Logging & Monitoring
 
