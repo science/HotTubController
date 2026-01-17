@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace HotTub\Tests\Unit\Services;
 
 use PHPUnit\Framework\TestCase;
-use HotTub\Services\CurlWirelessTagHttpClient;
-use HotTub\Services\StubWirelessTagHttpClient;
 use HotTub\Services\CurlHttpClient;
 use HotTub\Services\StubHttpClient;
 use HotTub\Services\HealthchecksClient;
@@ -51,19 +49,6 @@ class ClientModeTripwireTest extends TestCase
     /**
      * @test
      */
-    public function curlWirelessTagHttpClientThrowsInStubMode(): void
-    {
-        putenv('EXTERNAL_API_MODE=stub');
-
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('EXTERNAL_API_MODE=stub');
-
-        new CurlWirelessTagHttpClient('test-token', 60);
-    }
-
-    /**
-     * @test
-     */
     public function curlHttpClientThrowsInStubMode(): void
     {
         putenv('EXTERNAL_API_MODE=stub');
@@ -90,19 +75,6 @@ class ClientModeTripwireTest extends TestCase
     // =========================================================================
     // Stub clients should throw in live mode
     // =========================================================================
-
-    /**
-     * @test
-     */
-    public function stubWirelessTagHttpClientThrowsInLiveMode(): void
-    {
-        putenv('EXTERNAL_API_MODE=live');
-
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('EXTERNAL_API_MODE=live');
-
-        new StubWirelessTagHttpClient();
-    }
 
     /**
      * @test
@@ -137,19 +109,6 @@ class ClientModeTripwireTest extends TestCase
     /**
      * @test
      */
-    public function curlWirelessTagHttpClientAllowedInLiveMode(): void
-    {
-        putenv('EXTERNAL_API_MODE=live');
-
-        // Should NOT throw
-        $client = new CurlWirelessTagHttpClient('test-token', 60);
-
-        $this->assertInstanceOf(CurlWirelessTagHttpClient::class, $client);
-    }
-
-    /**
-     * @test
-     */
     public function curlHttpClientAllowedInLiveMode(): void
     {
         putenv('EXTERNAL_API_MODE=live');
@@ -171,19 +130,6 @@ class ClientModeTripwireTest extends TestCase
         $client = new HealthchecksClient('test-api-key');
 
         $this->assertInstanceOf(HealthchecksClient::class, $client);
-    }
-
-    /**
-     * @test
-     */
-    public function stubWirelessTagHttpClientAllowedInStubMode(): void
-    {
-        putenv('EXTERNAL_API_MODE=stub');
-
-        // Should NOT throw
-        $client = new StubWirelessTagHttpClient();
-
-        $this->assertInstanceOf(StubWirelessTagHttpClient::class, $client);
     }
 
     /**

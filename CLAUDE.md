@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hot tub controller system with a PHP backend API, SvelteKit frontend, and ESP32 temperature sensor. Controls real hardware via IFTTT webhooks (heater, pump, ionizer) and monitors temperature via ESP32 with DS18B20 probes (or WirelessTag as fallback).
+Hot tub controller system with a PHP backend API, SvelteKit frontend, and ESP32 temperature sensor. Controls real hardware via IFTTT webhooks (heater, pump, ionizer) and monitors temperature via ESP32 with DS18B20 probes.
 
 ## Project Structure
 
@@ -28,7 +28,7 @@ php -S localhost:8080 -t public         # Start dev server
 
 **Test Groups:**
 - Default (`composer test`): Fast tests using stubs/mocks - safe for daily development
-- Live (`composer test:live`): Tests that hit real external APIs (WirelessTag, etc.)
+- Live (`composer test:live`): Tests that hit real external APIs (Healthchecks.io, etc.)
 - All (`composer test:all`): Full suite - **run before pushing to production**
 
 Tests tagged `@group live` are excluded by default to keep the feedback loop fast and avoid hitting external APIs unnecessarily.
@@ -111,14 +111,13 @@ cd backend && composer cleanup:healthchecks
   - `AuthController` - JWT-based authentication
   - `UserController` - User management (admin only)
   - `MaintenanceController` - Log rotation endpoint for cron
-  - `TemperatureController` - Temperature readings (ESP32 or WirelessTag fallback)
+  - `TemperatureController` - Temperature readings from ESP32
   - `Esp32TemperatureController` - Receives temperature data from ESP32
   - `Esp32SensorConfigController` - Sensor role assignment and calibration
 - **Services**:
   - `EnvLoader` - File-based `.env` configuration loading
   - `SchedulerService` - Creates/lists/cancels cron jobs with Healthchecks.io monitoring
   - `AuthService` - JWT token validation
-  - `WirelessTagClient` - Temperature sensor readings from WirelessTag API
   - `EquipmentStatusService` - Tracks heater/pump on/off state in JSON file
   - `RequestLogger` - API request logging in JSON Lines format
   - `LogRotationService` - Compresses and deletes old log files
@@ -132,11 +131,6 @@ cd backend && composer cleanup:healthchecks
   - `StubHttpClient` - Simulates API calls (safe for testing)
   - `CurlHttpClient` - Makes real IFTTT webhook calls
 - **Factory**: `IftttClientFactory` - Creates client based on EXTERNAL_API_MODE
-- **WirelessTag Client Pattern**: Same strategy pattern for temperature sensor API:
-  - `WirelessTagClient` - Unified client with injectable HTTP layer
-  - `StubWirelessTagHttpClient` - Simulates sensor data (configurable temps)
-  - `CurlWirelessTagHttpClient` - Real API calls to WirelessTag cloud
-- **Factory**: `WirelessTagClientFactory` - Creates client based on EXTERNAL_API_MODE
 - **Healthchecks.io Client**: Optional monitoring integration:
   - `HealthchecksClient` - Real API calls to Healthchecks.io
   - `NullHealthchecksClient` - No-op client (stub mode or no API key)
@@ -166,8 +160,7 @@ cd backend && composer cleanup:healthchecks
 - `POST /api/equipment/heater/on` - Trigger IFTTT `hot-tub-heat-on` (auth required)
 - `POST /api/equipment/heater/off` - Trigger IFTTT `hot-tub-heat-off` (auth required)
 - `POST /api/equipment/pump/run` - Trigger IFTTT `cycle_hot_tub_ionizer` (auth required)
-- `GET /api/temperature` - Get current temperatures (uses ESP32 if configured, falls back to WirelessTag)
-- `POST /api/temperature/refresh` - Request fresh reading from WirelessTag sensor
+- `GET /api/temperature` - Get current temperatures from ESP32
 - `POST /api/esp32/temperature` - Receive temperature data from ESP32 (API key auth)
 - `GET /api/esp32/sensors` - List ESP32 sensors with config (admin only)
 - `PUT /api/esp32/sensors/{address}` - Update sensor role/calibration (admin only)
@@ -255,7 +248,7 @@ cp config/env.production.example .env
 ```
 
 ### External API Mode Configuration
-A unified `EXTERNAL_API_MODE` controls ALL external service calls (IFTTT, WirelessTag, Healthchecks.io):
+A unified `EXTERNAL_API_MODE` controls ALL external service calls (IFTTT, Healthchecks.io):
 
 ```bash
 # In .env file:
@@ -271,8 +264,7 @@ EXTERNAL_API_MODE=live   # Production: real API calls (requires keys)
 ```bash
 EXTERNAL_API_MODE=live
 IFTTT_WEBHOOK_KEY=your-ifttt-key          # For equipment control
-WIRELESSTAG_OAUTH_TOKEN=your-oauth-token  # For temperature sensor
-WIRELESSTAG_DEVICE_ID=0
+ESP32_API_KEY=your-esp32-api-key          # For temperature sensor auth
 ```
 
 **Safety rules:**
