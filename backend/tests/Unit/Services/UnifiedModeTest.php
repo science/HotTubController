@@ -6,7 +6,6 @@ namespace HotTub\Tests\Unit\Services;
 
 use PHPUnit\Framework\TestCase;
 use HotTub\Services\IftttClientFactory;
-use HotTub\Services\WirelessTagClientFactory;
 
 /**
  * Tests that EXTERNAL_API_MODE provides unified control over all external API calls.
@@ -80,44 +79,6 @@ class UnifiedModeTest extends TestCase
 
     /**
      * @test
-     * EXTERNAL_API_MODE=stub should force stub mode for WirelessTag even with valid OAuth token.
-     */
-    public function wirelessTagFactoryUsesExternalApiModeStub(): void
-    {
-        $config = [
-            'EXTERNAL_API_MODE' => 'stub',
-            'WIRELESSTAG_OAUTH_TOKEN' => 'real-oauth-token-present',
-            'WIRELESSTAG_DEVICE_ID' => '0',
-        ];
-
-        $factory = new WirelessTagClientFactory($config);
-        $client = $factory->create(); // No explicit mode - should use EXTERNAL_API_MODE
-
-        $this->assertSame('stub', $client->getMode());
-    }
-
-    /**
-     * @test
-     * EXTERNAL_API_MODE=live should use live mode for WirelessTag when token present.
-     */
-    public function wirelessTagFactoryUsesExternalApiModeLive(): void
-    {
-        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
-
-        $config = [
-            'EXTERNAL_API_MODE' => 'live',
-            'WIRELESSTAG_OAUTH_TOKEN' => 'real-oauth-token-present',
-            'WIRELESSTAG_DEVICE_ID' => '0',
-        ];
-
-        $factory = new WirelessTagClientFactory($config);
-        $client = $factory->create(); // No explicit mode - should use EXTERNAL_API_MODE
-
-        $this->assertSame('live', $client->getMode());
-    }
-
-    /**
-     * @test
      * Explicit mode parameter should take precedence over EXTERNAL_API_MODE.
      * This is critical for live tests that need to override config.
      */
@@ -131,26 +92,6 @@ class UnifiedModeTest extends TestCase
         ];
 
         $factory = new IftttClientFactory($config, $this->tempLogFile);
-        $client = $factory->create('live'); // Explicit mode should override
-
-        $this->assertSame('live', $client->getMode());
-    }
-
-    /**
-     * @test
-     * Explicit mode parameter for WirelessTag should take precedence over EXTERNAL_API_MODE.
-     */
-    public function explicitModeParamOverridesExternalApiModeWirelessTag(): void
-    {
-        putenv('EXTERNAL_API_MODE=live');  // Set env for tripwire check
-
-        $config = [
-            'EXTERNAL_API_MODE' => 'stub',
-            'WIRELESSTAG_OAUTH_TOKEN' => 'real-oauth-token-present',
-            'WIRELESSTAG_DEVICE_ID' => '0',
-        ];
-
-        $factory = new WirelessTagClientFactory($config);
         $client = $factory->create('live'); // Explicit mode should override
 
         $this->assertSame('live', $client->getMode());
@@ -213,24 +154,6 @@ class UnifiedModeTest extends TestCase
 
     /**
      * @test
-     * When no mode is configured for WirelessTag, default to stub (fail-safe).
-     */
-    public function wirelessTagDefaultsToStubWhenNoModeConfigured(): void
-    {
-        $config = [
-            // No EXTERNAL_API_MODE
-            'WIRELESSTAG_OAUTH_TOKEN' => 'real-oauth-token-present',
-            'WIRELESSTAG_DEVICE_ID' => '0',
-        ];
-
-        $factory = new WirelessTagClientFactory($config);
-        $client = $factory->create(); // Should default to stub
-
-        $this->assertSame('stub', $client->getMode());
-    }
-
-    /**
-     * @test
      * EXTERNAL_API_MODE=live without API key should throw for IFTTT.
      */
     public function externalApiModeLiveWithoutIftttKeyThrows(): void
@@ -248,29 +171,6 @@ class UnifiedModeTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('IFTTT_WEBHOOK_KEY required for live mode');
-
-        $factory->create();
-    }
-
-    /**
-     * @test
-     * EXTERNAL_API_MODE=live without OAuth token should throw for WirelessTag.
-     */
-    public function externalApiModeLiveWithoutWirelessTagTokenThrows(): void
-    {
-        // Clear environment variable so config takes effect
-        putenv('EXTERNAL_API_MODE');
-        unset($_ENV['EXTERNAL_API_MODE']);
-
-        $config = [
-            'EXTERNAL_API_MODE' => 'live',
-            // No WIRELESSTAG_OAUTH_TOKEN
-        ];
-
-        $factory = new WirelessTagClientFactory($config);
-
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('WIRELESSTAG_OAUTH_TOKEN required for live mode');
 
         $factory->create();
     }

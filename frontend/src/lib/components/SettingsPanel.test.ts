@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { render, screen, fireEvent } from '@testing-library/svelte';
 import SettingsPanel from './SettingsPanel.svelte';
 import * as autoHeatOff from '$lib/autoHeatOff';
 import * as settings from '$lib/settings';
@@ -21,13 +21,8 @@ vi.mock('$lib/autoHeatOff', () => ({
 vi.mock('$lib/settings', () => ({
 	getRefreshTempOnHeaterOff: vi.fn(() => true),
 	setRefreshTempOnHeaterOff: vi.fn(),
-	getTempSourceSettings: vi.fn(() => ({ esp32Enabled: true, wirelessTagEnabled: true })),
-	setEsp32Enabled: vi.fn(),
-	setWirelessTagEnabled: vi.fn(),
 	SETTINGS_DEFAULTS: {
-		refreshTempOnHeaterOff: true,
-		esp32Enabled: true,
-		wirelessTagEnabled: true
+		refreshTempOnHeaterOff: true
 	}
 }));
 

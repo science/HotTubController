@@ -14,8 +14,6 @@ If you have a hot tub without built-in smart controls, this project lets you:
 
 The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it compatible with most affordable smart home equipment.
 
-The system is designed to run on "garbage hosts" such as cPanel. The main requirement is that your host must allow cron job scheduling (and scheduled crons must execute reliable). Otherwise it uses only basic http APIs between front and backend, and between backend. And calls to IFTTT and Wirelesstag are similarly basic. The ESP32 thermometer integration is "receive only" - so the ESP32 device sends temperature on a schedule, which the backend can alter whenever the device phones in (to increase or decrease the frequency of reporting). 
-
 ## System Architecture
 
 ```
@@ -43,7 +41,7 @@ The system is designed to run on "garbage hosts" such as cPanel. The main requir
 - **Quick Scheduling** - Pre-configured buttons to heat "In 30 min", "In 1 hour", etc.
 - **Full Scheduler** - Create one-time or recurring heating schedules
 - **Auto Heat-Off** - Automatically schedule heater shutdown after configurable duration
-- **Temperature Display** - Real-time water and ambient temperature from WirelessTag sensors
+- **Temperature Display** - Real-time water and ambient temperature from ESP32 sensors
 - **Equipment Status Display** - Control buttons illuminate when equipment is active
 - **User Authentication** - JWT-based login with three user roles (admin/user/basic)
 - **User Management** - Admin interface for creating and managing users
@@ -55,22 +53,14 @@ The system is designed to run on "garbage hosts" such as cPanel. The main requir
 
 ### Temperature Monitoring
 
-**Option 1: ESP32 with DS18B20 (Recommended)**
+**ESP32 with DS18B20**
 - **ESP32 Development Board** - WiFi-enabled microcontroller
-  - ESP32-WROOM-32 based board (NodeMCU, DevKit, etc.) uch as [this one](https://www.amazon.com/dp/B0DNFN7FHD).
+  - ESP32-WROOM-32 based board (NodeMCU, DevKit, etc.) such as [this one](https://www.amazon.com/dp/B0DNFN7FHD).
 - **DS18B20 Temperature Sensor** - Waterproof digital thermometer
   - 1-Wire interface, accurate to 0.5C
   - 4.7K pull-up resistor required (connect between data and VCC) such as [this one](https://www.amazon.com/dp/B08V93CTM2)
 - **PlatformIO** - For firmware development and flashing
   - See `esp32/` directory for firmware code
-
-**Option 2: WirelessTag Cloud Sensors**
-- **WirelessTag Outdoor Probe** - DS18B20 sensor for accurate water temperature
-  - Product: [WirelessTag Outdoor Probe Basic](https://store.wirelesstag.net/products/outdoor-probe-basic)
-- **WirelessTag Ethernet Manager** - Bridge device connecting sensors to cloud
-  - Product: [Ethernet Tag Manager](https://store.wirelesstag.net/products/ethernet-tag-manager)
-- **WirelessTag OAuth API Key** - Account authentication for temperature data
-  - See: [WirelessTag OAuth Setup](https://groups.google.com/g/wireless-sensor-tags/c/YJ0lXGJUnkY/m/RNMqU1eJAQAJ)
 
 ### Equipment Control
 
@@ -152,9 +142,9 @@ npm run dev    # Starts on http://localhost:5173
 
 Default login: `admin` / `password` (change in production!)
 
-### ESP32 Firmware Setup (Optional)
+### ESP32 Firmware Setup
 
-If using an ESP32 for temperature sensing:
+For temperature sensing:
 
 ```bash
 cd esp32
@@ -197,7 +187,7 @@ All configuration is via `backend/.env`:
 # Application mode
 APP_ENV=development
 
-# External API Mode - controls ALL external services (IFTTT, WirelessTag, Healthchecks.io)
+# External API Mode - controls ALL external services (IFTTT, Healthchecks.io)
 EXTERNAL_API_MODE=stub       # stub (safe) or live (requires keys)
 
 # IFTTT webhook integration
@@ -205,10 +195,6 @@ IFTTT_WEBHOOK_KEY=your-key   # From IFTTT Maker Webhooks settings
 
 # ESP32 temperature sensor
 ESP32_API_KEY=your-secure-api-key        # Secure API key for ESP32 authentication
-
-# WirelessTag temperature sensors (alternative)
-WIRELESSTAG_OAUTH_TOKEN=your-token       # OAuth token from WirelessTag
-WIRELESSTAG_DEVICE_ID=0                  # Your hot tub sensor device ID
 
 # Healthchecks.io monitoring (optional)
 HEALTHCHECKS_IO_KEY=your-key             # API key for cron job monitoring
@@ -228,7 +214,7 @@ API_BASE_URL=https://your-server.com/path/to/backend/public
 | Mode | Description |
 |------|-------------|
 | `stub` | Simulates all API calls - safe for development/testing |
-| `live` | Makes real API calls to IFTTT, WirelessTag, and Healthchecks.io |
+| `live` | Makes real API calls to IFTTT and Healthchecks.io |
 
 The unified `EXTERNAL_API_MODE` defaults to `stub` for fail-safe behavior.
 
@@ -322,6 +308,16 @@ Never deploy to production without:
 2. Setting a secure JWT_SECRET
 3. Configuring HTTPS
 4. Testing equipment sequencing with your actual setup
+
+## Deployment Notes
+The system is designed to run on "low cost web hosting services" such as cPanel hosts. The main requirement is that your host must allow cron job scheduling (and scheduled crons must execute reliably). Otherwise it uses only basic HTTP APIs between front and backend. The ESP32 thermometer integration is "receive only" - so the ESP32 device sends temperature on a schedule, which the backend can alter whenever the device phones in (to increase or decrease the frequency of reporting).
+
+### FTP Deploy Action Tool for FTP+SSL - Thanks Sam!
+Due to the low cost host, "real" deployment techniques may not be available. Currently I'm deploying this to my host via FTP+SSL in a Github Action, which is working perfectly thanks to this free tool:
+
+[<img alt="Website Deployed for Free with FTP Deploy Action" src="https://img.shields.io/badge/Website deployed for free with-FTP DEPLOY ACTION-%3CCOLOR%3E?style=for-the-badge&color=d00000">](https://github.com/SamKirkland/FTP-Deploy-Action)
+
+
 
 ## Logging & Monitoring
 

@@ -13,7 +13,6 @@ use HotTub\Controllers\TemperatureController;
 use HotTub\Controllers\MaintenanceController;
 use HotTub\Controllers\Esp32TemperatureController;
 use HotTub\Controllers\Esp32SensorConfigController;
-use HotTub\Services\TemperatureStateService;
 use HotTub\Services\Esp32TemperatureService;
 use HotTub\Services\Esp32SensorConfigService;
 use HotTub\Services\Esp32CalibratedTemperatureService;
@@ -22,7 +21,6 @@ use HotTub\Services\EnvLoader;
 use HotTub\Services\CookieHelper;
 use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\IftttClientFactory;
-use HotTub\Services\WirelessTagClientFactory;
 use HotTub\Services\AuthService;
 use HotTub\Services\UserRepositoryFactory;
 use HotTub\Services\SchedulerService;
@@ -101,14 +99,7 @@ $equipmentController = new EquipmentController($logFile, $iftttClient, $equipmen
 // Create blinds controller (optional feature, isolated by config)
 $blindsController = new BlindsController($logFile, $iftttClient, $config);
 
-// Create WirelessTag client and temperature controller with state service
-// (uses EXTERNAL_API_MODE from config)
-$wirelessTagFactory = new WirelessTagClientFactory($config);
-$wirelessTagClient = $wirelessTagFactory->create();
-$temperatureStateFile = __DIR__ . '/../storage/temperature_state.json';
-$temperatureStateService = new TemperatureStateService($temperatureStateFile);
 // Create ESP32 temperature service and controller
-// (must be created before TemperatureController so we can inject it)
 $esp32TemperatureFile = __DIR__ . '/../storage/state/esp32-temperature.json';
 $esp32ConfigFile = __DIR__ . '/../storage/state/esp32-sensor-config.json';
 $esp32TemperatureService = new Esp32TemperatureService($esp32TemperatureFile, $equipmentStatusService);
@@ -118,13 +109,8 @@ $esp32ApiKey = $config['ESP32_API_KEY'] ?? '';
 $esp32TemperatureController = new Esp32TemperatureController($esp32TemperatureService, $esp32ApiKey);
 $esp32SensorConfigController = new Esp32SensorConfigController($esp32SensorConfigService, $esp32TemperatureService);
 
-// Create temperature controller with ESP32 fallback support
-$temperatureController = new TemperatureController(
-    $wirelessTagClient,
-    $wirelessTagFactory,
-    $temperatureStateService,
-    $esp32CalibratedService
-);
+// Create temperature controller (ESP32 only)
+$temperatureController = new TemperatureController($esp32CalibratedService);
 
 // Create scheduler service and controller
 $jobsDir = __DIR__ . '/../storage/scheduled-jobs';
@@ -221,7 +207,6 @@ $router->post('/api/blinds/close', fn() => $blindsController->close(), $requireA
 // Protected temperature routes (with auth middleware)
 $router->get('/api/temperature', fn() => $temperatureController->get(), $requireAuth);
 $router->get('/api/temperature/all', fn() => $temperatureController->getAll(), $requireAuth);
-$router->post('/api/temperature/refresh', fn() => $temperatureController->refresh(), $requireAuth);
 
 // ESP32 temperature endpoint (uses API key auth, not JWT)
 $router->post('/api/esp32/temperature', fn() => handleEsp32Temperature($esp32TemperatureController));

@@ -30,12 +30,8 @@ export interface TemperatureData {
 	water_temp_c: number | null;
 	ambient_temp_f: number | null;
 	ambient_temp_c: number | null;
-	battery_voltage?: number | null;
-	signal_dbm?: number | null;
 	device_name: string;
 	timestamp: string;
-	refresh_in_progress?: boolean;
-	refresh_requested_at?: string;
 	source?: string;
 	device_id?: string;
 	uptime_seconds?: number;
@@ -46,13 +42,6 @@ export interface TemperatureData {
 
 export interface AllTemperaturesResponse {
 	esp32: TemperatureData | null;
-	wirelesstag: TemperatureData | null;
-}
-
-export interface RefreshResponse {
-	success: boolean;
-	message: string;
-	requested_at: string;
 }
 
 export type SensorRole = 'water' | 'ambient' | 'unassigned';
@@ -222,7 +211,6 @@ export const api = {
 	// Temperature endpoints
 	getTemperature: () => get<TemperatureData>('/api/temperature'),
 	getAllTemperatures: () => get<AllTemperaturesResponse>('/api/temperature/all'),
-	refreshTemperature: () => post<RefreshResponse>('/api/temperature/refresh'),
 
 	// Schedule endpoints
 	scheduleJob: (action: string, scheduledTime: string, recurring: boolean = false) =>

@@ -8,10 +8,7 @@
 	} from '$lib/autoHeatOff';
 	import {
 		getRefreshTempOnHeaterOff,
-		setRefreshTempOnHeaterOff,
-		getTempSourceSettings,
-		setEsp32Enabled,
-		setWirelessTagEnabled
+		setRefreshTempOnHeaterOff
 	} from '$lib/settings';
 
 	// Auto heat-off state (loaded from localStorage)
@@ -20,9 +17,6 @@
 
 	// Refresh temp on heater-off state
 	let refreshTempOnHeaterOff = $state(getRefreshTempOnHeaterOff());
-
-	// Temperature source settings
-	let tempSourceSettings = $state(getTempSourceSettings());
 
 	function handleAutoHeatOffToggle(event: Event) {
 		const target = event.target as HTMLInputElement;
@@ -45,18 +39,6 @@
 		const target = event.target as HTMLInputElement;
 		refreshTempOnHeaterOff = target.checked;
 		setRefreshTempOnHeaterOff(target.checked);
-	}
-
-	function handleEsp32Toggle(event: Event) {
-		const target = event.target as HTMLInputElement;
-		tempSourceSettings.esp32Enabled = target.checked;
-		setEsp32Enabled(target.checked);
-	}
-
-	function handleWirelessTagToggle(event: Event) {
-		const target = event.target as HTMLInputElement;
-		tempSourceSettings.wirelessTagEnabled = target.checked;
-		setWirelessTagEnabled(target.checked);
 	}
 </script>
 
@@ -109,35 +91,5 @@
 		<p class="text-slate-500 text-xs ml-6 mt-2">
 			Auto-updates temperature after scheduled heater-off completes
 		</p>
-	</div>
-
-	<!-- Temperature Sources -->
-	<div class="border-t border-slate-700 pt-4 mt-4">
-		<h3 class="text-sm font-medium text-slate-300 mb-3">Temperature Sources</h3>
-		<div class="space-y-3">
-			<label class="flex items-center gap-2 cursor-pointer">
-				<input
-					type="checkbox"
-					checked={tempSourceSettings.esp32Enabled}
-					onchange={handleEsp32Toggle}
-					class="w-4 h-4 rounded border-slate-500 bg-slate-700 text-green-500 focus:ring-green-500 focus:ring-offset-slate-800"
-				/>
-				<span class="text-slate-200 text-sm">Show ESP32 sensor</span>
-			</label>
-
-			<label class="flex items-center gap-2 cursor-pointer">
-				<input
-					type="checkbox"
-					checked={tempSourceSettings.wirelessTagEnabled}
-					onchange={handleWirelessTagToggle}
-					class="w-4 h-4 rounded border-slate-500 bg-slate-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-slate-800"
-				/>
-				<span class="text-slate-200 text-sm">Show WirelessTag sensor</span>
-			</label>
-
-			<p class="text-slate-500 text-xs">
-				Toggle which temperature sources are displayed
-			</p>
-		</div>
 	</div>
 </div>
