@@ -21,17 +21,12 @@ vi.mock('$lib/autoHeatOff', () => ({
 vi.mock('$lib/settings', () => ({
 	getRefreshTempOnHeaterOff: vi.fn(() => true),
 	setRefreshTempOnHeaterOff: vi.fn(),
-	getTempSourceSettings: vi.fn(() => ({ esp32Enabled: true, wirelessTagEnabled: true })),
-	setEsp32Enabled: vi.fn(),
-	setWirelessTagEnabled: vi.fn(),
 	getTargetTempEnabled: vi.fn(() => false),
 	setTargetTempEnabled: vi.fn(),
 	getTargetTempF: vi.fn(() => 103),
 	setTargetTempF: vi.fn(),
 	SETTINGS_DEFAULTS: {
-		refreshTempOnHeaterOff: true,
-		esp32Enabled: true,
-		wirelessTagEnabled: true
+		refreshTempOnHeaterOff: true
 	},
 	TARGET_TEMP_DEFAULTS: {
 		enabled: false,
@@ -48,7 +43,6 @@ describe('SettingsPanel', () => {
 		vi.mocked(autoHeatOff.getAutoHeatOffEnabled).mockReturnValue(true);
 		vi.mocked(autoHeatOff.getAutoHeatOffMinutes).mockReturnValue(45);
 		vi.mocked(settings.getRefreshTempOnHeaterOff).mockReturnValue(true);
-		vi.mocked(settings.getTempSourceSettings).mockReturnValue({ esp32Enabled: true, wirelessTagEnabled: true });
 		vi.mocked(settings.getTargetTempEnabled).mockReturnValue(false);
 		vi.mocked(settings.getTargetTempF).mockReturnValue(103);
 	});

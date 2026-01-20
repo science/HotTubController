@@ -2,9 +2,9 @@
 
 RewriteEngine On
 
-# ESP32 temperature endpoint - route to lightweight handler
-# This bypasses the full framework for better performance on shared hosting
-RewriteRule ^api/esp32/temperature$ esp32-temp.php [L]
+# ESP32 temperature endpoint - internal rewrite to handler
+# Must NOT redirect (301/302) because ESP32 can't follow redirects on POST
+RewriteRule ^api/esp32/temperature$ api/esp32/temperature/index.php [L]
 
 # Cron health endpoint - bypasses framework to avoid ModSecurity blocks
 # Named to avoid triggering security rules on words like "maintenance", "setup", "init"

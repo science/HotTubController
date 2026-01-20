@@ -18,14 +18,17 @@ namespace HotTub\Services;
 class Esp32ThinHandler
 {
     private const DEFAULT_INTERVAL = 300;  // 5 minutes
+    private const HEATING_INTERVAL = 60;   // 1 minute when heater is on
 
     private string $storageFile;
     private string $envFile;
+    private ?string $equipmentStatusFile;
 
-    public function __construct(string $storageFile, string $envFile)
+    public function __construct(string $storageFile, string $envFile, ?string $equipmentStatusFile = null)
     {
         $this->storageFile = $storageFile;
         $this->envFile = $envFile;
+        $this->equipmentStatusFile = $equipmentStatusFile;
     }
 
     /**
@@ -112,9 +115,37 @@ class Esp32ThinHandler
             'status' => 200,
             'body' => [
                 'status' => 'ok',
-                'interval_seconds' => self::DEFAULT_INTERVAL,
+                'interval_seconds' => $this->getInterval(),
             ],
         ];
+    }
+
+    /**
+     * Get the interval to return to ESP32.
+     * Returns shorter interval when heater is on for faster temperature updates.
+     */
+    private function getInterval(): int
+    {
+        if ($this->equipmentStatusFile === null || !file_exists($this->equipmentStatusFile)) {
+            return self::DEFAULT_INTERVAL;
+        }
+
+        $content = file_get_contents($this->equipmentStatusFile);
+        if ($content === false) {
+            return self::DEFAULT_INTERVAL;
+        }
+
+        $status = json_decode($content, true);
+        if (!is_array($status)) {
+            return self::DEFAULT_INTERVAL;
+        }
+
+        // Check if heater is on
+        if (isset($status['heater']['on']) && $status['heater']['on'] === true) {
+            return self::HEATING_INTERVAL;
+        }
+
+        return self::DEFAULT_INTERVAL;
     }
 
     /**
