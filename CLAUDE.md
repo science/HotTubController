@@ -181,6 +181,27 @@ cd backend && composer cleanup:healthchecks
 - If you find yourself on `production`, switch to `main` before making changes
 - The `production` branch represents what's deployed to the live server
 
+## Production Server Access
+
+**CRITICAL: FTP access is READ-ONLY for debugging. NEVER upload files via FTP.**
+
+FTP credentials in `backend/config/env.production` provide access to the production server for **diagnostic purposes only**:
+- Reading log files (`storage/logs/api.log`, `storage/logs/cron.log`)
+- Checking state files (`storage/state/*.json`)
+- Investigating production issues
+
+**Deployment rules:**
+- ALL code changes MUST go through the git workflow: commit → push to main → PR to production → merge
+- NEVER use FTP, curl, or any other method to upload/modify files on production
+- Even for urgent hotfixes, use the PR workflow (it only takes a minute)
+- If you accidentally deploy via FTP, immediately create a proper PR to ensure git matches production
+
+**Why this matters:**
+- FTP bypasses version control, breaking traceability
+- Production state diverges from git, causing confusion
+- No code review or audit trail for changes
+- Merging PRs overwrites FTP changes anyway
+
 **IMPORTANT: Code flows one direction only: main → production. Never merge production back into main.**
 
 - Do NOT run `git merge origin/production` or similar commands
