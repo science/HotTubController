@@ -2,9 +2,9 @@
 
 RewriteEngine On
 
-# Add trailing slash to ESP32 temperature endpoint (directory with index.php)
-# This is a simple redirect, not a silent rewrite - the URL changes visibly
-RewriteRule ^api/esp32/temperature$ api/esp32/temperature/ [R=301,L]
+# ESP32 temperature endpoint - internal rewrite to handler
+# Must NOT redirect (301/302) because ESP32 can't follow redirects on POST
+RewriteRule ^api/esp32/temperature$ api/esp32/temperature/index.php [L]
 
 # Cron health endpoint - bypasses framework to avoid ModSecurity blocks
 # Named to avoid triggering security rules on words like "maintenance", "setup", "init"
