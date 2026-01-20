@@ -47,13 +47,15 @@ class CronExecutionTest extends TestCase
         socket_close($socket);
         self::$serverPort = $port;
 
-        // Start PHP dev server
+        // Start PHP dev server with router script (mimics .htaccess behavior)
         $publicDir = self::$backendDir . '/public';
+        $routerScript = $publicDir . '/router.php';
         $logFile = sys_get_temp_dir() . '/cron-integration-server.log';
         $cmd = sprintf(
-            'php -S 127.0.0.1:%d -t %s > %s 2>&1 & echo $!',
+            'php -S 127.0.0.1:%d -t %s %s > %s 2>&1 & echo $!',
             self::$serverPort,
             escapeshellarg($publicDir),
+            escapeshellarg($routerScript),
             escapeshellarg($logFile)
         );
 

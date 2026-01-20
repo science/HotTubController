@@ -1,36 +1,39 @@
 <?php
 /**
- * Ultra-lightweight ESP32 temperature endpoint.
+ * ESP32 Temperature Endpoint
  *
- * This file is designed to minimize server load for the frequent (every 5 min)
- * ESP32 temperature pings. It bypasses the full framework:
+ * Ultra-lightweight handler for receiving temperature data from ESP32.
+ * Bypasses the full framework for performance on shared hosting.
  *
  * - No autoloader (saves ~50KB of class maps)
- * - No framework overhead (saves instantiating 30+ unused services)
+ * - No framework overhead (saves instantiating 30+ services)
  * - Single purpose: validate API key, store temp, return interval
  *
  * Expected request:
- *   POST /esp32-temp.php
+ *   POST /api/esp32/temperature/
  *   Header: X-ESP32-API-KEY: <key>
  *   Body: {"device_id": "...", "sensors": [{"address": "...", "temp_c": ...}]}
  *
  * Response:
- *   {"status": "ok", "interval_seconds": 300}
+ *   {"status": "ok", "interval_seconds": 60|300}
+ *   (60 seconds when heater is on, 300 otherwise)
  */
 
 declare(strict_types=1);
 
 // Include the handler directly - no autoloader needed
-require_once __DIR__ . '/../src/Services/Esp32ThinHandler.php';
+require_once __DIR__ . '/../../../../src/Services/Esp32ThinHandler.php';
 
 use HotTub\Services\Esp32ThinHandler;
 
-// Configuration paths
-$envFile = __DIR__ . '/../.env';
-$storageFile = __DIR__ . '/../storage/state/esp32-temperature.json';
+// Configuration paths (relative to backend root)
+$backendRoot = __DIR__ . '/../../../..';
+$envFile = $backendRoot . '/.env';
+$storageFile = $backendRoot . '/storage/state/esp32-temperature.json';
+$equipmentStatusFile = $backendRoot . '/storage/state/equipment-status.json';
 
 // Create handler
-$handler = new Esp32ThinHandler($storageFile, $envFile);
+$handler = new Esp32ThinHandler($storageFile, $envFile, $equipmentStatusFile);
 
 // Parse request
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
