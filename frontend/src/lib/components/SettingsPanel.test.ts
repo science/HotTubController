@@ -148,7 +148,7 @@ describe('SettingsPanel', () => {
 
 		it('renders target temperature slider', () => {
 			render(SettingsPanel);
-			expect(screen.getByLabelText(/target temp/i)).toBeTruthy();
+			expect(screen.getByLabelText(/target temp$/i)).toBeTruthy();
 		});
 
 		it('loads target temp enabled state from storage', () => {
@@ -173,14 +173,15 @@ describe('SettingsPanel', () => {
 			vi.mocked(settings.getTargetTempF).mockReturnValue(105);
 			render(SettingsPanel);
 
-			// Check the displayed value instead of the slider (JSDOM range inputs can be quirky)
-			expect(screen.getByText(/105°F/)).toBeTruthy();
+			// Check the input field value
+			const input = screen.getByRole('spinbutton', { name: /target temp input/i }) as HTMLInputElement;
+			expect(input.value).toBe('105');
 		});
 
 		it('saves target temperature when slider changes', async () => {
 			render(SettingsPanel);
 
-			const slider = screen.getByLabelText(/target temp/i);
+			const slider = screen.getByLabelText(/target temp$/i);
 			await fireEvent.input(slider, { target: { value: '100' } });
 
 			expect(settings.setTargetTempF).toHaveBeenCalledWith(100);
@@ -190,7 +191,40 @@ describe('SettingsPanel', () => {
 			vi.mocked(settings.getTargetTempF).mockReturnValue(103);
 			render(SettingsPanel);
 
-			expect(screen.getByText(/103°F/)).toBeTruthy();
+			// Check the input field shows the value
+			const input = screen.getByRole('spinbutton', { name: /target temp input/i }) as HTMLInputElement;
+			expect(input.value).toBe('103');
+		});
+
+		it('renders editable temperature input field', () => {
+			render(SettingsPanel);
+			const input = screen.getByRole('spinbutton', { name: /target temp input/i });
+			expect(input).toBeTruthy();
+		});
+
+		it('temperature input has numeric keyboard attributes for mobile', () => {
+			render(SettingsPanel);
+			const input = screen.getByRole('spinbutton', { name: /target temp input/i }) as HTMLInputElement;
+			expect(input.inputMode).toBe('decimal');
+		});
+
+		it('saves target temperature when input value changes', async () => {
+			render(SettingsPanel);
+			const input = screen.getByRole('spinbutton', { name: /target temp input/i });
+			await fireEvent.change(input, { target: { value: '102.5' } });
+			await fireEvent.blur(input);
+
+			expect(settings.setTargetTempF).toHaveBeenCalledWith(102.5);
+		});
+
+		it('syncs input field with slider changes', async () => {
+			render(SettingsPanel);
+			const slider = screen.getByLabelText(/target temp$/i);
+			const input = screen.getByRole('spinbutton', { name: /target temp input/i }) as HTMLInputElement;
+
+			await fireEvent.input(slider, { target: { value: '105.25' } });
+
+			expect(input.value).toBe('105.25');
 		});
 	});
 });

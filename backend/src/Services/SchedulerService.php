@@ -291,13 +291,20 @@ class SchedulerService
                     continue;
                 }
 
-                $jobs[] = [
+                $job = [
                     'jobId' => $jobData['jobId'] ?? basename($file, '.json'),
                     'action' => $jobData['action'] ?? 'unknown',
                     'scheduledTime' => $jobData['scheduledTime'] ?? '',
                     'createdAt' => $jobData['createdAt'] ?? '',
                     'recurring' => $jobData['recurring'] ?? false,
                 ];
+
+                // Include action-specific parameters (e.g., target_temp_f for heat-to-target)
+                if (isset($jobData['params']) && is_array($jobData['params'])) {
+                    $job['params'] = $jobData['params'];
+                }
+
+                $jobs[] = $job;
             }
         }
 

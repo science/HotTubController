@@ -71,8 +71,6 @@ describe('settings', () => {
 				water_temp_c: 37.5,
 				ambient_temp_f: 65.0,
 				ambient_temp_c: 18.3,
-				battery_voltage: 3.5,
-				signal_dbm: -60,
 				device_name: 'Hot Tub',
 				timestamp: '2025-12-11T10:30:00Z',
 				cachedAt: Date.now()
@@ -98,8 +96,6 @@ describe('settings', () => {
 				water_temp_c: 37.9,
 				ambient_temp_f: 70.0,
 				ambient_temp_c: 21.1,
-				battery_voltage: 3.4,
-				signal_dbm: -55,
 				device_name: 'Hot Tub',
 				timestamp: '2025-12-11T11:00:00Z'
 			};
@@ -121,8 +117,6 @@ describe('settings', () => {
 				water_temp_c: 35.0,
 				ambient_temp_f: 60.0,
 				ambient_temp_c: 15.5,
-				battery_voltage: 3.5,
-				signal_dbm: -60,
 				device_name: 'Hot Tub',
 				timestamp: '2025-12-11T10:00:00Z'
 			});
@@ -132,8 +126,6 @@ describe('settings', () => {
 				water_temp_c: 38.9,
 				ambient_temp_f: 72.0,
 				ambient_temp_c: 22.2,
-				battery_voltage: 3.4,
-				signal_dbm: -58,
 				device_name: 'Hot Tub',
 				timestamp: '2025-12-11T12:00:00Z'
 			});
@@ -237,6 +229,36 @@ describe('settings', () => {
 		it('persists value that can be retrieved', () => {
 			setTargetTempF(100);
 			expect(getTargetTempF()).toBe(100);
+		});
+
+		it('stores quarter-degree increments (N.25)', () => {
+			setTargetTempF(103.25);
+			expect(getTargetTempF()).toBe(103.25);
+		});
+
+		it('stores quarter-degree increments (N.5)', () => {
+			setTargetTempF(103.5);
+			expect(getTargetTempF()).toBe(103.5);
+		});
+
+		it('stores quarter-degree increments (N.75)', () => {
+			setTargetTempF(103.75);
+			expect(getTargetTempF()).toBe(103.75);
+		});
+
+		it('rounds to nearest quarter degree (down)', () => {
+			setTargetTempF(103.1);
+			expect(getTargetTempF()).toBe(103);
+		});
+
+		it('rounds to nearest quarter degree (up)', () => {
+			setTargetTempF(103.4);
+			expect(getTargetTempF()).toBe(103.5);
+		});
+
+		it('rounds to nearest quarter degree (edge case 0.125)', () => {
+			setTargetTempF(103.125);
+			expect(getTargetTempF()).toBe(103.25);
 		});
 	});
 });

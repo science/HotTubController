@@ -48,5 +48,5 @@ echo "Starting server at http://localhost:8080"
 echo "Press Ctrl+C to stop"
 echo ""
 
-# Start PHP built-in server
-php -S localhost:8080 -t public
+# Start PHP built-in server with router script for URL rewriting
+cd public && php -S localhost:8080 router.php

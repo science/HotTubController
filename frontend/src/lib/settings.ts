@@ -90,13 +90,14 @@ export function setTargetTempEnabled(enabled: boolean): void {
 
 /**
  * Get target temperature in Fahrenheit from localStorage
+ * Supports quarter-degree precision (e.g., 103.25, 103.5, 103.75)
  */
 export function getTargetTempF(): number {
 	const stored = localStorage.getItem(STORAGE_KEY_TARGET_TEMP_F);
 	if (stored === null) {
 		return TARGET_TEMP_DEFAULTS.targetTempF;
 	}
-	const parsed = parseInt(stored, 10);
+	const parsed = parseFloat(stored);
 	if (isNaN(parsed)) {
 		return TARGET_TEMP_DEFAULTS.targetTempF;
 	}
@@ -104,13 +105,21 @@ export function getTargetTempF(): number {
 }
 
 /**
+ * Round to nearest quarter degree (0.25 increments)
+ */
+function roundToQuarterDegree(temp: number): number {
+	return Math.round(temp * 4) / 4;
+}
+
+/**
  * Set target temperature in Fahrenheit to localStorage
- * Clamps value between min (80) and max (110)
+ * Rounds to nearest quarter degree and clamps between min (80) and max (110)
  */
 export function setTargetTempF(temp: number): void {
+	const rounded = roundToQuarterDegree(temp);
 	const clamped = Math.max(
 		TARGET_TEMP_DEFAULTS.minTempF,
-		Math.min(TARGET_TEMP_DEFAULTS.maxTempF, temp)
+		Math.min(TARGET_TEMP_DEFAULTS.maxTempF, rounded)
 	);
 	localStorage.setItem(STORAGE_KEY_TARGET_TEMP_F, clamped.toString());
 }

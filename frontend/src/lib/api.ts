@@ -13,6 +13,9 @@ export interface ScheduledJob {
 	scheduledTime: string;
 	createdAt: string;
 	recurring: boolean;
+	params?: {
+		target_temp_f?: number;
+	};
 }
 
 export interface ScheduleListResponse {

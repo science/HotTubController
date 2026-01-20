@@ -6,6 +6,7 @@
 		getAutoHeatOffMinutes,
 		calculateHeatOffTime
 	} from '$lib/autoHeatOff';
+	import { getTargetTempEnabled, getTargetTempF } from '$lib/settings';
 	import { onDestroy } from 'svelte';
 	import { RefreshCw } from 'lucide-svelte';
 
@@ -41,7 +42,8 @@
 	const actions = [
 		{ value: 'heater-on', label: 'Heater ON' },
 		{ value: 'heater-off', label: 'Heater OFF' },
-		{ value: 'pump-run', label: 'Run Pump' }
+		{ value: 'pump-run', label: 'Run Pump' },
+		{ value: 'heat-to-target', label: 'Heat to Target' }
 	];
 
 	// Set default date/time to tomorrow at 6:00 AM
@@ -160,51 +162,73 @@
 		success = null;
 
 		try {
+			// Check if target temp mode should override heater-on
+			const targetTempEnabled = getTargetTempEnabled();
+			const useTargetTemp = selectedAction === 'heater-on' && targetTempEnabled;
+			const effectiveAction = useTargetTemp ? 'heat-to-target' : selectedAction;
+			const targetTempF = useTargetTemp ? getTargetTempF() : undefined;
+
 			if (isRecurring) {
 				// For recurring jobs, send time with timezone offset (HH:MM+/-HH:MM format)
 				// This ensures the server schedules the job at the correct local time
 				const timeWithOffset = `${scheduledTime}${getTimezoneOffset()}`;
-				await api.scheduleJob(selectedAction, timeWithOffset, true);
 
-				// If auto heat-off is enabled and action is heater-on, create paired recurring off job
-				const autoHeatOffEnabled = getAutoHeatOffEnabled();
-				const autoHeatOffMinutes = getAutoHeatOffMinutes();
-				if (autoHeatOffEnabled && selectedAction === 'heater-on') {
-					// Calculate off time by adding minutes to the time
-					const [hours, minutes] = scheduledTime.split(':').map(Number);
-					const offDate = new Date();
-					offDate.setHours(hours, minutes + autoHeatOffMinutes, 0, 0);
-					const offTimeStr = `${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}${getTimezoneOffset()}`;
-					await api.scheduleJob('heater-off', offTimeStr, true);
-
-					success = `Recurring: Daily heater-on at ${scheduledTime} with auto off at ${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}`;
+				if (useTargetTemp) {
+					await api.scheduleJob(effectiveAction, timeWithOffset, true, { target_temp_f: targetTempF });
+					success = `Recurring: Daily heat to ${targetTempF}°F at ${scheduledTime}`;
 				} else {
-					success = `Recurring job created: Daily at ${scheduledTime}`;
+					await api.scheduleJob(effectiveAction, timeWithOffset, true);
+
+					// If auto heat-off is enabled and action is heater-on, create paired recurring off job
+					const autoHeatOffEnabled = getAutoHeatOffEnabled();
+					const autoHeatOffMinutes = getAutoHeatOffMinutes();
+					if (autoHeatOffEnabled && selectedAction === 'heater-on') {
+						// Calculate off time by adding minutes to the time
+						const [hours, minutes] = scheduledTime.split(':').map(Number);
+						const offDate = new Date();
+						offDate.setHours(hours, minutes + autoHeatOffMinutes, 0, 0);
+						const offTimeStr = `${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}${getTimezoneOffset()}`;
+						await api.scheduleJob('heater-off', offTimeStr, true);
+
+						success = `Recurring: Daily heater-on at ${scheduledTime} with auto off at ${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}`;
+					} else {
+						success = `Recurring job created: Daily at ${scheduledTime}`;
+					}
 				}
 			} else {
 				// One-off job with full datetime
 				const scheduledDateTime = `${scheduledDate}T${scheduledTime}:00${getTimezoneOffset()}`;
-				await api.scheduleJob(selectedAction, scheduledDateTime, false);
 
-				// If auto heat-off is enabled and action is heater-on, schedule heater-off too
-				const autoHeatOffEnabled = getAutoHeatOffEnabled();
-				const autoHeatOffMinutes = getAutoHeatOffMinutes();
-				if (autoHeatOffEnabled && selectedAction === 'heater-on') {
-					const heatOffTime = calculateHeatOffTime(scheduledDateTime, autoHeatOffMinutes);
-					await api.scheduleJob('heater-off', heatOffTime, false);
-
-					// Format times for success message
+				if (useTargetTemp) {
+					await api.scheduleJob(effectiveAction, scheduledDateTime, false, { target_temp_f: targetTempF });
 					const onTime = new Date(scheduledDateTime).toLocaleTimeString(undefined, {
 						hour: 'numeric',
 						minute: '2-digit'
 					});
-					const offTime = new Date(heatOffTime).toLocaleTimeString(undefined, {
-						hour: 'numeric',
-						minute: '2-digit'
-					});
-					success = `Scheduled heater-on at ${onTime} and auto heat-off at ${offTime}`;
+					success = `Scheduled heat to ${targetTempF}°F at ${onTime}`;
 				} else {
-					success = 'Job scheduled successfully!';
+					await api.scheduleJob(effectiveAction, scheduledDateTime, false);
+
+					// If auto heat-off is enabled and action is heater-on, schedule heater-off too
+					const autoHeatOffEnabled = getAutoHeatOffEnabled();
+					const autoHeatOffMinutes = getAutoHeatOffMinutes();
+					if (autoHeatOffEnabled && selectedAction === 'heater-on') {
+						const heatOffTime = calculateHeatOffTime(scheduledDateTime, autoHeatOffMinutes);
+						await api.scheduleJob('heater-off', heatOffTime, false);
+
+						// Format times for success message
+						const onTime = new Date(scheduledDateTime).toLocaleTimeString(undefined, {
+							hour: 'numeric',
+							minute: '2-digit'
+						});
+						const offTime = new Date(heatOffTime).toLocaleTimeString(undefined, {
+							hour: 'numeric',
+							minute: '2-digit'
+						});
+						success = `Scheduled heater-on at ${onTime} and auto heat-off at ${offTime}`;
+					} else {
+						success = 'Job scheduled successfully!';
+					}
 				}
 			}
 
@@ -296,6 +320,14 @@
 
 	function getActionLabel(action: string): string {
 		return actions.find((a) => a.value === action)?.label ?? action;
+	}
+
+	function getJobDisplayLabel(job: ScheduledJob): string {
+		const baseLabel = getActionLabel(job.action);
+		if (job.action === 'heat-to-target' && job.params?.target_temp_f) {
+			return `Heat to ${job.params.target_temp_f}°F`;
+		}
+		return baseLabel;
 	}
 
 	// Load jobs on mount and start the sliding window recheck
@@ -390,7 +422,7 @@
 				{#each recurringJobs as job (job.jobId)}
 					<li class="flex items-center justify-between bg-purple-900/30 border border-purple-700/50 rounded-lg px-3 py-2">
 						<div>
-							<span class="text-slate-200 font-medium">{getActionLabel(job.action)}</span>
+							<span class="text-slate-200 font-medium">{getJobDisplayLabel(job)}</span>
 							<span class="text-purple-300 text-sm ml-2">Daily at {formatRecurringTime(job.scheduledTime)}</span>
 						</div>
 						<button
@@ -441,7 +473,7 @@
 				{#each oneOffJobs as job (job.jobId)}
 					<li class="flex items-center justify-between bg-slate-700/50 rounded-lg px-3 py-2">
 						<div>
-							<span class="text-slate-200 font-medium">{getActionLabel(job.action)}</span>
+							<span class="text-slate-200 font-medium">{getJobDisplayLabel(job)}</span>
 							<span class="text-slate-400 text-sm ml-2">{formatDateTime(job.scheduledTime)}</span>
 						</div>
 						<button

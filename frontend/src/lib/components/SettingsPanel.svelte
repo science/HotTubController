@@ -58,7 +58,7 @@
 
 	function handleTargetTempChange(event: Event) {
 		const target = event.target as HTMLInputElement;
-		const value = parseInt(target.value, 10);
+		const value = parseFloat(target.value);
 		if (!isNaN(value)) {
 			targetTempF = value;
 			setTargetTempF(value);
@@ -134,7 +134,18 @@
 			<div class="ml-6 space-y-2">
 				<div class="flex items-center gap-3">
 					<label for="targetTempSlider" class="text-slate-400 text-sm">Target temp</label>
-					<span class="text-orange-400 font-medium">{targetTempF}°F</span>
+					<input
+						type="number"
+						id="targetTempInput"
+						aria-label="Target temp input"
+						value={targetTempF}
+						onchange={handleTargetTempChange}
+						min={TARGET_TEMP_DEFAULTS.minTempF}
+						max={TARGET_TEMP_DEFAULTS.maxTempF}
+						step="0.25"
+						inputmode="decimal"
+						class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-orange-400 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+					/><span class="text-orange-400 font-medium">°F</span>
 				</div>
 				<input
 					type="range"
@@ -144,6 +155,7 @@
 					oninput={handleTargetTempChange}
 					min={TARGET_TEMP_DEFAULTS.minTempF}
 					max={TARGET_TEMP_DEFAULTS.maxTempF}
+					step="0.25"
 					class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
 				/>
 				<div class="flex justify-between text-xs text-slate-500">
