@@ -16,23 +16,26 @@ class Esp32ThinHandlerTest extends TestCase
 {
     private string $tempStorageFile;
     private string $tempEnvFile;
+    private string $tempEquipmentStatusFile;
     private Esp32ThinHandler $handler;
 
     protected function setUp(): void
     {
         $this->tempStorageFile = sys_get_temp_dir() . '/esp32-thin-test-' . uniqid() . '.json';
         $this->tempEnvFile = sys_get_temp_dir() . '/esp32-thin-env-' . uniqid() . '.env';
+        $this->tempEquipmentStatusFile = sys_get_temp_dir() . '/esp32-thin-equipment-' . uniqid() . '.json';
 
         // Create test .env with known API key
         file_put_contents($this->tempEnvFile, "ESP32_API_KEY=test-api-key-12345\n");
 
-        $this->handler = new Esp32ThinHandler($this->tempStorageFile, $this->tempEnvFile);
+        $this->handler = new Esp32ThinHandler($this->tempStorageFile, $this->tempEnvFile, $this->tempEquipmentStatusFile);
     }
 
     protected function tearDown(): void
     {
         @unlink($this->tempStorageFile);
         @unlink($this->tempEnvFile);
+        @unlink($this->tempEquipmentStatusFile);
     }
 
     // ========== API Key Validation Tests ==========
@@ -366,5 +369,103 @@ class Esp32ThinHandlerTest extends TestCase
 
         $stored = json_decode(file_get_contents($this->tempStorageFile), true);
         $this->assertEquals(0, $stored['uptime_seconds']);
+    }
+
+    // ========== Dynamic Interval Tests ==========
+
+    public function testReturns60SecondIntervalWhenHeaterIsOn(): void
+    {
+        // Set heater to on
+        file_put_contents($this->tempEquipmentStatusFile, json_encode([
+            'heater' => ['on' => true, 'lastChangedAt' => date('c')],
+            'pump' => ['on' => false, 'lastChangedAt' => date('c')],
+        ]));
+
+        $result = $this->handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertEquals(60, $result['body']['interval_seconds']);
+    }
+
+    public function testReturns300SecondIntervalWhenHeaterIsOff(): void
+    {
+        // Set heater to off
+        file_put_contents($this->tempEquipmentStatusFile, json_encode([
+            'heater' => ['on' => false, 'lastChangedAt' => date('c')],
+            'pump' => ['on' => false, 'lastChangedAt' => date('c')],
+        ]));
+
+        $result = $this->handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertEquals(300, $result['body']['interval_seconds']);
+    }
+
+    public function testReturns300SecondIntervalWhenEquipmentStatusFileMissing(): void
+    {
+        // Don't create the equipment status file
+        @unlink($this->tempEquipmentStatusFile);
+
+        $result = $this->handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertEquals(300, $result['body']['interval_seconds']);
+    }
+
+    public function testReturns300SecondIntervalWhenEquipmentStatusFileInvalid(): void
+    {
+        // Write invalid JSON
+        file_put_contents($this->tempEquipmentStatusFile, 'not valid json');
+
+        $result = $this->handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertEquals(300, $result['body']['interval_seconds']);
+    }
+
+    public function testReturns300SecondIntervalWhenNoEquipmentStatusFileProvided(): void
+    {
+        // Create handler without equipment status file
+        $handler = new Esp32ThinHandler($this->tempStorageFile, $this->tempEnvFile, null);
+
+        $result = $handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertEquals(300, $result['body']['interval_seconds']);
     }
 }
