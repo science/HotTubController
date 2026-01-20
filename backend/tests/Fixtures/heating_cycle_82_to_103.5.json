@@ -1,0 +1,413 @@
+{
+  "_metadata": {
+    "description": "Simulated ESP32 temperature readings during a heating cycle",
+    "start_temp_f": 82.0,
+    "end_temp_f": 103.5,
+    "heating_rate_f_per_min": 0.5,
+    "interval_seconds": 60,
+    "total_readings": 44,
+    "duration_minutes": 43,
+    "ambient_temp_f": 45.0,
+    "device_id": "A4:CF:12:34:56:78",
+    "water_sensor_address": "28:F6:DD:87:00:88:1E:E8",
+    "ambient_sensor_address": "28:D5:AA:87:00:23:16:34"
+  },
+  "readings": [
+    {
+      "minute": 0,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 27.78, "temp_f": 82.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 0
+    },
+    {
+      "minute": 1,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 28.06, "temp_f": 82.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 60
+    },
+    {
+      "minute": 2,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 28.33, "temp_f": 83.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 120
+    },
+    {
+      "minute": 3,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 28.61, "temp_f": 83.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 180
+    },
+    {
+      "minute": 4,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 28.89, "temp_f": 84.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 240
+    },
+    {
+      "minute": 5,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 29.17, "temp_f": 84.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 300
+    },
+    {
+      "minute": 6,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 29.44, "temp_f": 85.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 360
+    },
+    {
+      "minute": 7,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 29.72, "temp_f": 85.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 420
+    },
+    {
+      "minute": 8,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 30.00, "temp_f": 86.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 480
+    },
+    {
+      "minute": 9,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 30.28, "temp_f": 86.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 540
+    },
+    {
+      "minute": 10,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 30.56, "temp_f": 87.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 600
+    },
+    {
+      "minute": 11,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 30.83, "temp_f": 87.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 660
+    },
+    {
+      "minute": 12,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 31.11, "temp_f": 88.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 720
+    },
+    {
+      "minute": 13,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 31.39, "temp_f": 88.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 780
+    },
+    {
+      "minute": 14,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 31.67, "temp_f": 89.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 840
+    },
+    {
+      "minute": 15,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 31.94, "temp_f": 89.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 900
+    },
+    {
+      "minute": 16,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 32.22, "temp_f": 90.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 960
+    },
+    {
+      "minute": 17,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 32.50, "temp_f": 90.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1020
+    },
+    {
+      "minute": 18,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 32.78, "temp_f": 91.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1080
+    },
+    {
+      "minute": 19,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 33.06, "temp_f": 91.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1140
+    },
+    {
+      "minute": 20,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 33.33, "temp_f": 92.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1200
+    },
+    {
+      "minute": 21,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 33.61, "temp_f": 92.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1260
+    },
+    {
+      "minute": 22,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 33.89, "temp_f": 93.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1320
+    },
+    {
+      "minute": 23,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 34.17, "temp_f": 93.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1380
+    },
+    {
+      "minute": 24,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 34.44, "temp_f": 94.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1440
+    },
+    {
+      "minute": 25,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 34.72, "temp_f": 94.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1500
+    },
+    {
+      "minute": 26,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 35.00, "temp_f": 95.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1560
+    },
+    {
+      "minute": 27,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 35.28, "temp_f": 95.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1620
+    },
+    {
+      "minute": 28,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 35.56, "temp_f": 96.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1680
+    },
+    {
+      "minute": 29,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 35.83, "temp_f": 96.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1740
+    },
+    {
+      "minute": 30,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 36.11, "temp_f": 97.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1800
+    },
+    {
+      "minute": 31,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 36.39, "temp_f": 97.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1860
+    },
+    {
+      "minute": 32,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 36.67, "temp_f": 98.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1920
+    },
+    {
+      "minute": 33,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 36.94, "temp_f": 98.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 1980
+    },
+    {
+      "minute": 34,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 37.22, "temp_f": 99.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 2040
+    },
+    {
+      "minute": 35,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 37.50, "temp_f": 99.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 2100
+    },
+    {
+      "minute": 36,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 37.78, "temp_f": 100.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 2160
+    },
+    {
+      "minute": 37,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 38.06, "temp_f": 100.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 2220
+    },
+    {
+      "minute": 38,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 38.33, "temp_f": 101.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 2280
+    },
+    {
+      "minute": 39,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 38.61, "temp_f": 101.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 2340
+    },
+    {
+      "minute": 40,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 38.89, "temp_f": 102.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 2400
+    },
+    {
+      "minute": 41,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 39.17, "temp_f": 102.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 2460
+    },
+    {
+      "minute": 42,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 39.44, "temp_f": 103.0},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 2520
+    },
+    {
+      "minute": 43,
+      "device_id": "A4:CF:12:34:56:78",
+      "sensors": [
+        {"address": "28:F6:DD:87:00:88:1E:E8", "role": "water", "temp_c": 39.72, "temp_f": 103.5},
+        {"address": "28:D5:AA:87:00:23:16:34", "role": "ambient", "temp_c": 7.22, "temp_f": 45.0}
+      ],
+      "uptime_seconds": 2580
+    }
+  ]
+}

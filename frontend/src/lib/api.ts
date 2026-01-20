@@ -13,6 +13,9 @@ export interface ScheduledJob {
 	scheduledTime: string;
 	createdAt: string;
 	recurring: boolean;
+	params?: {
+		target_temp_f?: number;
+	};
 }
 
 export interface ScheduleListResponse {
@@ -89,6 +92,18 @@ export interface HealthResponse {
 	ifttt_mode: string;
 	equipmentStatus: EquipmentStatus;
 	blindsEnabled?: boolean;
+}
+
+export interface TargetTemperatureState {
+	active: boolean;
+	target_temp_f: number | null;
+	started_at?: string;
+	heating?: boolean;
+	heater_turned_on?: boolean;
+	heater_turned_off?: boolean;
+	target_reached?: boolean;
+	current_temp_f?: number;
+	error?: string;
 }
 
 export interface UserListResponse {
@@ -213,8 +228,12 @@ export const api = {
 	getAllTemperatures: () => get<AllTemperaturesResponse>('/api/temperature/all'),
 
 	// Schedule endpoints
-	scheduleJob: (action: string, scheduledTime: string, recurring: boolean = false) =>
-		postJson<ScheduledJob>('/api/schedule', { action, scheduledTime, recurring }),
+	scheduleJob: (
+		action: string,
+		scheduledTime: string,
+		recurring: boolean = false,
+		params?: { target_temp_f?: number }
+	) => postJson<ScheduledJob>('/api/schedule', { action, scheduledTime, recurring, ...params }),
 	listScheduledJobs: () => get<ScheduleListResponse>('/api/schedule'),
 	cancelScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}`),
 
@@ -229,5 +248,11 @@ export const api = {
 	// ESP32 sensor configuration endpoints
 	listEsp32Sensors: () => get<Esp32SensorListResponse>('/api/esp32/sensors'),
 	updateEsp32Sensor: (address: string, data: SensorUpdateRequest) =>
-		put<SensorUpdateResponse>(`/api/esp32/sensors/${encodeURIComponent(address)}`, data)
+		put<SensorUpdateResponse>(`/api/esp32/sensors/${encodeURIComponent(address)}`, data),
+
+	// Target temperature endpoints
+	heatToTarget: (target_temp_f: number) =>
+		postJson<TargetTemperatureState>('/api/equipment/heat-to-target', { target_temp_f }),
+	getTargetTempStatus: () => get<TargetTemperatureState>('/api/equipment/heat-to-target'),
+	cancelTargetTemp: () => del('/api/equipment/heat-to-target')
 };

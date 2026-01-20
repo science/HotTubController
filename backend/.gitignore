@@ -6,7 +6,11 @@
 
 # Environment files with secrets - NEVER commit these
 .env
+.env.*
 !.env.example
+
+# WirelessTag state cache - runtime data
+/storage/temperature_state.json
 
 # Config files that may contain real keys or local overrides
 config/env.dev

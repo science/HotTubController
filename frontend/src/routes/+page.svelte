@@ -10,7 +10,7 @@
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { buildInfo } from '$lib/config';
-	import { getRefreshTempOnHeaterOff } from '$lib/settings';
+	import { getRefreshTempOnHeaterOff, getTargetTempEnabled, getTargetTempF } from '$lib/settings';
 	import {
 		fetchStatus,
 		getHeaterOn,
@@ -99,6 +99,21 @@
 			temperaturePanel?.loadTemperature();
 		}
 	}
+
+	async function handleHeatOn() {
+		if (getTargetTempEnabled()) {
+			// Use target temperature mode
+			const targetTempF = getTargetTempF();
+			await handleAction(
+				() => api.heatToTarget(targetTempF),
+				`Heating to ${targetTempF}°F`,
+				setHeaterOn
+			);
+		} else {
+			// Use standard heater on
+			await handleAction(api.heaterOn, 'Heater turned ON', setHeaterOn);
+		}
+	}
 </script>
 
 <div class="min-h-screen bg-slate-900 p-4 flex flex-col">
@@ -129,9 +144,9 @@
 				label="Heat On"
 				icon="flame"
 				variant="primary"
-				tooltip="Turn on the hot tub heater"
+				tooltip={getTargetTempEnabled() ? `Heat to ${getTargetTempF()}°F` : 'Turn on the hot tub heater'}
 				active={heaterOn}
-				onClick={() => handleAction(api.heaterOn, 'Heater turned ON', setHeaterOn)}
+				onClick={handleHeatOn}
 			/>
 			<CompactControlButton
 				label="Heat/Pump Off"

@@ -17,6 +17,7 @@ class SchedulerService
         'heater-on' => '/api/equipment/heater/on',
         'heater-off' => '/api/equipment/heater/off',
         'pump-run' => '/api/equipment/pump/run',
+        'heat-to-target' => '/api/equipment/heat-to-target',
     ];
 
     /** @var array<string, string> Human-readable labels for crontab comments */
@@ -24,6 +25,7 @@ class SchedulerService
         'heater-on' => 'ON',
         'heater-off' => 'OFF',
         'pump-run' => 'PUMP',
+        'heat-to-target' => 'TARGET',
     ];
 
     /** Default grace period for health checks (30 minutes) */
@@ -51,13 +53,14 @@ class SchedulerService
     /**
      * Schedule a job to execute an equipment action.
      *
-     * @param string $action One of: heater-on, heater-off, pump-run
+     * @param string $action One of: heater-on, heater-off, pump-run, heat-to-target
      * @param string $scheduledTime ISO 8601 datetime string for one-off, or HH:MM time for recurring
      * @param bool $recurring If true, creates a daily recurring job
+     * @param array<string, mixed> $params Optional parameters for the action (e.g., target_temp_f for heat-to-target)
      * @return array{jobId: string, action: string, scheduledTime: string, createdAt: string, recurring: bool}
      * @throws InvalidArgumentException If action is invalid or time is in the past (one-off only)
      */
-    public function scheduleJob(string $action, string $scheduledTime, bool $recurring = false): array
+    public function scheduleJob(string $action, string $scheduledTime, bool $recurring = false, array $params = []): array
     {
         // Validate action
         if (!isset(self::VALID_ACTIONS[$action])) {
@@ -110,6 +113,11 @@ class SchedulerService
             'recurring' => false,
             'createdAt' => $createdAt,
         ];
+
+        // Add action-specific parameters (e.g., target_temp_f for heat-to-target)
+        if (!empty($params)) {
+            $jobData['params'] = $params;
+        }
 
         // Add health check UUID if monitoring is enabled
         if ($healthcheckUuid !== null) {
@@ -283,13 +291,20 @@ class SchedulerService
                     continue;
                 }
 
-                $jobs[] = [
+                $job = [
                     'jobId' => $jobData['jobId'] ?? basename($file, '.json'),
                     'action' => $jobData['action'] ?? 'unknown',
                     'scheduledTime' => $jobData['scheduledTime'] ?? '',
                     'createdAt' => $jobData['createdAt'] ?? '',
                     'recurring' => $jobData['recurring'] ?? false,
                 ];
+
+                // Include action-specific parameters (e.g., target_temp_f for heat-to-target)
+                if (isset($jobData['params']) && is_array($jobData['params'])) {
+                    $job['params'] = $jobData['params'];
+                }
+
+                $jobs[] = $job;
             }
         }
 
