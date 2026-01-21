@@ -24,6 +24,7 @@ class TargetTemperatureService
     private ?CrontabAdapterInterface $crontabAdapter;
     private ?string $cronRunnerPath;
     private ?string $apiBaseUrl;
+    private ?Esp32SensorConfigService $esp32Config;
 
     public function __construct(
         string $stateFile,
@@ -32,7 +33,8 @@ class TargetTemperatureService
         ?Esp32TemperatureService $esp32Temp = null,
         ?CrontabAdapterInterface $crontabAdapter = null,
         ?string $cronRunnerPath = null,
-        ?string $apiBaseUrl = null
+        ?string $apiBaseUrl = null,
+        ?Esp32SensorConfigService $esp32Config = null
     ) {
         $this->stateFile = $stateFile;
         $this->iftttClient = $iftttClient;
@@ -41,6 +43,7 @@ class TargetTemperatureService
         $this->crontabAdapter = $crontabAdapter;
         $this->cronRunnerPath = $cronRunnerPath;
         $this->apiBaseUrl = $apiBaseUrl;
+        $this->esp32Config = $esp32Config;
     }
 
     public function start(float $targetTempF): void
@@ -118,8 +121,7 @@ class TargetTemperatureService
         }
 
         $targetTempF = $state['target_temp_f'];
-        $latest = $this->esp32Temp?->getLatest();
-        $currentTempF = $latest['temp_f'] ?? null;
+        $currentTempF = $this->getCalibratedWaterTempF();
 
         if ($currentTempF === null) {
             return [
@@ -250,5 +252,48 @@ class TargetTemperatureService
     public function cleanupCronJobs(): void
     {
         $this->crontabAdapter?->removeByPattern('HOTTUB:' . self::CRON_JOB_PREFIX);
+    }
+
+    /**
+     * Get the calibrated water temperature in Fahrenheit.
+     *
+     * Uses sensor config to find the water sensor and apply calibration offset.
+     * Falls back to raw temp_f if no config is available.
+     */
+    private function getCalibratedWaterTempF(): ?float
+    {
+        $latest = $this->esp32Temp?->getLatest();
+        if ($latest === null) {
+            return null;
+        }
+
+        // If no config service, fall back to raw temp_f
+        if ($this->esp32Config === null) {
+            return $latest['temp_f'] ?? null;
+        }
+
+        // Find the water sensor address
+        $waterAddress = $this->esp32Config->getSensorByRole('water');
+        if ($waterAddress === null) {
+            // No water sensor configured, fall back to raw temp_f
+            return $latest['temp_f'] ?? null;
+        }
+
+        // Find the sensor data for the water sensor
+        foreach ($latest['sensors'] as $sensor) {
+            if ($sensor['address'] === $waterAddress) {
+                $rawTempC = (float) $sensor['temp_c'];
+                $calibratedTempC = $this->esp32Config->getCalibratedTemperature($waterAddress, $rawTempC);
+                return $this->celsiusToFahrenheit($calibratedTempC);
+            }
+        }
+
+        // Water sensor not found in latest reading, fall back to raw temp_f
+        return $latest['temp_f'] ?? null;
+    }
+
+    private function celsiusToFahrenheit(float $celsius): float
+    {
+        return $celsius * 9.0 / 5.0 + 32.0;
     }
 }
