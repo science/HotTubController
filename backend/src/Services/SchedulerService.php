@@ -74,7 +74,7 @@ class SchedulerService
 
         if ($recurring) {
             // For recurring jobs, scheduledTime is just HH:MM format
-            return $this->scheduleRecurringJob($action, $scheduledTime, $createdAt);
+            return $this->scheduleRecurringJob($action, $scheduledTime, $createdAt, $params);
         }
 
         // Parse and validate scheduled time for one-off jobs
@@ -159,12 +159,13 @@ class SchedulerService
      * - "HH:MM" (bare) - assumes server timezone (backward compatible)
      * - "HH:MM+/-HH:MM" (with offset) - converts to server timezone for cron, UTC for storage
      *
-     * @param string $action One of: heater-on, heater-off, pump-run
+     * @param string $action One of: heater-on, heater-off, pump-run, heat-to-target
      * @param string $time Time in HH:MM or HH:MM+/-HH:MM format
      * @param string $createdAt ISO 8601 timestamp when job was created
+     * @param array<string, mixed> $params Optional parameters for the action (e.g., target_temp_f for heat-to-target)
      * @return array{jobId: string, action: string, scheduledTime: string, createdAt: string, recurring: bool}
      */
-    private function scheduleRecurringJob(string $action, string $time, string $createdAt): array
+    private function scheduleRecurringJob(string $action, string $time, string $createdAt, array $params = []): array
     {
         // Generate unique job ID with rec- prefix for recurring
         $jobId = 'rec-' . bin2hex(random_bytes(4));
@@ -208,6 +209,11 @@ class SchedulerService
             'recurring' => true,
             'createdAt' => $createdAt,
         ];
+
+        // Add action-specific parameters (e.g., target_temp_f for heat-to-target)
+        if (!empty($params)) {
+            $jobData['params'] = $params;
+        }
 
         // Add health check data if monitoring is enabled
         if ($healthcheckUuid !== null) {

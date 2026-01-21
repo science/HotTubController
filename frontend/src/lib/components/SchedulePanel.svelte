@@ -42,8 +42,7 @@
 	const actions = [
 		{ value: 'heater-on', label: 'Heater ON' },
 		{ value: 'heater-off', label: 'Heater OFF' },
-		{ value: 'pump-run', label: 'Run Pump' },
-		{ value: 'heat-to-target', label: 'Heat to Target' }
+		{ value: 'pump-run', label: 'Run Pump' }
 	];
 
 	// Set default date/time to tomorrow at 6:00 AM
@@ -318,8 +317,16 @@
 	const recurringJobs = $derived(jobs.filter((j) => j.recurring));
 	const oneOffJobs = $derived(jobs.filter((j) => !j.recurring));
 
+	// Map for displaying job actions (includes heat-to-target for existing jobs)
+	const actionDisplayLabels: Record<string, string> = {
+		'heater-on': 'Heater ON',
+		'heater-off': 'Heater OFF',
+		'pump-run': 'Run Pump',
+		'heat-to-target': 'Heat to Target'
+	};
+
 	function getActionLabel(action: string): string {
-		return actions.find((a) => a.value === action)?.label ?? action;
+		return actionDisplayLabels[action] ?? action;
 	}
 
 	function getJobDisplayLabel(job: ScheduledJob): string {

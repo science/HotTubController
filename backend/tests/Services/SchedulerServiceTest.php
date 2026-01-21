@@ -1094,6 +1094,53 @@ class SchedulerServiceTest extends TestCase
         $this->assertStringContainsString('HOTTUB:', $entries[0]);
     }
 
+    // ========== Heat-to-Target Params Tests ==========
+
+    public function testScheduleOneOffHeatToTargetStoresParams(): void
+    {
+        $result = $this->scheduler->scheduleJob('heat-to-target', '2030-12-11T06:30:00', false, ['target_temp_f' => 103]);
+
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        $this->assertArrayHasKey('params', $jobData);
+        $this->assertEquals(103, $jobData['params']['target_temp_f']);
+    }
+
+    public function testScheduleRecurringHeatToTargetStoresParams(): void
+    {
+        // Bug #2: Recurring jobs should store params but the scheduleRecurringJob method
+        // doesn't accept or store the params argument
+        $result = $this->scheduler->scheduleJob('heat-to-target', '06:30', true, ['target_temp_f' => 102.5]);
+
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        $this->assertArrayHasKey('params', $jobData, 'Recurring heat-to-target jobs should store params');
+        $this->assertEquals(102.5, $jobData['params']['target_temp_f'], 'Target temp should be stored');
+    }
+
+    public function testListJobsReturnsParamsForHeatToTargetJobs(): void
+    {
+        // Schedule both one-off and recurring heat-to-target jobs
+        $this->scheduler->scheduleJob('heat-to-target', '2030-12-11T06:30:00', false, ['target_temp_f' => 103]);
+        $this->scheduler->scheduleJob('heat-to-target', '07:30', true, ['target_temp_f' => 102.5]);
+
+        $jobs = $this->scheduler->listJobs();
+
+        $this->assertCount(2, $jobs);
+
+        // One-off job should have params
+        $oneOff = array_values(array_filter($jobs, fn($j) => str_starts_with($j['jobId'], 'job-')))[0];
+        $this->assertArrayHasKey('params', $oneOff, 'One-off job should have params');
+        $this->assertEquals(103, $oneOff['params']['target_temp_f']);
+
+        // Recurring job should also have params
+        $recurring = array_values(array_filter($jobs, fn($j) => str_starts_with($j['jobId'], 'rec-')))[0];
+        $this->assertArrayHasKey('params', $recurring, 'Recurring job should have params');
+        $this->assertEquals(102.5, $recurring['params']['target_temp_f']);
+    }
+
     // ========== Bug Reproduction Test ==========
 
     /**
