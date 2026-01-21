@@ -842,3 +842,39 @@ describe('SchedulePanel manual refresh button', () => {
 		vi.useRealTimers();
 	});
 });
+
+describe('SchedulePanel action dropdown', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.clearAllMocks();
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({ jobs: [] });
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('does not include heat-to-target as a dropdown option', async () => {
+		// Bug #1: The "Heat to Target" dropdown option is broken because it doesn't
+		// include the required target_temp_f parameter. When target temp is enabled,
+		// "Heater ON" automatically becomes "heat-to-target" with the temp included.
+		// Therefore, "Heat to Target" should not be a separate dropdown option.
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByLabelText(/action/i)).toBeTruthy();
+		});
+
+		const actionSelect = screen.getByLabelText(/action/i);
+		const options = actionSelect.querySelectorAll('option');
+		const optionValues = Array.from(options).map((opt) => opt.value);
+		const optionLabels = Array.from(options).map((opt) => opt.textContent);
+
+		// Should have 3 options: heater-on, heater-off, pump-run
+		expect(optionValues).toEqual(['heater-on', 'heater-off', 'pump-run']);
+		expect(optionLabels).toEqual(['Heater ON', 'Heater OFF', 'Run Pump']);
+
+		// Should NOT include heat-to-target
+		expect(optionValues).not.toContain('heat-to-target');
+	});
+});
