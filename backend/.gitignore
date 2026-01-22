@@ -29,3 +29,8 @@ config/env.production
 # Equipment state files - runtime data managed by EquipmentStatusService
 /storage/state/*
 !/storage/state/.gitkeep
+
+# Firmware files - binary files for ESP32 OTA updates
+/storage/firmware/*.bin
+/storage/firmware/config.json
+!/storage/firmware/.gitkeep

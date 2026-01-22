@@ -23,12 +23,24 @@ class Esp32ThinHandler
     private string $storageFile;
     private string $envFile;
     private ?string $equipmentStatusFile;
+    private ?string $firmwareDir;
+    private ?string $firmwareConfigFile;
+    private ?string $apiBaseUrl;
 
-    public function __construct(string $storageFile, string $envFile, ?string $equipmentStatusFile = null)
-    {
+    public function __construct(
+        string $storageFile,
+        string $envFile,
+        ?string $equipmentStatusFile = null,
+        ?string $firmwareDir = null,
+        ?string $firmwareConfigFile = null,
+        ?string $apiBaseUrl = null
+    ) {
         $this->storageFile = $storageFile;
         $this->envFile = $envFile;
         $this->equipmentStatusFile = $equipmentStatusFile;
+        $this->firmwareDir = $firmwareDir;
+        $this->firmwareConfigFile = $firmwareConfigFile;
+        $this->apiBaseUrl = $apiBaseUrl;
     }
 
     /**
@@ -111,12 +123,23 @@ class Esp32ThinHandler
         // Write to storage file
         file_put_contents($this->storageFile, json_encode($record, JSON_PRETTY_PRINT));
 
+        // Build response
+        $response = [
+            'status' => 'ok',
+            'interval_seconds' => $this->getInterval(),
+        ];
+
+        // Check for firmware updates if device reported its version
+        if (isset($postData['firmware_version']) && $this->firmwareConfigFile !== null) {
+            $firmwareInfo = $this->getFirmwareInfo($postData['firmware_version']);
+            if (!empty($firmwareInfo)) {
+                $response = array_merge($response, $firmwareInfo);
+            }
+        }
+
         return [
             'status' => 200,
-            'body' => [
-                'status' => 'ok',
-                'interval_seconds' => $this->getInterval(),
-            ],
+            'body' => $response,
         ];
     }
 
@@ -163,5 +186,47 @@ class Esp32ThinHandler
         }
 
         return null;
+    }
+
+    /**
+     * Get firmware update info if an update is available.
+     *
+     * @param string $deviceVersion Current firmware version on the device
+     * @return array Firmware info (firmware_version, firmware_url) or empty array
+     */
+    private function getFirmwareInfo(string $deviceVersion): array
+    {
+        if ($this->firmwareConfigFile === null || !file_exists($this->firmwareConfigFile)) {
+            return [];
+        }
+
+        $content = file_get_contents($this->firmwareConfigFile);
+        if ($content === false) {
+            return [];
+        }
+
+        $config = json_decode($content, true);
+        if (!is_array($config) || !isset($config['version']) || !isset($config['filename'])) {
+            return [];
+        }
+
+        // Check if update is available (device version is older)
+        if (version_compare($deviceVersion, $config['version'], '>=')) {
+            return [];
+        }
+
+        // Check if firmware file exists
+        $firmwarePath = $this->firmwareDir . '/' . $config['filename'];
+        if (!file_exists($firmwarePath)) {
+            return [];
+        }
+
+        // Build download URL
+        $downloadUrl = rtrim($this->apiBaseUrl ?? '', '/') . '/esp32/firmware/download';
+
+        return [
+            'firmware_version' => $config['version'],
+            'firmware_url' => $downloadUrl,
+        ];
     }
 }
