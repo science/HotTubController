@@ -14,7 +14,7 @@
 declare(strict_types=1);
 
 // Configuration paths (relative to backend root)
-$backendRoot = __DIR__ . '/../../../..';
+$backendRoot = __DIR__ . '/../../../../..';
 $envFile = $backendRoot . '/.env';
 $firmwareConfigFile = $backendRoot . '/storage/firmware/config.json';
 $firmwareDir = $backendRoot . '/storage/firmware';
