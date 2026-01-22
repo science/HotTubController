@@ -468,4 +468,157 @@ class Esp32ThinHandlerTest extends TestCase
 
         $this->assertEquals(300, $result['body']['interval_seconds']);
     }
+
+    // ========== Firmware Update Info Tests ==========
+
+    public function testResponseDoesNotIncludeFirmwareInfoWhenNoFirmwareServiceConfigured(): void
+    {
+        $result = $this->handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                'firmware_version' => '1.0.0',
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertEquals(200, $result['status']);
+        $this->assertArrayNotHasKey('firmware_version', $result['body']);
+        $this->assertArrayNotHasKey('firmware_url', $result['body']);
+    }
+
+    public function testResponseIncludesFirmwareInfoWhenUpdateAvailable(): void
+    {
+        // Set up firmware service
+        $firmwareDir = sys_get_temp_dir() . '/esp32-firmware-test-' . uniqid();
+        $firmwareConfig = $firmwareDir . '/config.json';
+        mkdir($firmwareDir, 0755, true);
+
+        // Create firmware config and file
+        file_put_contents($firmwareConfig, json_encode([
+            'version' => '2.0.0',
+            'filename' => 'firmware.bin',
+        ]));
+        file_put_contents($firmwareDir . '/firmware.bin', 'fake firmware data');
+
+        $handler = new Esp32ThinHandler(
+            $this->tempStorageFile,
+            $this->tempEnvFile,
+            $this->tempEquipmentStatusFile,
+            $firmwareDir,
+            $firmwareConfig,
+            'https://example.com/api'
+        );
+
+        $result = $handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                'firmware_version' => '1.0.0',
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertEquals(200, $result['status']);
+        $this->assertEquals('2.0.0', $result['body']['firmware_version']);
+        $this->assertEquals('https://example.com/api/esp32/firmware/download', $result['body']['firmware_url']);
+
+        // Cleanup
+        @unlink($firmwareDir . '/firmware.bin');
+        @unlink($firmwareConfig);
+        @rmdir($firmwareDir);
+    }
+
+    public function testResponseDoesNotIncludeFirmwareInfoWhenDeviceIsUpToDate(): void
+    {
+        // Set up firmware service
+        $firmwareDir = sys_get_temp_dir() . '/esp32-firmware-test-' . uniqid();
+        $firmwareConfig = $firmwareDir . '/config.json';
+        mkdir($firmwareDir, 0755, true);
+
+        // Create firmware config and file
+        file_put_contents($firmwareConfig, json_encode([
+            'version' => '1.0.0',
+            'filename' => 'firmware.bin',
+        ]));
+        file_put_contents($firmwareDir . '/firmware.bin', 'fake firmware data');
+
+        $handler = new Esp32ThinHandler(
+            $this->tempStorageFile,
+            $this->tempEnvFile,
+            $this->tempEquipmentStatusFile,
+            $firmwareDir,
+            $firmwareConfig,
+            'https://example.com/api'
+        );
+
+        $result = $handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                'firmware_version' => '1.0.0',  // Same as available
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertEquals(200, $result['status']);
+        $this->assertArrayNotHasKey('firmware_version', $result['body']);
+        $this->assertArrayNotHasKey('firmware_url', $result['body']);
+
+        // Cleanup
+        @unlink($firmwareDir . '/firmware.bin');
+        @unlink($firmwareConfig);
+        @rmdir($firmwareDir);
+    }
+
+    public function testResponseDoesNotIncludeFirmwareInfoWhenDeviceDoesNotReportVersion(): void
+    {
+        // Set up firmware service
+        $firmwareDir = sys_get_temp_dir() . '/esp32-firmware-test-' . uniqid();
+        $firmwareConfig = $firmwareDir . '/config.json';
+        mkdir($firmwareDir, 0755, true);
+
+        // Create firmware config and file
+        file_put_contents($firmwareConfig, json_encode([
+            'version' => '2.0.0',
+            'filename' => 'firmware.bin',
+        ]));
+        file_put_contents($firmwareDir . '/firmware.bin', 'fake firmware data');
+
+        $handler = new Esp32ThinHandler(
+            $this->tempStorageFile,
+            $this->tempEnvFile,
+            $this->tempEquipmentStatusFile,
+            $firmwareDir,
+            $firmwareConfig,
+            'https://example.com/api'
+        );
+
+        $result = $handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                // No firmware_version reported
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertEquals(200, $result['status']);
+        // Should not include firmware info if device doesn't report its version
+        $this->assertArrayNotHasKey('firmware_version', $result['body']);
+        $this->assertArrayNotHasKey('firmware_url', $result['body']);
+
+        // Cleanup
+        @unlink($firmwareDir . '/firmware.bin');
+        @unlink($firmwareConfig);
+        @rmdir($firmwareDir);
+    }
 }

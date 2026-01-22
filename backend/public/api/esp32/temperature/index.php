@@ -12,11 +12,14 @@
  * Expected request:
  *   POST /api/esp32/temperature/
  *   Header: X-ESP32-API-KEY: <key>
- *   Body: {"device_id": "...", "sensors": [{"address": "...", "temp_c": ...}]}
+ *   Body: {"device_id": "...", "firmware_version": "1.0.0", "sensors": [...]}
  *
  * Response:
  *   {"status": "ok", "interval_seconds": 60|300}
  *   (60 seconds when heater is on, 300 otherwise)
+ *
+ *   If firmware update available:
+ *   {"status": "ok", "interval_seconds": 300, "firmware_version": "1.2.0", "firmware_url": "..."}
  */
 
 declare(strict_types=1);
@@ -31,9 +34,33 @@ $backendRoot = __DIR__ . '/../../../..';
 $envFile = $backendRoot . '/.env';
 $storageFile = $backendRoot . '/storage/state/esp32-temperature.json';
 $equipmentStatusFile = $backendRoot . '/storage/state/equipment-status.json';
+$firmwareDir = $backendRoot . '/storage/firmware';
+$firmwareConfigFile = $firmwareDir . '/config.json';
+
+// Determine API base URL from environment or request
+$apiBaseUrl = null;
+if (file_exists($envFile)) {
+    $envContent = file_get_contents($envFile);
+    if (preg_match('/^API_BASE_URL=(.+)$/m', $envContent, $matches)) {
+        $apiBaseUrl = trim($matches[1]);
+    }
+}
+// Fallback to constructing from request if not in .env
+if ($apiBaseUrl === null) {
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $apiBaseUrl = $protocol . '://' . $host . '/api';
+}
 
 // Create handler
-$handler = new Esp32ThinHandler($storageFile, $envFile, $equipmentStatusFile);
+$handler = new Esp32ThinHandler(
+    $storageFile,
+    $envFile,
+    $equipmentStatusFile,
+    $firmwareDir,
+    $firmwareConfigFile,
+    $apiBaseUrl
+);
 
 // Parse request
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';

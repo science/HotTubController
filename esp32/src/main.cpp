@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <ArduinoOTA.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <api_client.h>
@@ -21,8 +22,46 @@ String deviceId;
 unsigned long lastReportTime = 0;
 int currentIntervalMs = DEFAULT_INTERVAL_SEC * 1000;
 
+void setupOTA() {
+    // Set OTA hostname (shows up in PlatformIO/Arduino IDE)
+    ArduinoOTA.setHostname("hottub-esp32");
+
+    // Optional: Set OTA password for security
+    // ArduinoOTA.setPassword("hottub123");
+
+    ArduinoOTA.onStart([]() {
+        String type = (ArduinoOTA.getCommand() == U_FLASH) ? "firmware" : "filesystem";
+        Serial.println("OTA Update starting: " + type);
+    });
+
+    ArduinoOTA.onEnd([]() {
+        Serial.println("\nOTA Update complete!");
+    });
+
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100)));
+    });
+
+    ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("OTA Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+
+    ArduinoOTA.begin();
+    Serial.printf("OTA ready at %s:3232\n", WiFi.localIP().toString().c_str());
+}
+
 void connectWiFi() {
     Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
+
+    // Set max TX power for better range (default is ~13dBm, max is 20.5dBm)
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    Serial.println("WiFi TX power set to 19.5 dBm (max)");
+
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
     int attempts = 0;
@@ -68,7 +107,10 @@ void setup() {
     Serial.printf("API Endpoint: %s\n", API_ENDPOINT);
     Serial.printf("Default interval: %d seconds\n", DEFAULT_INTERVAL_SEC);
 
-    // Initialize telnet debugger for remote diagnostics
+    // Initialize OTA updates (port 3232)
+    setupOTA();
+
+    // Initialize telnet debugger for remote diagnostics (port 23)
     debugger = new TelnetDebugger(&sensors, &oneWire, ONE_WIRE_BUS);
     if (debugger->begin()) {
         Serial.printf("Telnet debugger available at %s:23\n", WiFi.localIP().toString().c_str());
@@ -79,6 +121,9 @@ void setup() {
 }
 
 void loop() {
+    // Handle OTA updates (must be called frequently)
+    ArduinoOTA.handle();
+
     // Handle telnet connections
     debugger->loop();
 
