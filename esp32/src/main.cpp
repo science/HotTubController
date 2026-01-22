@@ -23,6 +23,11 @@ int currentIntervalMs = DEFAULT_INTERVAL_SEC * 1000;
 
 void connectWiFi() {
     Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
+
+    // Set max TX power for better range (default is ~13dBm, max is 20.5dBm)
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    Serial.println("WiFi TX power set to 19.5 dBm (max)");
+
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
     int attempts = 0;
