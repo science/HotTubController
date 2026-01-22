@@ -176,7 +176,7 @@ class Esp32FirmwareServiceTest extends TestCase
         $info = $service->getFirmwareInfoForApi('1.0.0', 'https://example.com/api');
 
         $this->assertEquals('1.2.0', $info['firmware_version']);
-        $this->assertEquals('https://example.com/api/esp32/firmware/download', $info['firmware_url']);
+        $this->assertEquals('https://example.com/api/esp32/firmware/download/', $info['firmware_url']);
     }
 
     public function testGetFirmwareInfoForApiReturnsEmptyWhenFirmwareFileMissing(): void
