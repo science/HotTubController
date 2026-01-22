@@ -142,8 +142,9 @@ FULL_URL="${API_BASE_URL}${ENDPOINT}"
 REQUEST_BODY=""
 if grep -q '"params"' "$JOB_FILE" 2>/dev/null; then
     # Extract the params value - handles nested JSON object
-    # Use sed to extract everything between "params": and the next closing brace that matches
-    REQUEST_BODY=$(sed -n 's/.*"params"[[:space:]]*:[[:space:]]*\({[^}]*}\).*/\1/p' "$JOB_FILE" || true)
+    # Use tr to collapse multi-line JSON to single line first (JSON_PRETTY_PRINT creates multi-line)
+    # Then sed extracts everything between "params": and the matching closing brace
+    REQUEST_BODY=$(tr -d '\n' < "$JOB_FILE" | sed -n 's/.*"params"[[:space:]]*:[[:space:]]*\({[^}]*}\).*/\1/p' || true)
     if [ -n "$REQUEST_BODY" ]; then
         log "Using request body: $REQUEST_BODY"
     fi
