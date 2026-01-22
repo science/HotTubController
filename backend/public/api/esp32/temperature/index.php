@@ -51,6 +51,10 @@ if ($apiBaseUrl === null) {
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
     $apiBaseUrl = $protocol . '://' . $host . '/api';
 }
+// Ensure API base URL ends with /api (for proper firmware download URL)
+if (!preg_match('#/api$#', $apiBaseUrl)) {
+    $apiBaseUrl = rtrim($apiBaseUrl, '/') . '/api';
+}
 
 // Create handler
 $handler = new Esp32ThinHandler(
