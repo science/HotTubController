@@ -1,10 +1,15 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
+#include <HTTPClient.h>
+#include <HTTPUpdate.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <api_client.h>
 #include <telnet_debugger.h>
+
+// Firmware version - increment this with each release
+#define FIRMWARE_VERSION "1.3.0"
 
 // Hardware pins
 #define ONE_WIRE_BUS 4
@@ -23,8 +28,11 @@ unsigned long lastReportTime = 0;
 int currentIntervalMs = DEFAULT_INTERVAL_SEC * 1000;
 
 void setupOTA() {
+    Serial.println("Setting up OTA...");
+
     // Set OTA hostname (shows up in PlatformIO/Arduino IDE)
     ArduinoOTA.setHostname("hottub-esp32");
+    Serial.println("OTA hostname set to: hottub-esp32");
 
     // Optional: Set OTA password for security
     // ArduinoOTA.setPassword("hottub123");
@@ -51,8 +59,49 @@ void setupOTA() {
         else if (error == OTA_END_ERROR) Serial.println("End Failed");
     });
 
+    Serial.println("Calling ArduinoOTA.begin()...");
     ArduinoOTA.begin();
-    Serial.printf("OTA ready at %s:3232\n", WiFi.localIP().toString().c_str());
+    Serial.printf("OTA setup complete - should be listening at %s:3232\n", WiFi.localIP().toString().c_str());
+}
+
+/**
+ * Perform HTTP OTA firmware update.
+ * Downloads firmware from the given URL and installs it.
+ */
+void performHttpOtaUpdate(const char* firmwareUrl, const char* newVersion) {
+    Serial.println("========================================");
+    Serial.printf("HTTP OTA Update starting...\n");
+    Serial.printf("Current version: %s\n", FIRMWARE_VERSION);
+    Serial.printf("New version: %s\n", newVersion);
+    Serial.printf("URL: %s\n", firmwareUrl);
+    Serial.println("========================================");
+
+    HTTPClient http;
+    http.begin(firmwareUrl);
+    http.addHeader("X-ESP32-API-Key", ESP32_API_KEY);
+
+    // Set longer timeout for firmware download
+    http.setTimeout(60000);
+
+    t_httpUpdate_return ret = httpUpdate.update(http);
+
+    switch (ret) {
+        case HTTP_UPDATE_FAILED:
+            Serial.printf("HTTP OTA Update failed! Error (%d): %s\n",
+                         httpUpdate.getLastError(),
+                         httpUpdate.getLastErrorString().c_str());
+            break;
+        case HTTP_UPDATE_NO_UPDATES:
+            Serial.println("HTTP OTA: No updates available");
+            break;
+        case HTTP_UPDATE_OK:
+            Serial.println("HTTP OTA Update successful! Rebooting...");
+            delay(1000);
+            ESP.restart();
+            break;
+    }
+
+    http.end();
 }
 
 void connectWiFi() {
@@ -87,6 +136,7 @@ void setup() {
     Serial.println();
     Serial.println("================================");
     Serial.println("ESP32 Hot Tub Controller");
+    Serial.printf("Firmware Version: %s\n", FIRMWARE_VERSION);
     Serial.println("================================");
 
     // Initialize temperature sensor
@@ -112,6 +162,7 @@ void setup() {
 
     // Initialize telnet debugger for remote diagnostics (port 23)
     debugger = new TelnetDebugger(&sensors, &oneWire, ONE_WIRE_BUS);
+    debugger->setFirmwareVersion(FIRMWARE_VERSION);
     if (debugger->begin()) {
         Serial.printf("Telnet debugger available at %s:23\n", WiFi.localIP().toString().c_str());
     }
@@ -169,10 +220,10 @@ void loop() {
         // Blink LED to show activity
         digitalWrite(LED_PIN, HIGH);
 
-        // Post to API
+        // Post to API (include firmware version for OTA check)
         unsigned long uptimeSeconds = millis() / 1000;
         ApiResponse response = apiClient->postSensors(
-            deviceId.c_str(), readings, validCount, uptimeSeconds
+            deviceId.c_str(), readings, validCount, uptimeSeconds, FIRMWARE_VERSION
         );
 
         digitalWrite(LED_PIN, LOW);
@@ -181,6 +232,14 @@ void loop() {
             backoffTimer.recordSuccess();
             currentIntervalMs = response.intervalSeconds * 1000;
             Serial.printf("Success! Next report in %d seconds\n", response.intervalSeconds);
+
+            // Check if firmware update is available
+            if (response.updateAvailable) {
+                Serial.printf("Firmware update available: %s -> %s\n",
+                             FIRMWARE_VERSION, response.firmwareVersion);
+                performHttpOtaUpdate(response.firmwareUrl, response.firmwareVersion);
+                // If we get here, update failed - continue normal operation
+            }
         } else {
             backoffTimer.recordFailure();
             currentIntervalMs = backoffTimer.getDelayMs();

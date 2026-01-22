@@ -62,8 +62,9 @@ ApiResponse ApiClient::postTemperature(const char* deviceId, float tempC, float 
     return response;
 }
 
-ApiResponse ApiClient::postSensors(const char* deviceId, SensorReading* sensors, int sensorCount, unsigned long uptimeSeconds) {
-    ApiResponse response = {false, DEFAULT_INTERVAL_SEC, 0};
+ApiResponse ApiClient::postSensors(const char* deviceId, SensorReading* sensors, int sensorCount,
+                                   unsigned long uptimeSeconds, const char* firmwareVersion) {
+    ApiResponse response = {false, DEFAULT_INTERVAL_SEC, 0, false, "", ""};
 
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("WiFi not connected, skipping API call");
@@ -79,6 +80,11 @@ ApiResponse ApiClient::postSensors(const char* deviceId, SensorReading* sensors,
     JsonDocument doc;
     doc["device_id"] = deviceId;
     doc["uptime_seconds"] = uptimeSeconds;
+
+    // Include firmware version if provided (for OTA update check)
+    if (firmwareVersion != nullptr) {
+        doc["firmware_version"] = firmwareVersion;
+    }
 
     JsonArray sensorsArray = doc["sensors"].to<JsonArray>();
     for (int i = 0; i < sensorCount; i++) {
@@ -108,6 +114,16 @@ ApiResponse ApiClient::postSensors(const char* deviceId, SensorReading* sensors,
             response.success = true;
             if (!responseDoc["interval_seconds"].isNull()) {
                 response.intervalSeconds = clampInterval(responseDoc["interval_seconds"].as<int>());
+            }
+
+            // Check for firmware update info
+            if (!responseDoc["firmware_version"].isNull() && !responseDoc["firmware_url"].isNull()) {
+                response.updateAvailable = true;
+                strncpy(response.firmwareVersion, responseDoc["firmware_version"].as<const char*>(), sizeof(response.firmwareVersion) - 1);
+                response.firmwareVersion[sizeof(response.firmwareVersion) - 1] = '\0';
+                strncpy(response.firmwareUrl, responseDoc["firmware_url"].as<const char*>(), sizeof(response.firmwareUrl) - 1);
+                response.firmwareUrl[sizeof(response.firmwareUrl) - 1] = '\0';
+                Serial.printf("Firmware update available: %s\n", response.firmwareVersion);
             }
         } else {
             Serial.printf("JSON parse error: %s\n", error.c_str());
