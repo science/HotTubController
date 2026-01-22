@@ -72,6 +72,11 @@ API_ENDPOINT=http://your-server/backend/public/api/esp32/temperature
 ESP32_API_KEY=your-api-key
 ```
 
+**ESP32 Remote Access:**
+- **Telnet debugger**: `telnet <esp32-ip> 23` - commands: `diag`, `read`, `info`, `scan`
+- **HTTP OTA updates**: Automatic via API response; deploy new firmware by updating `backend/storage/firmware/`
+- See README.md "ESP32 Remote Debugging" and "ESP32 HTTP OTA Firmware Updates" for detailed instructions
+
 ### Test Artifact Cleanup
 
 Tests create artifacts (user accounts, healthchecks.io checks) that are automatically cleaned up:
@@ -126,6 +131,8 @@ cd backend && composer cleanup:healthchecks
   - `Esp32TemperatureService` - Stores ESP32 temperature readings
   - `Esp32SensorConfigService` - Manages sensor roles and calibration offsets
   - `Esp32CalibratedTemperatureService` - Applies calibration to raw ESP32 readings
+  - `Esp32FirmwareService` - Manages firmware versions for HTTP OTA updates
+  - `Esp32ThinHandler` - Lightweight handler for ESP32 API (bypasses full framework)
 - **IFTTT Client Pattern**: Uses interface (`IftttClientInterface`) with unified client:
   - `IftttClient` - Unified client with injectable HTTP layer
   - `StubHttpClient` - Simulates API calls (safe for testing)
