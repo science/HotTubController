@@ -43,6 +43,17 @@ $postData = json_decode(file_get_contents('php://input'), true) ?? [];
 // Handle request
 $result = $handler->handle($postData, $apiKey, $method);
 
+// Minimal logging for diagnostics (append to separate log)
+$esp32LogFile = $backendRoot . '/storage/logs/esp32.log';
+$logEntry = sprintf(
+    "[%s] %s %d uptime=%s\n",
+    date('c'),
+    $result['status'] === 200 ? 'OK' : 'ERR',
+    $result['status'],
+    $postData['uptime_seconds'] ?? '?'
+);
+@file_put_contents($esp32LogFile, $logEntry, FILE_APPEND | LOCK_EX);
+
 // Send response
 http_response_code($result['status']);
 header('Content-Type: application/json');

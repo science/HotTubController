@@ -8,6 +8,7 @@ use HotTub\Contracts\CrontabAdapterInterface;
 use HotTub\Contracts\IftttClientInterface;
 use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\Esp32TemperatureService;
+use HotTub\Services\Esp32SensorConfigService;
 use HotTub\Services\TargetTemperatureService;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -17,26 +18,30 @@ class TargetTemperatureServiceTest extends TestCase
     private string $stateFile;
     private string $equipmentStatusFile;
     private string $esp32TempFile;
+    private string $esp32ConfigFile;
     private MockObject&IftttClientInterface $mockIfttt;
     private MockObject&CrontabAdapterInterface $mockCrontab;
     private EquipmentStatusService $equipmentStatus;
     private Esp32TemperatureService $esp32Temp;
+    private Esp32SensorConfigService $esp32Config;
 
     protected function setUp(): void
     {
         $this->stateFile = sys_get_temp_dir() . '/target-temp-test-' . uniqid() . '.json';
         $this->equipmentStatusFile = sys_get_temp_dir() . '/equip-status-test-' . uniqid() . '.json';
         $this->esp32TempFile = sys_get_temp_dir() . '/esp32-temp-test-' . uniqid() . '.json';
+        $this->esp32ConfigFile = sys_get_temp_dir() . '/esp32-config-test-' . uniqid() . '.json';
 
         $this->mockIfttt = $this->createMock(IftttClientInterface::class);
         $this->mockCrontab = $this->createMock(CrontabAdapterInterface::class);
         $this->equipmentStatus = new EquipmentStatusService($this->equipmentStatusFile);
         $this->esp32Temp = new Esp32TemperatureService($this->esp32TempFile, $this->equipmentStatus);
+        $this->esp32Config = new Esp32SensorConfigService($this->esp32ConfigFile);
     }
 
     protected function tearDown(): void
     {
-        foreach ([$this->stateFile, $this->equipmentStatusFile, $this->esp32TempFile] as $file) {
+        foreach ([$this->stateFile, $this->equipmentStatusFile, $this->esp32TempFile, $this->esp32ConfigFile] as $file) {
             if (file_exists($file)) {
                 unlink($file);
             }
@@ -324,5 +329,56 @@ class TargetTemperatureServiceTest extends TestCase
             ->with('HOTTUB:heat-target');
 
         $service->cleanupCronJobs();
+    }
+
+    // ========== Calibration tests ==========
+
+    public function testCheckAndAdjustUsesCalibratedTemperatureNotRaw(): void
+    {
+        // Set up a calibration offset: +2°C on the water sensor
+        $sensorAddress = '28:AA:BB:CC:DD:EE:FF:00';
+        $this->esp32Config->setSensorRole($sensorAddress, 'water');
+        $this->esp32Config->setCalibrationOffset($sensorAddress, 2.0); // +2°C offset
+
+        // Store a raw reading: 36°C (96.8°F)
+        // With +2°C offset, calibrated = 38°C (100.4°F)
+        $rawTempC = 36.0;
+        $this->esp32Temp->store([
+            'device_id' => 'TEST:AA:BB:CC:DD:EE',
+            'sensors' => [
+                ['address' => $sensorAddress, 'temp_c' => $rawTempC],
+            ],
+            'uptime_seconds' => 3600,
+        ]);
+
+        $service = $this->createServiceWithCalibration();
+        $service->start(100.0); // Target: 100°F
+        $this->equipmentStatus->setHeaterOn();
+
+        $this->mockIfttt->expects($this->once())
+            ->method('trigger')
+            ->with('hot-tub-heat-off')
+            ->willReturn(true);
+
+        $result = $service->checkAndAdjust();
+
+        // Should recognize target reached using CALIBRATED temp (100.4°F >= 100°F)
+        // NOT raw temp (96.8°F < 100°F which would keep heating)
+        $this->assertTrue($result['target_reached'], 'Should use calibrated temp (100.4°F) not raw (96.8°F)');
+        $this->assertTrue($result['heater_turned_off']);
+    }
+
+    private function createServiceWithCalibration(): TargetTemperatureService
+    {
+        return new TargetTemperatureService(
+            $this->stateFile,
+            $this->mockIfttt,
+            $this->equipmentStatus,
+            $this->esp32Temp,
+            null, // crontab
+            null, // cronRunnerPath
+            null, // apiBaseUrl
+            $this->esp32Config
+        );
     }
 }

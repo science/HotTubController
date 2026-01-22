@@ -137,7 +137,8 @@ $targetTemperatureService = new TargetTemperatureService(
     $esp32TemperatureService,
     $crontabAdapter,
     $cronRunnerPath,
-    $apiBaseUrl
+    $apiBaseUrl,
+    $esp32SensorConfigService
 );
 $targetTemperatureController = new TargetTemperatureController($targetTemperatureService);
 
