@@ -179,6 +179,100 @@ Hardware wiring:
 - DS18B20 DATA to ESP32 GPIO 4
 - 4.7K resistor between DATA and VCC
 
+### ESP32 Remote Debugging (Telnet)
+
+The ESP32 includes a telnet debugger for remote diagnostics without physical access:
+
+```bash
+# Connect to ESP32 (default port 23)
+telnet <esp32-ip-address>
+
+# Or using netcat
+nc <esp32-ip-address> 23
+```
+
+**Available commands:**
+| Command | Description |
+|---------|-------------|
+| `help` | Show available commands |
+| `diag` | Full diagnostics (WiFi, sensors, readings) |
+| `scan` | Scan OneWire bus for sensors |
+| `read` | Read all sensor temperatures |
+| `info` | Show firmware version, IP, uptime |
+| `ota` | Show OTA update status |
+
+**Example diagnostic output:**
+```
+--- Connection Info ---
+Firmware: 1.3.0
+WiFi SSID: your-network
+IP Address: 192.168.1.100
+Signal Strength: -74 dBm
+Uptime: 3600 seconds
+
+--- Sensor Readings ---
+Sensor 0 (28:B4:51:02:00:00:00:9A):
+  Temperature: 39.38 C / 102.88 F
+  Status: OK
+```
+
+### ESP32 HTTP OTA Firmware Updates
+
+The ESP32 supports over-the-air firmware updates via HTTP. Updates are pulled automatically when the device reports temperature to the API.
+
+**How it works:**
+1. ESP32 reports its current firmware version when posting temperature data
+2. Server responds with new firmware info if an update is available
+3. ESP32 downloads and installs the update automatically
+4. Device reboots into new firmware
+
+**Deploying a new firmware version:**
+
+```bash
+cd esp32
+
+# 1. Update version number in src/main.cpp
+#    #define FIRMWARE_VERSION "1.4.0"
+
+# 2. Build the firmware
+pio run
+
+# 3. Copy binary to backend storage
+cp .pio/build/esp32dev/firmware.bin \
+   ../backend/storage/firmware/firmware-1.4.0.bin
+
+# 4. Update firmware config
+cat > ../backend/storage/firmware/config.json << 'EOF'
+{
+    "version": "1.4.0",
+    "filename": "firmware-1.4.0.bin",
+    "updated_at": "2026-01-22T12:00:00-08:00",
+    "notes": "Description of changes"
+}
+EOF
+
+# 5. Commit and deploy via PR to production
+git add -A
+git commit -m "Deploy ESP32 firmware v1.4.0"
+git push origin main
+# Create PR from main to production and merge
+```
+
+**Manual USB flash (if OTA unavailable):**
+```bash
+cd esp32
+pio run -t upload
+pio device monitor  # View boot logs
+```
+
+**Firmware storage structure:**
+```
+backend/storage/firmware/
+├── config.json           # Current version metadata
+├── firmware-1.3.0.bin    # Firmware binary (tracked in git)
+└── firmware-1.2.0.bin    # Previous versions (optional)
+```
+
 ## Configuration
 
 All configuration is via `backend/.env`:
