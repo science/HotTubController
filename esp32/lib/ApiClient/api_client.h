@@ -19,6 +19,9 @@ struct ApiResponse {
     bool success;
     int intervalSeconds;
     int httpCode;
+    bool updateAvailable;
+    char firmwareVersion[16];
+    char firmwareUrl[128];
 };
 
 // Maximum number of sensors supported
@@ -36,8 +39,9 @@ public:
     // Post temperature reading (legacy single sensor format)
     ApiResponse postTemperature(const char* deviceId, float tempC, float tempF, unsigned long uptimeSeconds);
 
-    // Post multiple sensor readings
-    ApiResponse postSensors(const char* deviceId, SensorReading* sensors, int sensorCount, unsigned long uptimeSeconds);
+    // Post multiple sensor readings (with firmware version for OTA check)
+    ApiResponse postSensors(const char* deviceId, SensorReading* sensors, int sensorCount,
+                           unsigned long uptimeSeconds, const char* firmwareVersion = nullptr);
 
     // Format DS18B20 address to string "XX:XX:XX:XX:XX:XX:XX:XX"
     static void formatAddress(uint8_t* address, char* buffer);

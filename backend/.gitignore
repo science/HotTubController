@@ -30,7 +30,6 @@ config/env.production
 /storage/state/*
 !/storage/state/.gitkeep
 
-# Firmware files - binary files for ESP32 OTA updates
-/storage/firmware/*.bin
-/storage/firmware/config.json
-!/storage/firmware/.gitkeep
+# Firmware directory - tracked in git for deployment
+# (binaries are small ~1MB and benefit from version control)
+!/storage/firmware/

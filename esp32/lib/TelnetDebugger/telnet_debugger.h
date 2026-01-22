@@ -34,6 +34,9 @@ public:
     // Get the IP address for connection
     String getIP();
 
+    // Set firmware version for display
+    void setFirmwareVersion(const char* version);
+
     // Handle incoming command
     void handleCommand(String input);
 
@@ -46,6 +49,7 @@ private:
     OneWire* oneWire;
     uint8_t pin;
     bool connected;
+    const char* firmwareVersion;
 
     // Diagnostic helpers
     void scanOneWireBus();

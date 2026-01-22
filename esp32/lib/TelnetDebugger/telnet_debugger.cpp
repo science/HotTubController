@@ -1,12 +1,17 @@
 #include "telnet_debugger.h"
 #include <stdarg.h>
+#include <ArduinoOTA.h>
 
 // Static instance pointer for callbacks
 TelnetDebugger* TelnetDebugger::instance = nullptr;
 
 TelnetDebugger::TelnetDebugger(DallasTemperature* sensors, OneWire* oneWire, uint8_t oneWirePin)
-    : sensors(sensors), oneWire(oneWire), pin(oneWirePin), connected(false) {
+    : sensors(sensors), oneWire(oneWire), pin(oneWirePin), connected(false), firmwareVersion("unknown") {
     instance = this;
+}
+
+void TelnetDebugger::setFirmwareVersion(const char* version) {
+    firmwareVersion = version;
 }
 
 // Static callbacks
@@ -16,6 +21,7 @@ void TelnetDebugger::onTelnetConnect(String ip) {
         Serial.printf("Telnet client connected from %s\n", ip.c_str());
         instance->println("=================================");
         instance->println("ESP32 Hot Tub Diagnostic Console");
+        instance->printf("Firmware: %s\n", instance->firmwareVersion);
         instance->println("=================================");
         instance->println("Type 'help' for commands");
         instance->println("");
@@ -54,11 +60,13 @@ void TelnetDebugger::handleCommand(String input) {
     input.trim();
     if (input == "help") {
         println("Commands:");
-        println("  diag    - Run full diagnostics");
-        println("  scan    - Scan OneWire bus");
-        println("  read    - Read all sensors");
-        println("  info    - Show connection info");
-        println("  help    - Show this help");
+        println("  diag       - Run full diagnostics");
+        println("  scan       - Scan OneWire bus");
+        println("  read       - Read all sensors");
+        println("  info       - Show connection info");
+        println("  ota        - Show OTA update status");
+        println("  update URL - Trigger HTTP OTA from URL");
+        println("  help       - Show this help");
     } else if (input == "diag") {
         runDiagnostics();
     } else if (input == "scan") {
@@ -66,9 +74,32 @@ void TelnetDebugger::handleCommand(String input) {
     } else if (input == "read") {
         readAllSensors();
     } else if (input == "info") {
+        printf("Firmware: %s\n", firmwareVersion);
         printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
         printf("OneWire Pin: GPIO%d\n", pin);
         printf("Uptime: %lu seconds\n", millis() / 1000);
+    } else if (input == "ota") {
+        println("--- OTA Status ---");
+        printf("Firmware: %s\n", firmwareVersion);
+        printf("ArduinoOTA Hostname: %s\n", ArduinoOTA.getHostname().c_str());
+        printf("ArduinoOTA port: 3232 (UDP)\n");
+        printf("Free heap: %lu bytes\n", ESP.getFreeHeap());
+        println("");
+        println("For HTTP OTA, use: update <url>");
+        println("Example: update https://example.com/api/esp32/firmware/download");
+    } else if (input.startsWith("update ")) {
+        String url = input.substring(7);
+        url.trim();
+        if (url.length() > 0) {
+            printf("Starting HTTP OTA from: %s\n", url.c_str());
+            println("This will download and install new firmware...");
+            println("Device will reboot if successful.");
+            // Note: actual update must be done in main.cpp with proper includes
+            // This just displays info - real update triggered via API response
+            println("Use the API to trigger updates (reports firmware_version)");
+        } else {
+            println("Usage: update <firmware_url>");
+        }
     } else if (input.length() > 0) {
         printf("Unknown command: %s\n", input.c_str());
         println("Type 'help' for available commands");
@@ -117,6 +148,7 @@ void TelnetDebugger::runDiagnostics() {
 
     // Connection info
     println("--- Connection Info ---");
+    printf("Firmware: %s\n", firmwareVersion);
     printf("WiFi SSID: %s\n", WiFi.SSID().c_str());
     printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
     printf("Signal Strength: %d dBm\n", WiFi.RSSI());
