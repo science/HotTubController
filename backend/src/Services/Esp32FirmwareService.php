@@ -98,7 +98,7 @@ class Esp32FirmwareService
         }
 
         $version = $this->getCurrentVersion();
-        $url = rtrim($baseUrl, '/') . '/esp32/firmware/download';
+        $url = rtrim($baseUrl, '/') . '/esp32/firmware/download/';
 
         return [
             'firmware_version' => $version,

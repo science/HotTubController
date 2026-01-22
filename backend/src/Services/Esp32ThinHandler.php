@@ -221,8 +221,8 @@ class Esp32ThinHandler
             return [];
         }
 
-        // Build download URL
-        $downloadUrl = rtrim($this->apiBaseUrl ?? '', '/') . '/esp32/firmware/download';
+        // Build download URL (trailing slash required for directory index)
+        $downloadUrl = rtrim($this->apiBaseUrl ?? '', '/') . '/esp32/firmware/download/';
 
         return [
             'firmware_version' => $config['version'],

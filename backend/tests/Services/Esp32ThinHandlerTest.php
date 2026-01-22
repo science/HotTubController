@@ -525,7 +525,7 @@ class Esp32ThinHandlerTest extends TestCase
 
         $this->assertEquals(200, $result['status']);
         $this->assertEquals('2.0.0', $result['body']['firmware_version']);
-        $this->assertEquals('https://example.com/api/esp32/firmware/download', $result['body']['firmware_url']);
+        $this->assertEquals('https://example.com/api/esp32/firmware/download/', $result['body']['firmware_url']);
 
         // Cleanup
         @unlink($firmwareDir . '/firmware.bin');
