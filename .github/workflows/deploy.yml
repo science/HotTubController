@@ -5,6 +5,12 @@ on:
     branches: [production]
   workflow_dispatch:  # Allow manual trigger
 
+# Required for commenting on PRs and reading PR labels
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   # Find the PR that triggered this push (for commenting and label checks)
   find-pr:
