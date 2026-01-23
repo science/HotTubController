@@ -46,7 +46,12 @@ class TargetTemperatureService
         $this->esp32Config = $esp32Config;
     }
 
-    public function start(float $targetTempF): void
+    /**
+     * Start heating to target temperature.
+     *
+     * @return array Result of initial checkAndAdjust (includes heater state, cron scheduled, etc.)
+     */
+    public function start(float $targetTempF): array
     {
         if ($targetTempF < self::MIN_TARGET_TEMP_F || $targetTempF > self::MAX_TARGET_TEMP_F) {
             throw new \InvalidArgumentException(
@@ -61,6 +66,9 @@ class TargetTemperatureService
         ];
 
         $this->saveState($state);
+
+        // Immediately check temperature and turn on heater if needed
+        return $this->checkAndAdjust();
     }
 
     public function stop(): void
@@ -126,6 +134,7 @@ class TargetTemperatureService
         if ($currentTempF === null) {
             return [
                 'active' => true,
+                'target_temp_f' => $targetTempF,
                 'heating' => false,
                 'heater_turned_on' => false,
                 'heater_turned_off' => false,
@@ -213,6 +222,9 @@ class TargetTemperatureService
 
     /**
      * Schedule the next temperature check via cron.
+     *
+     * Creates a job file and crontab entry that uses cron-runner.sh for
+     * proper JWT authentication.
      */
     private function scheduleNextCheck(): bool
     {
@@ -231,11 +243,15 @@ class TargetTemperatureService
 
         $jobId = self::CRON_JOB_PREFIX . '-' . bin2hex(random_bytes(4));
 
-        // Build cron entry - directly call the API endpoint
+        // Create job file for cron-runner.sh to read
+        $this->createJobFile($jobId);
+
+        // Build cron entry using cron-runner.sh for proper JWT authentication
         $cronExpression = sprintf('%d %d %d %d *', (int)$minute, (int)$hour, (int)$day, (int)$month);
         $command = sprintf(
-            "curl -s -X POST '%s/maintenance/heat-target-check' -H 'Content-Type: application/json'",
-            rtrim($this->apiBaseUrl, '/')
+            '%s %s',
+            escapeshellarg($this->cronRunnerPath),
+            escapeshellarg($jobId)
         );
         $comment = sprintf('HOTTUB:%s:HEAT-TARGET:ONCE', $jobId);
 
@@ -244,6 +260,29 @@ class TargetTemperatureService
         $this->crontabAdapter->addEntry($entry);
 
         return true;
+    }
+
+    /**
+     * Create a job file for cron-runner.sh to execute.
+     */
+    private function createJobFile(string $jobId): void
+    {
+        // Job files go in the same directory as other scheduled jobs
+        $jobsDir = dirname(dirname($this->stateFile)) . '/scheduled-jobs';
+        if (!is_dir($jobsDir)) {
+            mkdir($jobsDir, 0755, true);
+        }
+
+        $jobData = [
+            'jobId' => $jobId,
+            'endpoint' => '/maintenance/heat-target-check',
+            'apiBaseUrl' => $this->apiBaseUrl,
+            'recurring' => false,
+            'createdAt' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c'),
+        ];
+
+        $jobFile = $jobsDir . '/' . $jobId . '.json';
+        file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
     /**

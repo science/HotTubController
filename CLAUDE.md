@@ -188,48 +188,27 @@ cd backend && composer cleanup:healthchecks
 - If you find yourself on `production`, switch to `main` before making changes
 - The `production` branch represents what's deployed to the live server
 
-## CI/CD Pipeline
+## Pre-PR Testing Checklist
 
-The GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically tests and deploys code when PRs are merged to `production`.
+**Before creating a PR to production, run the full test suite locally:**
 
-### Pipeline Flow
+```bash
+cd backend
+composer test:all    # Runs ALL tests including live API and E2E tests
+```
 
-1. **PR merged to production** → Workflow triggers
-2. **Find PR** → Locates the merged PR for commenting and label checks
-3. **Run Tests** → Executes `composer test` (excludes live/E2E tests)
-4. **Deploy** → Only runs if tests pass (or are skipped via label)
+This ensures:
+- Unit tests pass (fast, uses mocks)
+- Integration tests pass (uses mocks, tests component interactions)
+- Live API tests pass (hits real Healthchecks.io - requires API key)
+- E2E tests pass (starts real servers, tests full request chain)
 
-**Note:** E2E tests (`@group pre-production`) and live API tests (`@group live`) are excluded from CI because they require server processes or real API keys. Run `composer test:all` locally before pushing to production.
+**If short on time**, at minimum run:
+```bash
+composer test        # Fast tests only (excludes live/E2E)
+```
 
-### PR Comments
-
-The workflow comments on the PR at each stage:
-- 🧪 **Tests Starting** - With link to workflow run
-- ✅ **Tests Passed** - With test output summary
-- ❌ **Tests Failed** - With failure details, blocks deployment
-- 🚀 **Deployment Starting**
-- ✅ **Deployment Complete** - With commit SHA and build number
-- ❌ **Deployment Failed** - With link to logs
-
-### Emergency Skip Tests Label
-
-To skip tests in emergencies, add a label containing both "skip" and "test" (case-insensitive):
-
-**Recommended label name:** `⚠️ SKIP-TESTS-EMERGENCY-ONLY`
-
-This label should be:
-- Scary enough to discourage casual use
-- Created in GitHub repo settings before first use
-- Only used for genuine emergencies where deployment is critical
-
-When skip label is present:
-- Tests are skipped entirely
-- PR gets a ⚠️ warning comment
-- Deployment proceeds without verification
-
-### No CI on Main Branch
-
-Pushes to `main` do NOT trigger CI. This keeps the feedback loop fast during development. Tests only run automatically when deploying to production via PR.
+The GitHub Actions workflow only handles deployment - it does NOT run tests. Testing is your responsibility before merging.
 
 ## Production Server Access
 

@@ -31,7 +31,7 @@ class TargetTemperatureController
         $targetTempF = (float) $input['target_temp_f'];
 
         try {
-            $this->service->start($targetTempF);
+            $result = $this->service->start($targetTempF);
         } catch (\InvalidArgumentException $e) {
             return [
                 'status' => 400,
@@ -39,11 +39,10 @@ class TargetTemperatureController
             ];
         }
 
-        $state = $this->service->getState();
-
+        // Return the checkAndAdjust result which includes heater state, cron scheduled, etc.
         return [
             'status' => 200,
-            'body' => $state,
+            'body' => $result,
         ];
     }
 

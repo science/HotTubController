@@ -351,8 +351,7 @@ class TargetTemperatureServiceTest extends TestCase
             'uptime_seconds' => 3600,
         ]);
 
-        $service = $this->createServiceWithCalibration();
-        $service->start(100.0); // Target: 100°F
+        // Set heater on BEFORE calling start, so checkAndAdjust can turn it off
         $this->equipmentStatus->setHeaterOn();
 
         $this->mockIfttt->expects($this->once())
@@ -360,7 +359,10 @@ class TargetTemperatureServiceTest extends TestCase
             ->with('hot-tub-heat-off')
             ->willReturn(true);
 
-        $result = $service->checkAndAdjust();
+        $service = $this->createServiceWithCalibration();
+        // start() now calls checkAndAdjust() internally
+        // Since calibrated temp (100.4°F) >= target (100°F), target is reached
+        $result = $service->start(100.0);
 
         // Should recognize target reached using CALIBRATED temp (100.4°F >= 100°F)
         // NOT raw temp (96.8°F < 100°F which would keep heating)

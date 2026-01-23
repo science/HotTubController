@@ -293,8 +293,9 @@ class HeatToTargetCronChainTest extends TestCase
 
     /**
      * @test
-     * BUG #2 - RED TEST: Verify the endpoint path is correct in scheduled cron.
-     * The heat-target-check endpoint should include /api prefix.
+     * BUG #2 - GREEN TEST: Verify the job file has correct endpoint path.
+     * The heat-target-check endpoint should be /maintenance/heat-target-check
+     * (the /api prefix is in apiBaseUrl).
      */
     public function bug2_scheduledCronShouldCallCorrectEndpoint(): void
     {
@@ -320,17 +321,26 @@ class HeatToTargetCronChainTest extends TestCase
         );
 
         $service->start(101.0);
-        $service->checkAndAdjust();
 
         $this->assertNotEmpty($cronEntries);
         $cronEntry = $cronEntries[0];
 
-        // Verify the endpoint includes /api prefix
-        $this->assertStringContainsString(
-            '/api/maintenance/heat-target-check',
-            $cronEntry,
-            "Cron entry should call /api/maintenance/heat-target-check"
-        );
+        // Extract job ID from cron entry
+        preg_match("/HOTTUB:(heat-target-[a-f0-9]+)/", $cronEntry, $matches);
+        $this->assertNotEmpty($matches[1], 'Should find job ID in cron entry');
+        $jobId = $matches[1];
+
+        // Verify cron uses cron-runner.sh with job ID
+        $this->assertStringContainsString('cron-runner.sh', $cronEntry);
+        $this->assertStringContainsString($jobId, $cronEntry);
+
+        // Verify job file was created with correct endpoint
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+        $this->assertFileExists($jobFile, 'Job file should be created');
+
+        $jobData = json_decode(file_get_contents($jobFile), true);
+        $this->assertEquals('/maintenance/heat-target-check', $jobData['endpoint']);
+        $this->assertEquals('https://example.com/api', $jobData['apiBaseUrl']);
     }
 
     // =========================================================================
@@ -372,10 +382,10 @@ class HeatToTargetCronChainTest extends TestCase
 
     /**
      * @test
-     * CHAIN TEST: checkAndAdjust() works correctly when called manually.
-     * This part currently WORKS - the issue is it's never called automatically.
+     * CHAIN TEST: start() now calls checkAndAdjust() automatically.
+     * This verifies the fix for Bug #1.
      */
-    public function chain_checkAndAdjustWorksWhenCalledManually(): void
+    public function chain_startNowCallsCheckAndAdjustAutomatically(): void
     {
         $this->storeTemperatureReading(82.0);
 
@@ -384,16 +394,13 @@ class HeatToTargetCronChainTest extends TestCase
         $iftttCalls = &$recorder['iftttCalls'];
         $cronEntries = &$recorder['cronEntries'];
 
-        // Manually set up state (what start() does)
-        $service->start(101.0);
+        // Call start() - this now calls checkAndAdjust() internally
+        $result = $service->start(101.0);
 
-        // Manually call checkAndAdjust (what SHOULD happen automatically)
-        $result = $service->checkAndAdjust();
-
-        // Verify it works
-        $this->assertTrue($result['heater_turned_on']);
+        // Verify checkAndAdjust was called: heater turned on and cron scheduled
+        $this->assertTrue($result['heater_turned_on'], 'start() should turn on heater');
         $this->assertContains('hot-tub-heat-on', $iftttCalls);
-        $this->assertTrue($result['cron_scheduled']);
+        $this->assertTrue($result['cron_scheduled'], 'start() should schedule next check');
         $this->assertNotEmpty($cronEntries);
     }
 
@@ -434,15 +441,15 @@ class HeatToTargetCronChainTest extends TestCase
     }
 
     // =========================================================================
-    // DOCUMENTATION: These tests PASS but document the broken behavior
+    // VERIFICATION: These tests verify the FIXED behavior
     // =========================================================================
 
     /**
      * @test
-     * DOCUMENTATION: Shows exactly what happens (and doesn't happen) after start().
-     * This test PASSES because it asserts the CURRENT (broken) behavior.
+     * VERIFICATION: Shows what happens after start() - heater turns on and cron is scheduled.
+     * This test verifies the fix for Bug #1.
      */
-    public function documentation_whatActuallyHappensAfterStart(): void
+    public function verification_whatHappensAfterStart(): void
     {
         $this->storeTemperatureReading(82.0);
 
@@ -455,29 +462,31 @@ class HeatToTargetCronChainTest extends TestCase
         $this->assertFalse($this->equipmentStatus->getStatus()['heater']['on']);
 
         // Call start()
-        $service->start(101.0);
+        $result = $service->start(101.0);
 
-        // Document what DOES happen (state is saved)
+        // State is saved
         $this->assertTrue($service->getState()['active'], 'State IS saved');
         $this->assertEquals(101.0, $service->getState()['target_temp_f']);
 
-        // Document what DOESN'T happen (these assertions PASS because nothing happens)
-        $this->assertEmpty($iftttCalls, 'IFTTT is NOT called - heater stays off');
-        $this->assertEmpty($cronEntries, 'No cron is scheduled');
-        $this->assertFalse(
+        // FIXED: IFTTT IS called because start() now calls checkAndAdjust()
+        $this->assertContains('hot-tub-heat-on', $iftttCalls, 'IFTTT should be called');
+        $this->assertNotEmpty($cronEntries, 'Cron should be scheduled');
+        $this->assertTrue(
             $this->equipmentStatus->getStatus()['heater']['on'],
-            'Heater is still OFF despite temp being below target'
+            'Heater should be ON because temp is below target'
         );
 
-        // This is the bug in action: user expects heating to start, but nothing happens
+        // Verify the result includes checkAndAdjust data
+        $this->assertTrue($result['heater_turned_on']);
+        $this->assertTrue($result['cron_scheduled']);
     }
 
     /**
      * @test
-     * DOCUMENTATION: Shows the curl command created by scheduleNextCheck() lacks auth.
-     * This test PASSES because it documents the CURRENT (broken) behavior.
+     * VERIFICATION: Shows the cron entry now uses cron-runner.sh for auth.
+     * This test verifies the fix for Bug #2.
      */
-    public function documentation_cronEntryLacksAuthentication(): void
+    public function verification_cronEntryUsesCronRunner(): void
     {
         $this->storeTemperatureReading(82.0);
 
@@ -501,19 +510,15 @@ class HeatToTargetCronChainTest extends TestCase
         );
 
         $service->start(101.0);
-        $service->checkAndAdjust();
 
         $this->assertNotEmpty($cronEntries);
         $cronEntry = $cronEntries[0];
 
-        // Document the broken curl command
-        $this->assertStringContainsString('curl', $cronEntry, 'Uses curl directly');
-        $this->assertStringNotContainsString('Authorization', $cronEntry, 'NO auth header');
-        $this->assertStringNotContainsString('cron-runner.sh', $cronEntry, 'Does NOT use cron-runner.sh');
+        // FIXED: Now uses cron-runner.sh instead of raw curl
+        $this->assertStringContainsString('cron-runner.sh', $cronEntry, 'Uses cron-runner.sh');
+        $this->assertStringNotContainsString('curl', $cronEntry, 'Does NOT use curl directly');
 
-        // The curl command looks like:
-        // curl -s -X POST 'https://example.com/api/maintenance/heat-target-check' -H 'Content-Type: application/json'
-        // Missing: -H 'Authorization: Bearer <token>'
+        // cron-runner.sh handles JWT authentication from .env
     }
 
     // =========================================================================
