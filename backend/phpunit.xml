@@ -12,6 +12,7 @@
     <groups>
         <exclude>
             <group>live</group>
+            <group>pre-production</group>
         </exclude>
     </groups>
     <php>

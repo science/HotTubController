@@ -25,10 +25,12 @@
             "phpunit --group=live",
             "@cleanup:healthchecks"
         ],
-        "test:all": [
+        "test:pre-production": [
             "phpunit --configuration=phpunit-all.xml",
             "@cleanup:healthchecks"
         ],
+        "test:all": "@test:pre-production",
+        "test:e2e-chain": "phpunit --group=pre-production",
         "cleanup:healthchecks": "php scripts/cleanup-test-healthchecks.php --delete",
         "cleanup:healthchecks:dry": "php scripts/cleanup-test-healthchecks.php"
     }
