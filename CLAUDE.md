@@ -196,8 +196,10 @@ The GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically tests
 
 1. **PR merged to production** → Workflow triggers
 2. **Find PR** → Locates the merged PR for commenting and label checks
-3. **Run Tests** → Executes `composer test:all` (full pre-production suite)
+3. **Run Tests** → Executes `composer test` (excludes live/E2E tests)
 4. **Deploy** → Only runs if tests pass (or are skipped via label)
+
+**Note:** E2E tests (`@group pre-production`) and live API tests (`@group live`) are excluded from CI because they require server processes or real API keys. Run `composer test:all` locally before pushing to production.
 
 ### PR Comments
 

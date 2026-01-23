@@ -85,7 +85,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: ${{ needs.find-pr.outputs.pr_number }},
-              body: '🧪 **Tests Starting**\n\nRunning full pre-production test suite (`composer test:all`)...\n\n[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})'
+              body: '🧪 **Tests Starting**\n\nRunning test suite (`composer test`)...\n\n[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})'
             });
 
       - name: Comment - Tests Skipped
@@ -97,7 +97,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: ${{ needs.find-pr.outputs.pr_number }},
-              body: '⚠️ **Tests SKIPPED**\n\nPre-production tests were skipped due to skip-tests label.\n\n**This deployment is proceeding without test verification.**'
+              body: '⚠️ **Tests SKIPPED**\n\nTests were skipped due to skip-tests label.\n\n**This deployment is proceeding without test verification.**'
             });
 
       - name: Skip tests (label present)
@@ -137,12 +137,14 @@ jobs:
           HEALTHCHECKS_IO_KEY=${{ secrets.HEALTHCHECKS_IO_KEY }}
           EOF
 
-      - name: Run pre-production tests
+      - name: Run tests
         if: needs.find-pr.outputs.skip_tests != 'true'
         id: run-tests
         run: |
           cd backend
-          composer test:all 2>&1 | tee test-output.txt
+          # Run standard tests (excludes @group live and @group pre-production)
+          # E2E/live tests are meant for local pre-production validation
+          composer test 2>&1 | tee test-output.txt
           TEST_EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
           exit $TEST_EXIT_CODE
