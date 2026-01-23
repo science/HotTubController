@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-    PHPUnit configuration for running ALL tests including live API tests.
-    Use this before pushing to production: composer test:all
+    PHPUnit configuration for PRE-PRODUCTION testing.
+    Runs ALL tests including:
+    - @group live (tests hitting real external APIs like Healthchecks.io)
+    - @group pre-production (E2E chain tests with real servers/scripts)
+
+    Run before pushing to production: composer test:all
+
+    Test hierarchy:
+    - composer test           → Fast daily dev tests (excludes live, pre-production)
+    - composer test:all       → Full pre-production suite (includes everything)
+    - composer test:live      → Just live API tests
+    - composer test:e2e-chain → Just E2E chain tests
 -->
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
