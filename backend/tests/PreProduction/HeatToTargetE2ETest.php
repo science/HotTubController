@@ -9,19 +9,29 @@ use PHPUnit\Framework\TestCase;
 /**
  * End-to-end pre-production tests for the heat-to-target feature.
  *
- * These tests run the FULL chain:
+ * These tests run the REAL FULL CHAIN:
  * 1. Start a real PHP dev server
- * 2. Set up temperature data via real HTTP calls
- * 3. Schedule heat-to-target via the API
- * 4. Execute cron-runner.sh (simulating cron firing)
- * 5. Verify IFTTT stub was called
+ * 2. Call API to start heat-to-target (like frontend would)
+ * 3. Verify cron entry is added to REAL crontab
+ * 4. Execute cron-runner.sh (simulating cron daemon firing)
+ * 5. Verify API is called and responds correctly
  * 6. Verify next cron is scheduled
- * 7. Execute that cron
- * 8. Verify the chain continues
+ * 7. Update temperature data (simulating ESP32 reports)
+ * 8. Execute next cron
+ * 9. Repeat until target reached
+ * 10. Verify heater turns off and cycle ends
  *
- * Run before pushing to production:
- *   composer test:all           # Full pre-production suite
- *   composer test:e2e-chain     # Just these E2E tests
+ * The ONLY things simulated:
+ * - Temperature data (instead of real ESP32 sensor)
+ * - Triggering cron-runner.sh manually (instead of waiting for cron daemon)
+ *
+ * Everything else is REAL:
+ * - Real PHP server handling real HTTP requests
+ * - Real crontab entries
+ * - Real cron-runner.sh execution
+ * - Real job files
+ * - Real state files
+ * - Real JWT authentication flow
  *
  * @group pre-production
  */
@@ -36,9 +46,6 @@ class HeatToTargetE2ETest extends TestCase
     private string $envFile;
     private string $envBackup;
     private ?int $serverPid = null;
-
-    /** @var resource|null */
-    private $serverProcess = null;
 
     protected function setUp(): void
     {
@@ -67,6 +74,9 @@ class HeatToTargetE2ETest extends TestCase
         // Stop the server
         $this->stopServer();
 
+        // Clean up crontab entries FIRST (most important)
+        $this->cleanupCrontab();
+
         // Restore original .env
         if (file_exists($this->envBackup)) {
             rename($this->envBackup, $this->envFile);
@@ -81,15 +91,15 @@ class HeatToTargetE2ETest extends TestCase
     private function createTestEnv(): void
     {
         // Create a long-lived JWT for testing (expires in 1 hour)
-        $header = base64_encode(json_encode(['typ' => 'JWT', 'alg' => 'HS256']));
-        $payload = base64_encode(json_encode([
+        $secret = 'e2e-test-secret-key-for-jwt-signing';
+        $header = $this->base64UrlEncode(json_encode(['typ' => 'JWT', 'alg' => 'HS256']));
+        $payload = $this->base64UrlEncode(json_encode([
             'iat' => time(),
             'exp' => time() + 3600,
             'sub' => 'e2e-test',
             'role' => 'admin',
         ]));
-        $secret = 'e2e-test-secret-key-for-jwt-signing';
-        $signature = base64_encode(hash_hmac('sha256', "$header.$payload", $secret, true));
+        $signature = $this->base64UrlEncode(hash_hmac('sha256', "$header.$payload", $secret, true));
         $jwt = "$header.$payload.$signature";
 
         $env = <<<ENV
@@ -100,9 +110,15 @@ JWT_EXPIRY_HOURS=1
 CRON_JWT=$jwt
 AUTH_ADMIN_USERNAME=admin
 AUTH_ADMIN_PASSWORD=password
+API_BASE_URL=http://127.0.0.1:8089
 ENV;
 
         file_put_contents($this->envFile, $env);
+    }
+
+    private function base64UrlEncode(string $data): string
+    {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
     }
 
     private function cleanupState(): void
@@ -111,21 +127,24 @@ ENV;
         $jobsDir = $this->storageDir . '/scheduled-jobs';
         if (is_dir($jobsDir)) {
             foreach (glob("$jobsDir/heat-target-*.json") as $file) {
-                unlink($file);
+                @unlink($file);
             }
         }
 
         // Clean up state files
         $stateDir = $this->storageDir . '/state';
-        foreach (['target-temperature.json', 'equipment-status.json'] as $file) {
+        foreach (['target-temperature.json', 'equipment-status.json', 'esp32-temperature.json'] as $file) {
             $path = "$stateDir/$file";
             if (file_exists($path)) {
-                unlink($path);
+                @unlink($path);
             }
         }
 
-        // Clean up crontab entries
-        $this->cleanupCrontab();
+        // Clean up events log (IFTTT triggers are logged here)
+        $eventsLog = $this->backendDir . '/logs/events.log';
+        if (file_exists($eventsLog)) {
+            @unlink($eventsLog);
+        }
     }
 
     private function cleanupCrontab(): void
@@ -141,7 +160,7 @@ ENV;
         if (count($filtered) !== count($lines)) {
             $newCrontab = implode("\n", $filtered);
             $tempFile = tempnam(sys_get_temp_dir(), 'crontab');
-            file_put_contents($tempFile, $newCrontab);
+            file_put_contents($tempFile, $newCrontab . "\n");
             shell_exec("crontab $tempFile 2>/dev/null");
             unlink($tempFile);
         }
@@ -154,7 +173,7 @@ ENV;
         $docroot = $this->backendDir . '/public';
         $router = $docroot . '/router.php';
 
-        // Start PHP built-in server with router script for proper URL rewriting
+        // Start PHP built-in server with router script
         $cmd = sprintf(
             'php -S %s:%d -t %s %s > /dev/null 2>&1 & echo $!',
             $host,
@@ -234,25 +253,19 @@ ENV;
         ];
     }
 
-    /**
-     * Get the CRON_JWT from the test .env file.
-     */
     private function getCronJwt(): string
     {
         $env = file_get_contents($this->envFile);
         preg_match('/CRON_JWT=(.+)/', $env, $matches);
-        return $matches[1] ?? '';
+        return trim($matches[1] ?? '');
     }
 
     /**
-     * Store temperature data via the ESP32 endpoint.
+     * Store temperature data (simulating ESP32 report).
      */
     private function storeTemperature(float $tempF): void
     {
         $tempC = ($tempF - 32) * 5 / 9;
-
-        // Read ESP32 API key from env or use a test key
-        // For testing, we'll write directly to the state file
         $stateFile = $this->storageDir . '/state/esp32-temperature.json';
         $stateDir = dirname($stateFile);
 
@@ -279,9 +292,6 @@ ENV;
         file_put_contents($stateFile, json_encode($data, JSON_PRETTY_PRINT));
     }
 
-    /**
-     * Read the equipment status from the state file.
-     */
     private function getEquipmentStatus(): array
     {
         $file = $this->storageDir . '/state/equipment-status.json';
@@ -291,9 +301,6 @@ ENV;
         return json_decode(file_get_contents($file), true) ?? [];
     }
 
-    /**
-     * Read the target temperature state.
-     */
     private function getTargetTempState(): array
     {
         $file = $this->storageDir . '/state/target-temperature.json';
@@ -304,40 +311,134 @@ ENV;
     }
 
     /**
-     * Get crontab entries matching a pattern.
+     * Get all heat-target cron entries from crontab.
      */
-    private function getCrontabEntries(string $pattern): array
+    private function getHeatTargetCronEntries(): array
     {
         $crontab = shell_exec('crontab -l 2>/dev/null') ?? '';
         $lines = explode("\n", $crontab);
-        return array_values(array_filter($lines, fn($line) => str_contains($line, $pattern)));
+        return array_values(array_filter($lines, fn($line) => str_contains($line, 'HOTTUB:heat-target')));
+    }
+
+    /**
+     * Extract job ID from a cron entry.
+     */
+    private function extractJobId(string $cronEntry): string
+    {
+        if (preg_match("/HOTTUB:(heat-target-[a-f0-9]+)/", $cronEntry, $matches)) {
+            return $matches[1];
+        }
+        return '';
+    }
+
+    /**
+     * Execute cron-runner.sh with a job ID (simulating cron daemon firing).
+     *
+     * @return array{returnCode: int, output: string, logOutput: string}
+     */
+    private function executeCronRunner(string $jobId): array
+    {
+        $cronRunner = $this->storageDir . '/bin/cron-runner.sh';
+        $logFile = $this->storageDir . '/logs/cron.log';
+
+        // Get log size before execution
+        $logSizeBefore = file_exists($logFile) ? filesize($logFile) : 0;
+
+        $output = [];
+        $returnCode = 0;
+        exec("bash " . escapeshellarg($cronRunner) . " " . escapeshellarg($jobId) . " 2>&1", $output, $returnCode);
+
+        // Get new log entries
+        $logOutput = '';
+        if (file_exists($logFile) && filesize($logFile) > $logSizeBefore) {
+            $fh = fopen($logFile, 'r');
+            fseek($fh, $logSizeBefore);
+            $logOutput = fread($fh, filesize($logFile) - $logSizeBefore);
+            fclose($fh);
+        }
+
+        return [
+            'returnCode' => $returnCode,
+            'output' => implode("\n", $output),
+            'logOutput' => $logOutput,
+        ];
+    }
+
+    /**
+     * Get IFTTT events from the events log.
+     *
+     * @return array List of event names that were triggered (e.g., 'hot-tub-heat-on')
+     */
+    private function getIftttEvents(): array
+    {
+        $eventsLog = $this->backendDir . '/logs/events.log';
+        if (!file_exists($eventsLog)) {
+            return [];
+        }
+
+        $events = [];
+        $lines = file($eventsLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            $entry = json_decode($line, true);
+            if (isset($entry['action']) && str_starts_with($entry['action'], 'ifttt_')) {
+                $events[] = $entry['data']['event'] ?? 'unknown';
+            }
+        }
+        return $events;
+    }
+
+    /**
+     * Output a step description (visible in --testdox output).
+     */
+    private function step(string $description): void
+    {
+        // This will show up in verbose test output
+        fwrite(STDERR, "\n    → $description\n");
     }
 
     // =========================================================================
-    // E2E TESTS
+    // REAL E2E TESTS - Full cycle with real cron chain
     // =========================================================================
 
     /**
      * @test
-     * E2E RED TEST: Full chain from API call to heater turning on.
-     *
-     * This test calls the heat-to-target API endpoint and verifies that:
-     * 1. The target state is set
-     * 2. The heater turns on (or a check is scheduled)
-     * 3. Equipment status reflects the heater state
-     *
-     * THIS TEST SHOULD FAIL until Bug #1 is fixed.
+     * Sanity check: Server is running and health endpoint works.
      */
-    public function e2e_heatToTargetApiShouldTurnOnHeater(): void
+    public function e2e_serverHealthCheck(): void
     {
-        // Set up temperature below target
+        $response = $this->httpRequest('GET', '/api/health');
+        $this->assertEquals(200, $response['status'], 'Health check should return 200');
+    }
+
+    /**
+     * @test
+     * FULL CYCLE: Heat-to-target complete E2E workflow.
+     *
+     * This is THE test that catches integration bugs. It runs the REAL flow:
+     *
+     * 1. API call to start heating (like frontend would do)
+     * 2. System turns on heater (IFTTT: hot-tub-heat-on) and schedules cron
+     * 3. Execute cron-runner.sh (simulating cron daemon)
+     * 4. System checks temp, still below target, schedules next cron
+     * 5. Update temp (simulating ESP32 report showing heating progress)
+     * 6. Execute next cron
+     * 7. Repeat until target reached
+     * 8. System turns off heater (IFTTT: hot-tub-heat-off), clears state
+     * 9. Verify no more crons scheduled
+     * 10. Verify IFTTT received both heat-on and heat-off signals
+     */
+    public function e2e_fullHeatingCycleRealCronChain(): void
+    {
+        $cronJwt = $this->getCronJwt();
+        $this->assertNotEmpty($cronJwt, 'CRON_JWT must be configured');
+
+        // =====================================================================
+        // STEP 1: FE calls API to start heating (temp 82°F, target 101°F)
+        // =====================================================================
+        $this->step("STEP 1: Frontend calls POST /api/equipment/heat-to-target (temp=82°F, target=101°F)");
+
         $this->storeTemperature(82.0);
 
-        // Get auth token
-        $cronJwt = $this->getCronJwt();
-        $this->assertNotEmpty($cronJwt, 'CRON_JWT should be set');
-
-        // Call the heat-to-target API (what the scheduled cron job does)
         $response = $this->httpRequest(
             'POST',
             '/api/equipment/heat-to-target',
@@ -345,168 +446,285 @@ ENV;
             $cronJwt
         );
 
-        // API should return 200
-        $this->assertEquals(200, $response['status'], 'API should return 200');
+        $this->assertEquals(200, $response['status'],
+            "heat-to-target API should return 200.\n" .
+            "Response: " . json_encode($response['body']));
 
-        // Target state should be active
-        $targetState = $this->getTargetTempState();
-        $this->assertTrue($targetState['active'] ?? false, 'Target heating should be active');
-        $this->assertEquals(101.0, $targetState['target_temp_f'] ?? 0);
-
-        // THE BUG: Heater should be ON now (temp 82°F is below target 101°F)
-        $equipmentStatus = $this->getEquipmentStatus();
+        // Verify heater turned ON
+        $equipment = $this->getEquipmentStatus();
         $this->assertTrue(
-            $equipmentStatus['heater']['on'] ?? false,
-            "E2E BUG #1: After calling /api/equipment/heat-to-target with temp 82°F < target 101°F,\n" .
-            "the heater should be ON but it is OFF.\n" .
-            "Equipment status: " . json_encode($equipmentStatus)
-        );
-    }
-
-    /**
-     * @test
-     * E2E RED TEST: Scheduled check cron should be able to call the check endpoint.
-     *
-     * After heat-to-target sets up the heating, checkAndAdjust should schedule
-     * a cron that can successfully call /api/maintenance/heat-target-check.
-     *
-     * THIS TEST SHOULD FAIL until Bug #2 is fixed (cron lacks auth).
-     */
-    public function e2e_scheduledCheckCronShouldSuccessfullyCallApi(): void
-    {
-        $this->storeTemperature(82.0);
-        $cronJwt = $this->getCronJwt();
-
-        // First, manually trigger checkAndAdjust by calling the check endpoint
-        // (simulating what SHOULD happen after start() is fixed)
-
-        // Set up the target state manually (since start() doesn't call checkAndAdjust)
-        $targetStateFile = $this->storageDir . '/state/target-temperature.json';
-        $stateDir = dirname($targetStateFile);
-        if (!is_dir($stateDir)) {
-            mkdir($stateDir, 0755, true);
-        }
-        file_put_contents($targetStateFile, json_encode([
-            'active' => true,
-            'target_temp_f' => 101.0,
-            'started_at' => (new \DateTime())->format('c'),
-        ], JSON_PRETTY_PRINT));
-
-        // Call heat-target-check (what the scheduled cron would do)
-        $response = $this->httpRequest(
-            'POST',
-            '/api/maintenance/heat-target-check',
-            [],
-            $cronJwt
+            $equipment['heater']['on'] ?? false,
+            "Step 1 FAILED: Heater should be ON after heat-to-target starts.\n" .
+            "Equipment status: " . json_encode($equipment)
         );
 
-        // This should work with auth
+        // Verify IFTTT received heat-on signal
+        $iftttEvents = $this->getIftttEvents();
+        $this->assertContains(
+            'hot-tub-heat-on',
+            $iftttEvents,
+            "Step 1 FAILED: IFTTT should receive 'hot-tub-heat-on' signal.\n" .
+            "IFTTT events: " . json_encode($iftttEvents)
+        );
+
+        $this->step("  ✓ Heater ON, IFTTT signaled, target state active");
+
+        // =====================================================================
+        // STEP 2: Verify cron entry was added to REAL crontab
+        // =====================================================================
+        $this->step("STEP 2: Verify cron scheduled in crontab");
+
+        $cronEntries = $this->getHeatTargetCronEntries();
+        $this->assertNotEmpty(
+            $cronEntries,
+            "Step 2 FAILED: No cron entry in crontab after heat-to-target!\n" .
+            "This means the cron chain never starts.\n" .
+            "Crontab: " . (shell_exec('crontab -l 2>/dev/null') ?: '(empty)')
+        );
+
+        $jobId1 = $this->extractJobId($cronEntries[0]);
+        $this->assertNotEmpty($jobId1, 'Should extract job ID from cron entry');
+
+        // Verify job file exists with correct content
+        $jobFile1 = $this->storageDir . "/scheduled-jobs/$jobId1.json";
+        $this->assertFileExists($jobFile1, "Job file should exist: $jobFile1");
+
+        $jobData1 = json_decode(file_get_contents($jobFile1), true);
         $this->assertEquals(
-            200,
-            $response['status'],
-            "heat-target-check should succeed with auth. Got: {$response['status']}"
+            '/api/maintenance/heat-target-check',
+            $jobData1['endpoint'] ?? '',
+            "Step 2 FAILED: Job file has wrong endpoint!\n" .
+            "Expected: /api/maintenance/heat-target-check\n" .
+            "Actual: " . ($jobData1['endpoint'] ?? 'null') . "\n" .
+            "This will cause 404 when cron-runner.sh executes."
         );
 
-        // Now check if a cron was scheduled for the next check
-        $cronEntries = $this->getCrontabEntries('heat-target');
+        $this->step("  ✓ Cron entry added, job file created with correct endpoint");
 
-        if (!empty($cronEntries)) {
-            $cronEntry = $cronEntries[0];
+        // =====================================================================
+        // STEP 3: Execute cron-runner.sh (simulating cron daemon firing)
+        // =====================================================================
+        $this->step("STEP 3: Execute cron-runner.sh '$jobId1' (simulating cron fire, temp still 82°F)");
 
-            // THE BUG: The cron entry should include auth or use cron-runner.sh
-            $hasAuth = str_contains($cronEntry, 'Authorization');
-            $usesCronRunner = str_contains($cronEntry, 'cron-runner.sh');
+        $result1 = $this->executeCronRunner($jobId1);
 
-            // Check for correct endpoint path (should include /api prefix)
-            $hasCorrectPath = str_contains($cronEntry, '/api/maintenance/heat-target-check');
-            $this->assertTrue(
-                $hasCorrectPath,
-                "E2E BUG #3: Scheduled cron entry has wrong endpoint path:\n" .
-                "Entry: $cronEntry\n\n" .
-                "Should call /api/maintenance/heat-target-check but is missing /api prefix."
-            );
-
-            $this->assertTrue(
-                $hasAuth || $usesCronRunner,
-                "E2E BUG #2: Scheduled cron entry lacks authentication:\n" .
-                "Entry: $cronEntry\n\n" .
-                "Without auth, this cron will fail with 401 when it fires."
-            );
-        }
-    }
-
-    /**
-     * @test
-     * E2E GREEN TEST (after fixes): Full heating cycle via real HTTP and cron simulation.
-     *
-     * This test will pass once both bugs are fixed:
-     * 1. Call /api/equipment/heat-to-target
-     * 2. Verify heater turns on
-     * 3. Simulate temperature reaching target
-     * 4. Call /api/maintenance/heat-target-check
-     * 5. Verify heater turns off and state is cleared
-     */
-    public function e2e_fullHeatingCycleViaHttp(): void
-    {
-        $cronJwt = $this->getCronJwt();
-
-        // Start at 82°F, target 101°F
-        $this->storeTemperature(82.0);
-
-        // Step 1: Call heat-to-target API
-        $response = $this->httpRequest(
-            'POST',
-            '/api/equipment/heat-to-target',
-            ['target_temp_f' => 101.0],
-            $cronJwt
+        $this->assertEquals(
+            0,
+            $result1['returnCode'],
+            "Step 3 FAILED: cron-runner.sh failed!\n" .
+            "Return code: {$result1['returnCode']}\n" .
+            "Output: {$result1['output']}\n" .
+            "Cron log: {$result1['logOutput']}"
         );
-        $this->assertEquals(200, $response['status']);
 
-        // Step 2: Verify heater is on (this requires Bug #1 to be fixed)
-        $status = $this->getEquipmentStatus();
-        if (!($status['heater']['on'] ?? false)) {
-            // Bug #1 not fixed yet - manually call checkAndAdjust
-            $this->markTestIncomplete(
-                'Bug #1 not fixed: start() does not call checkAndAdjust(). ' .
-                'Heater is OFF when it should be ON.'
-            );
-        }
+        // Verify still heating (temp 82°F < target 101°F)
+        $targetState = $this->getTargetTempState();
+        $this->assertTrue(
+            $targetState['active'] ?? false,
+            "Step 3 FAILED: Target heating should still be active (temp below target)"
+        );
 
-        // Step 3: Simulate heating complete - temperature reaches target
+        $this->step("  ✓ cron-runner.sh executed, API returned success, still heating");
+
+        // =====================================================================
+        // STEP 4: Verify NEW cron was scheduled (chain continues)
+        // =====================================================================
+        $this->step("STEP 4: Verify NEW cron scheduled (chain continues)");
+
+        $cronEntries = $this->getHeatTargetCronEntries();
+        $this->assertNotEmpty(
+            $cronEntries,
+            "Step 4 FAILED: No new cron scheduled after check!\n" .
+            "The cron chain is broken - heater will run forever."
+        );
+
+        $jobId2 = $this->extractJobId($cronEntries[0]);
+        $this->assertNotEquals(
+            $jobId1,
+            $jobId2,
+            "Step 4 FAILED: New job ID should be different (old job should be cleaned up)"
+        );
+
+        $this->step("  ✓ New cron scheduled: $jobId2");
+
+        // =====================================================================
+        // STEP 5: Simulate heating progress (temp rises to 95°F)
+        // =====================================================================
+        $this->step("STEP 5: ESP32 reports temp=95°F, execute cron '$jobId2'");
+
+        $this->storeTemperature(95.0);
+
+        $result2 = $this->executeCronRunner($jobId2);
+        $this->assertEquals(0, $result2['returnCode'],
+            "Step 5 FAILED: Second cron execution failed.\n" .
+            "Cron log: {$result2['logOutput']}");
+
+        // Still heating
+        $this->assertTrue(
+            $this->getTargetTempState()['active'] ?? false,
+            "Should still be heating at 95°F"
+        );
+
+        $this->step("  ✓ Still heating at 95°F");
+
+        // =====================================================================
+        // STEP 6: Another cron should be scheduled
+        // =====================================================================
+        $this->step("STEP 6: Verify another cron scheduled");
+
+        $cronEntries = $this->getHeatTargetCronEntries();
+        $this->assertNotEmpty($cronEntries, 'Another cron should be scheduled');
+        $jobId3 = $this->extractJobId($cronEntries[0]);
+
+        $this->step("  ✓ Cron scheduled: $jobId3");
+
+        // =====================================================================
+        // STEP 7: Simulate reaching target (temp rises to 101.5°F)
+        // =====================================================================
+        $this->step("STEP 7: ESP32 reports temp=101.5°F (TARGET REACHED), execute cron '$jobId3'");
+
         $this->storeTemperature(101.5);
 
-        // Step 4: Call heat-target-check (simulating cron firing)
-        $response = $this->httpRequest(
-            'POST',
-            '/api/maintenance/heat-target-check',
-            [],
-            $cronJwt
-        );
-        $this->assertEquals(200, $response['status']);
+        $result3 = $this->executeCronRunner($jobId3);
+        $this->assertEquals(0, $result3['returnCode'],
+            "Step 7 FAILED: Final cron execution failed.\n" .
+            "Cron log: {$result3['logOutput']}");
 
-        // Step 5: Verify heater is off and target is cleared
-        $status = $this->getEquipmentStatus();
+        $this->step("  ✓ Cron executed, target reached!");
+
+        // =====================================================================
+        // STEP 8: Verify heater turned OFF and cycle ended
+        // =====================================================================
+        $this->step("STEP 8: Verify heater OFF and IFTTT signaled");
+
+        $equipment = $this->getEquipmentStatus();
         $this->assertFalse(
-            $status['heater']['on'] ?? true,
-            'Heater should be OFF after reaching target'
+            $equipment['heater']['on'] ?? true,
+            "Step 8 FAILED: Heater should be OFF after reaching target.\n" .
+            "Equipment status: " . json_encode($equipment)
         );
 
         $targetState = $this->getTargetTempState();
         $this->assertFalse(
             $targetState['active'] ?? true,
-            'Target heating should be inactive after reaching target'
+            "Step 8 FAILED: Target heating should be inactive after reaching target.\n" .
+            "Target state: " . json_encode($targetState)
         );
+
+        // Verify IFTTT received heat-off signal
+        $iftttEvents = $this->getIftttEvents();
+        $this->assertContains(
+            'hot-tub-heat-off',
+            $iftttEvents,
+            "Step 8 FAILED: IFTTT should receive 'hot-tub-heat-off' signal.\n" .
+            "IFTTT events: " . json_encode($iftttEvents)
+        );
+
+        $this->step("  ✓ Heater OFF, IFTTT signaled 'hot-tub-heat-off'");
+
+        // =====================================================================
+        // STEP 9: Verify NO new cron scheduled (cycle complete)
+        // =====================================================================
+        $this->step("STEP 9: Verify NO new cron scheduled (cycle complete)");
+
+        $cronEntries = $this->getHeatTargetCronEntries();
+        $this->assertEmpty(
+            $cronEntries,
+            "Step 9 FAILED: No cron should be scheduled after target reached.\n" .
+            "Found entries: " . implode("\n", $cronEntries)
+        );
+
+        $this->step("  ✓ No more crons - cycle complete!");
+
+        // =====================================================================
+        // STEP 10: Summary - verify complete IFTTT signal chain
+        // =====================================================================
+        $this->step("STEP 10: Verify complete IFTTT signal chain");
+
+        $iftttEvents = $this->getIftttEvents();
+        $this->assertEquals(
+            ['hot-tub-heat-on', 'hot-tub-heat-off'],
+            $iftttEvents,
+            "Complete IFTTT signal chain should be: heat-on → heat-off\n" .
+            "Actual: " . json_encode($iftttEvents)
+        );
+
+        $this->step("  ✓ IFTTT signals: hot-tub-heat-on → hot-tub-heat-off");
+        $this->step("\n  ══════════════════════════════════════════════");
+        $this->step("  ✓ FULL HEATING CYCLE COMPLETE - ALL SYSTEMS GO!");
+        $this->step("  ══════════════════════════════════════════════\n");
     }
 
     /**
      * @test
-     * E2E TEST: Verify server is running and health endpoint works.
+     * Edge case: What happens if target is already reached when starting?
      */
-    public function e2e_serverHealthCheck(): void
+    public function e2e_targetAlreadyReachedOnStart(): void
     {
-        $response = $this->httpRequest('GET', '/api/health');
+        $cronJwt = $this->getCronJwt();
 
-        $this->assertEquals(200, $response['status'], 'Health check should return 200');
-        $this->assertArrayHasKey('status', $response['body']);
+        // Temperature already at target
+        $this->storeTemperature(102.0);
+
+        $response = $this->httpRequest(
+            'POST',
+            '/api/equipment/heat-to-target',
+            ['target_temp_f' => 101.0],
+            $cronJwt
+        );
+
+        $this->assertEquals(200, $response['status']);
+
+        // Should immediately declare target reached
+        $this->assertTrue(
+            $response['body']['target_reached'] ?? false,
+            "Should immediately detect target reached when temp >= target"
+        );
+
+        // Heater should NOT be turned on
+        $equipment = $this->getEquipmentStatus();
+        $this->assertFalse(
+            $equipment['heater']['on'] ?? true,
+            "Heater should stay OFF when target already reached"
+        );
+
+        // No cron should be scheduled
+        $cronEntries = $this->getHeatTargetCronEntries();
+        $this->assertEmpty($cronEntries, 'No cron should be scheduled when target already reached');
+    }
+
+    /**
+     * @test
+     * Edge case: Cancel heating mid-cycle.
+     */
+    public function e2e_cancelHeatingMidCycle(): void
+    {
+        $cronJwt = $this->getCronJwt();
+
+        // Start heating
+        $this->storeTemperature(82.0);
+        $response = $this->httpRequest(
+            'POST',
+            '/api/equipment/heat-to-target',
+            ['target_temp_f' => 101.0],
+            $cronJwt
+        );
+        $this->assertEquals(200, $response['status']);
+
+        // Verify cron was scheduled
+        $cronEntries = $this->getHeatTargetCronEntries();
+        $this->assertNotEmpty($cronEntries, 'Cron should be scheduled');
+
+        // Cancel heating
+        $response = $this->httpRequest('DELETE', '/api/equipment/heat-to-target', null, $cronJwt);
+        $this->assertEquals(200, $response['status']);
+
+        // Verify state cleared
+        $targetState = $this->getTargetTempState();
+        $this->assertFalse($targetState['active'] ?? true, 'Target should be inactive after cancel');
+
+        // Verify cron cleaned up
+        $cronEntries = $this->getHeatTargetCronEntries();
+        $this->assertEmpty($cronEntries, 'Cron should be cleaned up after cancel');
     }
 }

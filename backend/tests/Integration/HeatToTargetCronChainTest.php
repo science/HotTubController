@@ -339,7 +339,7 @@ class HeatToTargetCronChainTest extends TestCase
         $this->assertFileExists($jobFile, 'Job file should be created');
 
         $jobData = json_decode(file_get_contents($jobFile), true);
-        $this->assertEquals('/maintenance/heat-target-check', $jobData['endpoint']);
+        $this->assertEquals('/api/maintenance/heat-target-check', $jobData['endpoint']);
         $this->assertEquals('https://example.com/api', $jobData['apiBaseUrl']);
     }
 
