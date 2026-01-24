@@ -275,8 +275,8 @@ class TargetTemperatureService
 
         $jobData = [
             'jobId' => $jobId,
-            'endpoint' => '/maintenance/heat-target-check',
-            'apiBaseUrl' => $this->apiBaseUrl,
+            'endpoint' => '/api/maintenance/heat-target-check',
+            'apiBaseUrl' => rtrim($this->apiBaseUrl, '/'),
             'recurring' => false,
             'createdAt' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c'),
         ];
