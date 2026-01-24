@@ -216,8 +216,12 @@ class TargetTemperatureService
             $checkTime += $interval;
         }
 
-        // Ensure we're at least 10 seconds in the future (cron granularity)
-        return max($checkTime, time() + 10);
+        // CRITICAL: Ensure we're at least 60 seconds in the future.
+        // Cron daemon fires at :00 of each minute. If we schedule for the current
+        // minute (e.g., add entry at 11:22:10 for minute 22), the daemon already
+        // fired at 11:22:00 and won't fire again. The cron will NEVER execute!
+        // By ensuring 60+ seconds, we guarantee scheduling for the NEXT minute.
+        return max($checkTime, time() + 60);
     }
 
     /**

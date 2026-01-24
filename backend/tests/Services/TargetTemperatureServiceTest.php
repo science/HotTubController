@@ -331,6 +331,54 @@ class TargetTemperatureServiceTest extends TestCase
         $service->cleanupCronJobs();
     }
 
+    /**
+     * RACE CONDITION TEST: With old ESP32 reading, cron must still be in future minute.
+     *
+     * Bug scenario:
+     * - ESP32 last reported 90 seconds ago
+     * - calculateNextCheckTime() calculates: receivedAt + 60 + 5 = now - 25 (past!)
+     * - Code adds interval: now - 25 + 60 = now + 35 (future, but possibly same minute)
+     * - Cron daemon fires at :00, so if we're at :10 and schedule for :35, it's missed!
+     *
+     * Fix: Always ensure at least 60 seconds in future to guarantee next minute.
+     */
+    public function testCalculateNextCheckTimeWithOldReadingStillReturnsNextMinute(): void
+    {
+        $service = $this->createServiceWithCron();
+
+        // Store a reading from 90 seconds ago
+        $oldReceivedAt = time() - 90;
+        $this->esp32Temp->store([
+            'device_id' => 'TEST:AA:BB:CC:DD:EE',
+            'sensors' => [
+                ['address' => '28:AA:BB:CC:DD:EE:FF:00', 'temp_c' => 28.0, 'temp_f' => 82.0],
+            ],
+            'uptime_seconds' => 3600,
+        ]);
+
+        // Manually set received_at to simulate old reading
+        $stateFile = $this->esp32TempFile;
+        $data = json_decode(file_get_contents($stateFile), true);
+        $data['received_at'] = $oldReceivedAt;
+        file_put_contents($stateFile, json_encode($data));
+
+        // Heater is on, so interval is 60 seconds
+        $this->equipmentStatus->setHeaterOn();
+
+        $now = time();
+        $nextCheckTime = $service->calculateNextCheckTime();
+
+        // MUST be at least 60 seconds in the future to guarantee next minute
+        // This prevents the race condition where cron is scheduled for current minute
+        $this->assertGreaterThanOrEqual(
+            $now + 60,
+            $nextCheckTime,
+            "With old ESP32 reading, next check must be at least 60 seconds in future.\n" .
+            "This ensures we're in the NEXT minute, not current minute.\n" .
+            "Cron daemon fires at :00 - scheduling for current minute means it never fires!"
+        );
+    }
+
     // ========== Calibration tests ==========
 
     public function testCheckAndAdjustUsesCalibratedTemperatureNotRaw(): void

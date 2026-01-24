@@ -18,6 +18,7 @@ use HotTub\Services\Esp32SensorConfigService;
 use HotTub\Services\Esp32CalibratedTemperatureService;
 use HotTub\Services\TargetTemperatureService;
 use HotTub\Services\LogRotationService;
+use HotTub\Services\ScheduledJobsCleanupService;
 use HotTub\Services\EnvLoader;
 use HotTub\Services\CookieHelper;
 use HotTub\Services\EquipmentStatusService;
@@ -156,7 +157,7 @@ $schedulerService = new SchedulerService(
 );
 $scheduleController = new ScheduleController($schedulerService);
 
-// Create maintenance controller for log rotation
+// Create maintenance controller for log rotation and job cleanup
 // Loads ping URL from state file (created by deploy script)
 $logsDir = __DIR__ . '/../storage/logs';
 $logRotationService = new LogRotationService();
@@ -166,11 +167,13 @@ if (file_exists($logRotationHealthcheckStateFile)) {
     $logRotationState = json_decode(file_get_contents($logRotationHealthcheckStateFile), true);
     $logRotationPingUrl = $logRotationState['ping_url'] ?? null;
 }
+$jobsCleanupService = new ScheduledJobsCleanupService($jobsDir, $crontabAdapter, 3600);
 $maintenanceController = new MaintenanceController(
     $logRotationService,
     $logsDir,
     $healthchecksClient,
-    $logRotationPingUrl
+    $logRotationPingUrl,
+    $jobsCleanupService
 );
 
 // Parse request URI
@@ -249,6 +252,8 @@ $router->put('/api/users/{username}/password', fn($params) => handleUserPassword
 // Protected maintenance routes (called by cron with CRON_JWT)
 // Note: /api/cron/health bypasses framework via .htaccess -> cron-health.php
 $router->post('/api/maintenance/logs/rotate', fn() => $maintenanceController->rotateLogs(), $requireAuth);
+$router->post('/api/maintenance/jobs/cleanup', fn() => $maintenanceController->cleanupOrphanedJobs(), $requireAuth);
+$router->post('/api/maintenance/all', fn() => $maintenanceController->runAll(), $requireAuth);
 $router->post('/api/maintenance/heat-target-check', fn() => $targetTemperatureController->check(), $requireAuth);
 
 // Dispatch request

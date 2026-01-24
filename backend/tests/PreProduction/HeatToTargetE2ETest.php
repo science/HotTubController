@@ -332,6 +332,93 @@ ENV;
     }
 
     /**
+     * Parse the scheduled time from a cron entry and return Unix timestamp.
+     *
+     * Cron format: "minute hour day month dow command # comment"
+     * Heat-target format: "23 11 24 01 * /path/to/cron-runner.sh 'heat-target-xxx' # HOTTUB:..."
+     *
+     * @return int|null Unix timestamp, or null if parsing fails
+     */
+    private function parseCronScheduledTime(string $cronEntry): ?int
+    {
+        // Extract: minute hour day month
+        if (!preg_match('/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\*/', $cronEntry, $matches)) {
+            return null;
+        }
+
+        $minute = (int) $matches[1];
+        $hour = (int) $matches[2];
+        $day = (int) $matches[3];
+        $month = (int) $matches[4];
+        $year = (int) date('Y');
+
+        // Create DateTime in server's timezone (same as what scheduleNextCheck uses)
+        $dt = new \DateTime();
+        $dt->setDate($year, $month, $day);
+        $dt->setTime($hour, $minute, 0);
+
+        return $dt->getTimestamp();
+    }
+
+    /**
+     * Verify the cron is scheduled within expected time window.
+     *
+     * Expected: 60-80 seconds from now (ESP32 interval 60s + 5s buffer + tolerance)
+     */
+    private function assertCronScheduledWithinWindow(string $cronEntry, int $minSecondsFromNow, int $maxSecondsFromNow, string $message = ''): void
+    {
+        $scheduledTime = $this->parseCronScheduledTime($cronEntry);
+        $this->assertNotNull($scheduledTime, "Failed to parse cron entry: $cronEntry");
+
+        $now = time();
+        $secondsFromNow = $scheduledTime - $now;
+
+        $this->assertGreaterThanOrEqual(
+            $minSecondsFromNow,
+            $secondsFromNow,
+            ($message ? "$message\n" : '') .
+            "Cron scheduled too soon! Scheduled for $secondsFromNow seconds from now.\n" .
+            "Expected: at least $minSecondsFromNow seconds.\n" .
+            "Cron entry: $cronEntry\n" .
+            "Scheduled time: " . date('Y-m-d H:i:s', $scheduledTime) . "\n" .
+            "Current time: " . date('Y-m-d H:i:s', $now)
+        );
+
+        $this->assertLessThanOrEqual(
+            $maxSecondsFromNow,
+            $secondsFromNow,
+            ($message ? "$message\n" : '') .
+            "Cron scheduled too far in future! Scheduled for $secondsFromNow seconds from now.\n" .
+            "Expected: at most $maxSecondsFromNow seconds.\n" .
+            "Cron entry: $cronEntry\n" .
+            "Scheduled time: " . date('Y-m-d H:i:s', $scheduledTime) . "\n" .
+            "Current time: " . date('Y-m-d H:i:s', $now)
+        );
+
+        // CRITICAL: Cron must be in a FUTURE minute, not the current minute!
+        // Cron daemon fires at :00 of each minute. If we add a cron entry for the current
+        // minute (e.g., at 11:22:03 for minute 22), the daemon already fired at 11:22:00
+        // and won't fire again until 11:23:00. The cron for minute 22 will NEVER fire!
+        $currentMinute = (int) date('i', $now);
+        $scheduledMinute = (int) date('i', $scheduledTime);
+        $currentHour = (int) date('H', $now);
+        $scheduledHour = (int) date('H', $scheduledTime);
+
+        // Same hour? Check minute is in the future
+        if ($scheduledHour === $currentHour && $scheduledMinute <= $currentMinute) {
+            $this->fail(
+                ($message ? "$message\n" : '') .
+                "RACE CONDITION BUG: Cron scheduled for current or past minute!\n" .
+                "Cron daemon fires at :00 of each minute. Entry added after this point will never fire.\n" .
+                "Current: " . date('H:i:s', $now) . " (minute $currentMinute)\n" .
+                "Scheduled: " . date('H:i:s', $scheduledTime) . " (minute $scheduledMinute)\n" .
+                "The cron daemon already fired for minute $scheduledMinute. This cron will NEVER run!\n" .
+                "Cron entry: $cronEntry"
+            );
+        }
+    }
+
+    /**
      * Execute cron-runner.sh with a job ID (simulating cron daemon firing).
      *
      * @return array{returnCode: int, output: string, logOutput: string}
@@ -499,7 +586,21 @@ ENV;
             "This will cause 404 when cron-runner.sh executes."
         );
 
-        $this->step("  ✓ Cron entry added, job file created with correct endpoint");
+        // CRITICAL: Verify cron is scheduled for the near future (not in the past!)
+        // Expected: 10-120 seconds from now
+        // - ESP32 interval when heating: 60 seconds
+        // - Buffer: 5 seconds
+        // - Minimum: 10 seconds (cron granularity check in code)
+        // - Maximum: 120 seconds (allows for some timing variance)
+        $this->assertCronScheduledWithinWindow(
+            $cronEntries[0],
+            10,  // minimum seconds from now
+            120, // maximum seconds from now
+            "Step 2 FAILED: Cron scheduled for wrong time!\n" .
+            "This is why production fails - cron daemon never fires."
+        );
+
+        $this->step("  ✓ Cron entry added, job file created with correct endpoint, scheduled within 2 minutes");
 
         // =====================================================================
         // STEP 3: Execute cron-runner.sh (simulating cron daemon firing)
@@ -726,5 +827,97 @@ ENV;
         // Verify cron cleaned up
         $cronEntries = $this->getHeatTargetCronEntries();
         $this->assertEmpty($cronEntries, 'Cron should be cleaned up after cancel');
+    }
+
+    /**
+     * @test
+     * BUG REPRODUCTION: Cron race condition with old ESP32 reading.
+     *
+     * This reproduces the production bug where:
+     * 1. ESP32 last reported 90 seconds ago
+     * 2. heat-to-target is called at minute X, second 10
+     * 3. calculateNextCheckTime() returns a time in the CURRENT minute
+     * 4. Cron daemon already fired at minute X, second 0
+     * 5. The cron entry for minute X will NEVER fire!
+     *
+     * Expected: This test should FAIL until the bug is fixed.
+     */
+    public function e2e_cronRaceConditionWithOldEsp32Reading(): void
+    {
+        $cronJwt = $this->getCronJwt();
+
+        // Store temperature with an OLD received_at (90 seconds ago)
+        // This simulates production where ESP32 reports every 60s but the reading
+        // might be up to 60s old when heat-to-target is called
+        $this->storeTemperatureWithAge(82.0, 90);
+
+        $beforeRequest = time();
+
+        $response = $this->httpRequest(
+            'POST',
+            '/api/equipment/heat-to-target',
+            ['target_temp_f' => 101.0],
+            $cronJwt
+        );
+
+        $this->assertEquals(200, $response['status']);
+
+        // Get the cron entry
+        $cronEntries = $this->getHeatTargetCronEntries();
+        $this->assertNotEmpty($cronEntries, 'Cron entry should be created');
+
+        // This is the critical check: the cron MUST be in a future minute!
+        // With a 90s old reading:
+        // - receivedAt = now - 90
+        // - nextReport = receivedAt + 60 = now - 30
+        // - checkTime = nextReport + 5 = now - 25 (past!)
+        // - checkTime += 60 = now + 35 (future, but possibly same minute!)
+        //
+        // If we're at 11:22:30, checkTime = 11:23:05 = minute 23 (OK!)
+        // If we're at 11:22:10, checkTime = 11:22:45 = minute 22 (RACE CONDITION!)
+        $this->assertCronScheduledWithinWindow(
+            $cronEntries[0],
+            10,  // at least 10 seconds
+            120, // at most 2 minutes
+            "Cron race condition test"
+        );
+
+        // Clean up
+        $this->httpRequest('DELETE', '/api/equipment/heat-to-target', null, $cronJwt);
+    }
+
+    /**
+     * Store a temperature reading with a specific age (seconds ago).
+     */
+    private function storeTemperatureWithAge(float $tempF, int $secondsAgo): void
+    {
+        $tempC = ($tempF - 32) * 5 / 9;
+        $stateFile = $this->storageDir . '/state/esp32-temperature.json';
+        $stateDir = dirname($stateFile);
+
+        if (!is_dir($stateDir)) {
+            mkdir($stateDir, 0755, true);
+        }
+
+        $receivedAt = time() - $secondsAgo;
+        $timestamp = (new \DateTime("@$receivedAt"))->format('c');
+
+        $data = [
+            'device_id' => 'E2E:TEST:DEVICE',
+            'sensors' => [
+                [
+                    'address' => '28:E2:E2:TE:ST:00:00:01',
+                    'temp_c' => $tempC,
+                    'temp_f' => $tempF,
+                ],
+            ],
+            'uptime_seconds' => 3600,
+            'timestamp' => $timestamp,
+            'received_at' => $receivedAt,
+            'temp_c' => $tempC,
+            'temp_f' => $tempF,
+        ];
+
+        file_put_contents($stateFile, json_encode($data, JSON_PRETTY_PRINT));
     }
 }
