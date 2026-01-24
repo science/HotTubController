@@ -6,7 +6,10 @@ namespace HotTub\Tests\Controllers;
 
 use HotTub\Controllers\MaintenanceController;
 use HotTub\Contracts\HealthchecksClientInterface;
+use HotTub\Contracts\CrontabAdapterInterface;
 use HotTub\Services\LogRotationService;
+use HotTub\Services\ScheduledJobsCleanupService;
+use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -303,5 +306,163 @@ class MaintenanceControllerTest extends TestCase
         $this->assertEquals(200, $response['status']);
         // But indicate the ping failed
         $this->assertFalse($response['body']['healthcheck_pinged']);
+    }
+
+    // ========== cleanupOrphanedJobs() Tests ==========
+
+    public function testCleanupOrphanedJobsReturns200WithServiceConfigured(): void
+    {
+        $jobsDir = $this->tempDir . '/jobs';
+        mkdir($jobsDir, 0755, true);
+
+        /** @var MockObject&CrontabAdapterInterface */
+        $mockCrontab = $this->createMock(CrontabAdapterInterface::class);
+        $mockCrontab->method('listEntries')->willReturn([]);
+
+        $cleanupService = new ScheduledJobsCleanupService($jobsDir, $mockCrontab, 3600);
+
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            null,
+            null,
+            $cleanupService
+        );
+
+        $response = $controller->cleanupOrphanedJobs();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertArrayHasKey('timestamp', $response['body']);
+        $this->assertArrayHasKey('deleted', $response['body']);
+        $this->assertArrayHasKey('skipped_active', $response['body']);
+        $this->assertArrayHasKey('skipped_recent', $response['body']);
+        $this->assertArrayHasKey('skipped_invalid', $response['body']);
+    }
+
+    public function testCleanupOrphanedJobsReturns200WithNoteWhenServiceNotConfigured(): void
+    {
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs'
+        );
+
+        $response = $controller->cleanupOrphanedJobs();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertArrayHasKey('note', $response['body']);
+        $this->assertEquals('Job cleanup service not configured', $response['body']['note']);
+    }
+
+    public function testCleanupOrphanedJobsDeletesOrphanedFiles(): void
+    {
+        $jobsDir = $this->tempDir . '/jobs';
+        mkdir($jobsDir, 0755, true);
+
+        // Create an orphaned job file (old, no cron entry)
+        $jobId = 'orphan-test-12345678';
+        $jobFile = $jobsDir . '/' . $jobId . '.json';
+        file_put_contents($jobFile, json_encode(['jobId' => $jobId]));
+        touch($jobFile, time() - 7200); // 2 hours old
+
+        /** @var MockObject&CrontabAdapterInterface */
+        $mockCrontab = $this->createMock(CrontabAdapterInterface::class);
+        $mockCrontab->method('listEntries')->willReturn([]);
+
+        $cleanupService = new ScheduledJobsCleanupService($jobsDir, $mockCrontab, 3600);
+
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            null,
+            null,
+            $cleanupService
+        );
+
+        $response = $controller->cleanupOrphanedJobs();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertContains($jobId, $response['body']['deleted']);
+        $this->assertFileDoesNotExist($jobFile);
+    }
+
+    // ========== runAll() Tests ==========
+
+    public function testRunAllExecutesLogRotationAndJobCleanup(): void
+    {
+        $jobsDir = $this->tempDir . '/jobs';
+        mkdir($jobsDir, 0755, true);
+
+        // Create an old log file to compress
+        $logFile = $this->tempDir . '/logs/api.log';
+        $this->createOldFile($logFile, 35);
+
+        // Create an orphaned job file
+        $jobId = 'orphan-runall-12345678';
+        $jobFile = $jobsDir . '/' . $jobId . '.json';
+        file_put_contents($jobFile, json_encode(['jobId' => $jobId]));
+        touch($jobFile, time() - 7200);
+
+        /** @var MockObject&CrontabAdapterInterface */
+        $mockCrontab = $this->createMock(CrontabAdapterInterface::class);
+        $mockCrontab->method('listEntries')->willReturn([]);
+
+        $cleanupService = new ScheduledJobsCleanupService($jobsDir, $mockCrontab, 3600);
+
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            null,
+            null,
+            $cleanupService
+        );
+
+        $response = $controller->runAll();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertArrayHasKey('logs', $response['body']);
+        $this->assertArrayHasKey('jobs', $response['body']);
+
+        // Log rotation should have compressed the old log
+        $this->assertCount(1, $response['body']['logs']['compressed']);
+        $this->assertFileExists($logFile . '.gz');
+
+        // Job cleanup should have deleted the orphan
+        $this->assertContains($jobId, $response['body']['jobs']['deleted']);
+        $this->assertFileDoesNotExist($jobFile);
+    }
+
+    public function testRunAllWorksWithoutJobCleanupService(): void
+    {
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs'
+        );
+
+        $response = $controller->runAll();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertArrayHasKey('logs', $response['body']);
+        $this->assertArrayHasKey('jobs', $response['body']);
+        // Jobs should have empty arrays when service not configured
+        $this->assertEmpty($response['body']['jobs']['deleted']);
+    }
+
+    public function testRunAllPingsHealthcheckOnSuccess(): void
+    {
+        $healthchecksClient = new MockHealthchecksClientForController();
+        $pingUrl = 'https://hc-ping.com/test-uuid';
+
+        $controller = new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            $healthchecksClient,
+            $pingUrl
+        );
+
+        $response = $controller->runAll();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertTrue($response['body']['healthcheck_pinged']);
+        $this->assertCount(1, $healthchecksClient->pings);
     }
 }

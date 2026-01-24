@@ -198,9 +198,19 @@ class TargetTemperatureService
         ];
     }
 
+    private const CRON_SAFETY_MARGIN_SECONDS = 5;
+
     /**
      * Calculate when the next check should occur.
-     * Returns Unix timestamp for 5 seconds after the next expected ESP32 report.
+     *
+     * Returns a Unix timestamp that is:
+     * 1. At a minute boundary (:00 seconds)
+     * 2. In a future minute (not current minute)
+     * 3. At least CRON_SAFETY_MARGIN_SECONDS from now
+     *
+     * This ensures cron daemon will fire the job. The daemon fires at :00 of
+     * each minute - if we add an entry for the current minute after :00, it
+     * will never execute.
      */
     public function calculateNextCheckTime(): int
     {
@@ -208,16 +218,28 @@ class TargetTemperatureService
         $receivedAt = $latest['received_at'] ?? time();
         $interval = $this->esp32Temp?->getInterval() ?? Esp32TemperatureService::DEFAULT_INTERVAL;
 
+        // Calculate desired check time based on ESP32 reporting
         $nextReport = $receivedAt + $interval;
-        $checkTime = $nextReport + self::CHECK_BUFFER_SECONDS;
+        $desiredCheckTime = $nextReport + self::CHECK_BUFFER_SECONDS;
 
-        // If checkTime is in the past, add one interval
-        if ($checkTime <= time()) {
-            $checkTime += $interval;
+        // If desired time is in the past, add an interval
+        $now = time();
+        if ($desiredCheckTime <= $now) {
+            $desiredCheckTime = $now + self::CRON_SAFETY_MARGIN_SECONDS;
         }
 
-        // Ensure we're at least 10 seconds in the future (cron granularity)
-        return max($checkTime, time() + 10);
+        // Round UP to the next minute boundary
+        // Example: 5:01:24 → 5:02:00
+        $nextMinuteBoundary = (int) ceil($desiredCheckTime / 60) * 60;
+
+        // If less than safety margin until that minute, skip to the one after
+        // Example: At 5:01:57, next boundary is 5:02:00 (3 seconds away)
+        //          That's too close, so skip to 5:03:00
+        if (($nextMinuteBoundary - $now) < self::CRON_SAFETY_MARGIN_SECONDS) {
+            $nextMinuteBoundary += 60;
+        }
+
+        return $nextMinuteBoundary;
     }
 
     /**
