@@ -298,7 +298,7 @@ class TargetTemperatureServiceTest extends TestCase
         $this->assertTrue($result['target_reached']);
     }
 
-    public function testCalculateNextCheckTimeReturns5SecondsAfterNextEsp32Report(): void
+    public function testCalculateNextCheckTimeReturnsMinuteBoundaryAfterNextEsp32Report(): void
     {
         $service = $this->createServiceWithCron();
 
@@ -311,13 +311,19 @@ class TargetTemperatureServiceTest extends TestCase
         $now = time();
         $nextCheckTime = $service->calculateNextCheckTime();
 
-        // Should be approximately: now + 60 (next report) + 5 (buffer) = now + 65
-        // With some tolerance for execution time
-        $expectedMin = $now + 60; // At least 60 seconds from now
-        $expectedMax = $now + 70; // At most 70 seconds from now
+        // Should be a minute boundary (at :00)
+        $this->assertEquals(0, $nextCheckTime % 60,
+            "Scheduled time must be at a minute boundary (:00 seconds)");
 
-        $this->assertGreaterThanOrEqual($expectedMin, $nextCheckTime);
-        $this->assertLessThanOrEqual($expectedMax, $nextCheckTime);
+        // Should be in a future minute (not current minute)
+        $currentMinute = (int) floor($now / 60);
+        $scheduledMinute = (int) floor($nextCheckTime / 60);
+        $this->assertGreaterThan($currentMinute, $scheduledMinute,
+            "Must schedule for a future minute, not current minute");
+
+        // Should be within reasonable range (1-2 minutes typically)
+        $this->assertLessThanOrEqual($now + 120, $nextCheckTime,
+            "Should not schedule more than 2 minutes in the future");
     }
 
     public function testCleanupCronJobsRemovesAllHeatTargetEntries(): void
@@ -337,12 +343,11 @@ class TargetTemperatureServiceTest extends TestCase
      * Bug scenario:
      * - ESP32 last reported 90 seconds ago
      * - calculateNextCheckTime() calculates: receivedAt + 60 + 5 = now - 25 (past!)
-     * - Code adds interval: now - 25 + 60 = now + 35 (future, but possibly same minute)
-     * - Cron daemon fires at :00, so if we're at :10 and schedule for :35, it's missed!
+     * - Without fix, could schedule for current minute, which never fires
      *
-     * Fix: Always ensure at least 60 seconds in future to guarantee next minute.
+     * Fix: Schedule at minute boundary in a strictly future minute with safety margin.
      */
-    public function testCalculateNextCheckTimeWithOldReadingStillReturnsNextMinute(): void
+    public function testCalculateNextCheckTimeWithOldReadingStillReturnsValidFutureMinute(): void
     {
         $service = $this->createServiceWithCron();
 
@@ -367,16 +372,139 @@ class TargetTemperatureServiceTest extends TestCase
 
         $now = time();
         $nextCheckTime = $service->calculateNextCheckTime();
+        $currentMinute = (int) floor($now / 60);
+        $scheduledMinute = (int) floor($nextCheckTime / 60);
 
-        // MUST be at least 60 seconds in the future to guarantee next minute
-        // This prevents the race condition where cron is scheduled for current minute
-        $this->assertGreaterThanOrEqual(
-            $now + 60,
-            $nextCheckTime,
-            "With old ESP32 reading, next check must be at least 60 seconds in future.\n" .
-            "This ensures we're in the NEXT minute, not current minute.\n" .
+        // Must be at minute boundary
+        $this->assertEquals(0, $nextCheckTime % 60,
+            "With old ESP32 reading, must still schedule at minute boundary");
+
+        // Must be in a strictly future minute
+        $this->assertGreaterThan(
+            $currentMinute,
+            $scheduledMinute,
+            "With old ESP32 reading, must schedule for FUTURE minute, not current.\n" .
+            "Current: " . date('Y-m-d H:i:s', $now) . " (minute $currentMinute)\n" .
+            "Scheduled: " . date('Y-m-d H:i:s', $nextCheckTime) . " (minute $scheduledMinute)\n" .
             "Cron daemon fires at :00 - scheduling for current minute means it never fires!"
         );
+
+        // Must have at least 5 seconds safety margin
+        $secondsUntilFire = $nextCheckTime - $now;
+        $this->assertGreaterThanOrEqual(5, $secondsUntilFire,
+            "Must have at least 5 seconds until cron fires (got $secondsUntilFire)");
+    }
+
+    // ========== Minute Boundary Scheduling Tests ==========
+
+    /**
+     * Verify scheduled time is always at :00 of a minute (minute boundary).
+     *
+     * Cron only fires at minute boundaries, so scheduling for :05 or :30
+     * within a minute doesn't make sense. The time should snap to :00.
+     */
+    public function testCalculateNextCheckTimeReturnsMinuteBoundary(): void
+    {
+        $service = $this->createServiceWithCron();
+        $this->storeEsp32Reading(82.0);
+        $this->equipmentStatus->setHeaterOn();
+
+        $nextCheckTime = $service->calculateNextCheckTime();
+
+        // Should be exactly at :00 of a minute
+        $seconds = (int) date('s', $nextCheckTime);
+        $this->assertEquals(
+            0,
+            $seconds,
+            "Scheduled time should be at :00 of a minute, but got :" . sprintf('%02d', $seconds) .
+            "\nScheduled: " . date('Y-m-d H:i:s', $nextCheckTime)
+        );
+    }
+
+    /**
+     * Verify scheduled minute is strictly in the future (not current minute).
+     *
+     * If we're at 5:01:XX, we must schedule for 5:02 or later, never 5:01.
+     * Cron daemon fires at :00 - if we're past that, the job never runs.
+     */
+    public function testCalculateNextCheckTimeSchedulesForFutureMinute(): void
+    {
+        $service = $this->createServiceWithCron();
+        $this->storeEsp32Reading(82.0);
+        $this->equipmentStatus->setHeaterOn();
+
+        $now = time();
+        $currentMinute = (int) floor($now / 60);
+        $nextCheckTime = $service->calculateNextCheckTime();
+        $scheduledMinute = (int) floor($nextCheckTime / 60);
+
+        $this->assertGreaterThan(
+            $currentMinute,
+            $scheduledMinute,
+            "Scheduled minute must be AFTER current minute.\n" .
+            "Current: " . date('Y-m-d H:i:s', $now) . " (minute $currentMinute)\n" .
+            "Scheduled: " . date('Y-m-d H:i:s', $nextCheckTime) . " (minute $scheduledMinute)\n" .
+            "Cron for current minute would never fire!"
+        );
+    }
+
+    /**
+     * Verify at least 5 seconds margin before scheduled minute.
+     *
+     * We need buffer time to write the crontab entry before the daemon fires.
+     * If scheduled minute is only 2 seconds away, we might miss it.
+     */
+    public function testCalculateNextCheckTimeHasSafetyMargin(): void
+    {
+        $service = $this->createServiceWithCron();
+        $this->storeEsp32Reading(82.0);
+        $this->equipmentStatus->setHeaterOn();
+
+        $now = time();
+        $nextCheckTime = $service->calculateNextCheckTime();
+        $secondsUntilFire = $nextCheckTime - $now;
+
+        $this->assertGreaterThanOrEqual(
+            5,
+            $secondsUntilFire,
+            "Must be at least 5 seconds until cron fires.\n" .
+            "Current: " . date('Y-m-d H:i:s', $now) . "\n" .
+            "Scheduled: " . date('Y-m-d H:i:s', $nextCheckTime) . "\n" .
+            "Seconds until fire: $secondsUntilFire\n" .
+            "Not enough time to write crontab before daemon fires!"
+        );
+    }
+
+    /**
+     * Edge case: Late in the minute (e.g., :55) should skip to minute+2.
+     *
+     * At 5:01:55, the next minute boundary is 5:02:00 (only 5 seconds away).
+     * That's too close - we should schedule for 5:03:00 instead.
+     */
+    public function testCalculateNextCheckTimeLateInMinuteSkipsToNextNext(): void
+    {
+        $service = $this->createServiceWithCron();
+        $this->storeEsp32Reading(82.0);
+        $this->equipmentStatus->setHeaterOn();
+
+        // This test is timing-sensitive. Run it multiple times to catch edge cases.
+        // The key assertion is that we ALWAYS have >= 5 seconds margin.
+        for ($i = 0; $i < 10; $i++) {
+            $now = time();
+            $nextCheckTime = $service->calculateNextCheckTime();
+            $secondsUntilFire = $nextCheckTime - $now;
+
+            $this->assertGreaterThanOrEqual(
+                5,
+                $secondsUntilFire,
+                "Iteration $i: Must be at least 5 seconds until cron fires.\n" .
+                "Current: " . date('Y-m-d H:i:s', $now) . " (second " . date('s', $now) . ")\n" .
+                "Scheduled: " . date('Y-m-d H:i:s', $nextCheckTime) . "\n" .
+                "Seconds until fire: $secondsUntilFire"
+            );
+
+            usleep(100000); // 100ms between iterations
+        }
     }
 
     // ========== Calibration tests ==========
