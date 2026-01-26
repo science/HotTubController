@@ -58,7 +58,13 @@ class HeatToTargetRealPathsE2ETest extends TestCase
         $this->backendDir = dirname(__DIR__, 2);
         $this->storageDir = $this->backendDir . '/storage';
         $this->envFile = $this->backendDir . '/.env';
-        $this->envBackup = $this->backendDir . '/.env.e2e-backup-' . uniqid();
+        // Use fixed backup location so orphaned backups can be detected and restored
+        $this->envBackup = $this->backendDir . '/.env.e2e-backup';
+
+        // CRITICAL: Check for orphaned backup from killed test and restore it first
+        if (file_exists($this->envBackup)) {
+            rename($this->envBackup, $this->envFile);
+        }
 
         // Backup existing .env
         if (file_exists($this->envFile)) {

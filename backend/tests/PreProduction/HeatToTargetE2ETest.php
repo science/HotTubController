@@ -54,6 +54,11 @@ class HeatToTargetE2ETest extends TestCase
         $this->envFile = $this->backendDir . '/.env';
         $this->envBackup = $this->backendDir . '/.env.e2e-backup';
 
+        // CRITICAL: Check for orphaned backup from killed test and restore it first
+        if (file_exists($this->envBackup)) {
+            rename($this->envBackup, $this->envFile);
+        }
+
         // Backup existing .env if present
         if (file_exists($this->envFile)) {
             copy($this->envFile, $this->envBackup);
