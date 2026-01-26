@@ -206,7 +206,7 @@
 
 		<!-- Settings Panel (hidden for basic users) -->
 		{#if !isBasicUser}
-			<SettingsPanel />
+			<SettingsPanel isAdmin={data.user?.role === 'admin'} />
 		{/if}
 
 		<!-- ESP32 Sensor Configuration (admin only) -->

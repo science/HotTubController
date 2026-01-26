@@ -73,8 +73,28 @@ class TargetTemperatureService
 
     public function stop(): void
     {
+        // Delete the state file
         if (file_exists($this->stateFile)) {
             unlink($this->stateFile);
+        }
+
+        // Clean up any orphaned heat-target job files
+        $this->cleanupJobFiles();
+    }
+
+    /**
+     * Clean up heat-target job files from scheduled-jobs directory.
+     */
+    private function cleanupJobFiles(): void
+    {
+        $jobsDir = dirname(dirname($this->stateFile)) . '/scheduled-jobs';
+        if (!is_dir($jobsDir)) {
+            return;
+        }
+
+        $pattern = $jobsDir . '/' . self::CRON_JOB_PREFIX . '-*.json';
+        foreach (glob($pattern) as $jobFile) {
+            unlink($jobFile);
         }
     }
 
