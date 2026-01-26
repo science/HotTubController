@@ -22,6 +22,7 @@ class TargetTemperatureService
     private ?EquipmentStatusService $equipmentStatus;
     private ?Esp32TemperatureService $esp32Temp;
     private ?CrontabAdapterInterface $crontabAdapter;
+    private ?CronSchedulingService $cronSchedulingService;
     private ?string $cronRunnerPath;
     private ?string $apiBaseUrl;
     private ?Esp32SensorConfigService $esp32Config;
@@ -34,7 +35,8 @@ class TargetTemperatureService
         ?CrontabAdapterInterface $crontabAdapter = null,
         ?string $cronRunnerPath = null,
         ?string $apiBaseUrl = null,
-        ?Esp32SensorConfigService $esp32Config = null
+        ?Esp32SensorConfigService $esp32Config = null,
+        ?CronSchedulingService $cronSchedulingService = null
     ) {
         $this->stateFile = $stateFile;
         $this->iftttClient = $iftttClient;
@@ -44,6 +46,9 @@ class TargetTemperatureService
         $this->cronRunnerPath = $cronRunnerPath;
         $this->apiBaseUrl = $apiBaseUrl;
         $this->esp32Config = $esp32Config;
+        // Use provided CronSchedulingService, or create one if crontabAdapter is available
+        $this->cronSchedulingService = $cronSchedulingService
+            ?? ($crontabAdapter !== null ? new CronSchedulingService($crontabAdapter) : null);
     }
 
     /**
@@ -265,31 +270,23 @@ class TargetTemperatureService
     /**
      * Schedule the next temperature check via cron.
      *
+     * Uses CronSchedulingService to ensure correct timezone handling.
      * Creates a job file and crontab entry that uses cron-runner.sh for
      * proper JWT authentication.
      */
     private function scheduleNextCheck(): bool
     {
-        if ($this->crontabAdapter === null || $this->cronRunnerPath === null || $this->apiBaseUrl === null) {
+        if ($this->cronSchedulingService === null || $this->cronRunnerPath === null || $this->apiBaseUrl === null) {
             return false;
         }
 
         $checkTime = $this->calculateNextCheckTime();
-        $dateTime = new \DateTime('@' . $checkTime);
-        $dateTime->setTimezone(new \DateTimeZone(date_default_timezone_get()));
-
-        $minute = $dateTime->format('i');
-        $hour = $dateTime->format('H');
-        $day = $dateTime->format('d');
-        $month = $dateTime->format('m');
-
         $jobId = self::CRON_JOB_PREFIX . '-' . bin2hex(random_bytes(4));
 
         // Create job file for cron-runner.sh to read
         $this->createJobFile($jobId);
 
-        // Build cron entry using cron-runner.sh for proper JWT authentication
-        $cronExpression = sprintf('%d %d %d %d *', (int)$minute, (int)$hour, (int)$day, (int)$month);
+        // Build command and comment for cron entry
         $command = sprintf(
             '%s %s',
             escapeshellarg($this->cronRunnerPath),
@@ -297,9 +294,9 @@ class TargetTemperatureService
         );
         $comment = sprintf('HOTTUB:%s:HEAT-TARGET:ONCE', $jobId);
 
-        $entry = sprintf('%s %s # %s', $cronExpression, $command, $comment);
-
-        $this->crontabAdapter->addEntry($entry);
+        // Use CronSchedulingService for correct timezone handling
+        // This ensures cron fires at the right time regardless of PHP timezone
+        $this->cronSchedulingService->scheduleAt($checkTime, $command, $comment);
 
         return true;
     }
