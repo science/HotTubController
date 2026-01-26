@@ -480,4 +480,422 @@ ENV;
         // Clean up
         $this->api->delete('/api/equipment/heat-to-target');
     }
+
+    // =========================================================================
+    // BUG REPRODUCTION TESTS - Production failure Jan 25, 2026
+    // =========================================================================
+
+    /**
+     * @test
+     * BUG REPRODUCTION: Scheduled job triggering heat-to-target.
+     *
+     * This test reproduces the exact production failure scenario:
+     * 1. User schedules a heat-to-target job via the scheduler
+     * 2. Cron fires the scheduled job
+     * 3. The scheduled job calls POST /api/equipment/heat-to-target
+     * 4. heat-to-target needs to schedule a follow-up cron
+     *
+     * In production on Jan 25, 2026:
+     * - The initial scheduled job (job-1b29bc64) fired correctly
+     * - heat-to-target turned on the heater (IFTTT event logged)
+     * - BUT no heat-target follow-up cron was added to crontab
+     * - Result: heater ran indefinitely, overshooting 102°F target
+     *
+     * Expected: This test should FAIL if the bug still exists.
+     */
+    public function e2e_scheduledJobTriggersHeatToTarget(): void
+    {
+        $this->step("STEP 1: Report initial temperature (82°F - needs heating)");
+        $response = $this->esp32->reportTemperature(82.0);
+        $this->assertEquals(200, $response['status']);
+
+        $this->step("STEP 2: Schedule a heat-to-target job via scheduler API");
+
+        // Schedule for 1 minute from now (same as production workflow)
+        $scheduledTime = (new \DateTime('+1 minute'))->format(\DateTime::ATOM);
+
+        $response = $this->api->post('/api/schedule', [
+            'action' => 'heat-to-target',
+            'scheduledTime' => $scheduledTime,
+            'target_temp_f' => 101.0,
+        ]);
+
+        $this->assertContains($response['status'], [200, 201],
+            "Schedule creation failed: " . json_encode($response));
+
+        $jobId = $response['body']['jobId'] ?? null;
+        $this->assertNotNull($jobId, "No jobId returned from schedule API");
+        $this->step("  ✓ Created scheduled job: $jobId");
+
+        $this->step("STEP 3: Verify scheduled job cron entry exists");
+
+        // Look for the scheduled job's cron entry (uses HOTTUB:job-xxx pattern)
+        $crontab = shell_exec('crontab -l 2>/dev/null') ?? '';
+        $this->assertStringContainsString("HOTTUB:$jobId",
+            $crontab,
+            "Scheduled job cron entry not found in crontab");
+
+        $this->step("STEP 4: Fire the scheduled job (simulates cron daemon)");
+
+        // Extract and execute the cron command for this job
+        $result = $this->fireScheduledJobCron($jobId);
+
+        $this->assertEquals(0, $result['exitCode'],
+            "Scheduled job cron failed!\n" .
+            "Command: {$result['command']}\n" .
+            "Exit code: {$result['exitCode']}\n" .
+            "Stdout: {$result['stdout']}\n" .
+            "Stderr: {$result['stderr']}");
+
+        $this->step("  ✓ Scheduled job executed successfully");
+
+        $this->step("STEP 5: Verify IFTTT heater turned ON");
+        $this->ifttt->assertEventOccurred('hot-tub-heat-on',
+            "Heater should have been turned ON by heat-to-target");
+
+        $this->step("STEP 6: Verify heat-target follow-up cron was scheduled");
+
+        // THIS IS THE CRITICAL CHECK - this is what failed in production
+        $heatTargetEntries = $this->cron->getHeatTargetEntries();
+
+        $this->assertNotEmpty($heatTargetEntries,
+            "BUG REPRODUCED: No heat-target follow-up cron was scheduled!\n" .
+            "This is the exact production failure from Jan 25, 2026.\n" .
+            "The scheduled job fired, the heater turned on, but no follow-up\n" .
+            "cron was created to check temperature and turn off the heater.\n\n" .
+            "Full crontab:\n" . (shell_exec('crontab -l 2>/dev/null') ?? '(empty)'));
+
+        $this->step("  ✓ Heat-target follow-up cron found");
+
+        // Verify the follow-up cron is scheduled for a valid future time
+        $this->cron->assertValidScheduleTime($heatTargetEntries[0],
+            "Heat-target follow-up cron must be in future minute");
+
+        $this->step("STEP 7: Verify cron chain works (fire follow-up, should schedule another)");
+
+        // Fire the heat-target cron
+        $result = $this->cron->fireNextHeatTargetCron();
+        $this->assertEquals(0, $result['exitCode'], "Heat-target cron failed");
+
+        // Should schedule another follow-up since we're still below target
+        $heatTargetEntries = $this->cron->getHeatTargetEntries();
+        $this->assertNotEmpty($heatTargetEntries,
+            "Cron chain broken - no new heat-target cron after check");
+
+        $this->step("STEP 8: Complete the cycle - reach target temperature");
+
+        // Report target temperature reached
+        $response = $this->esp32->reportTemperature(101.5);
+        $this->assertEquals(200, $response['status']);
+
+        // Fire final cron
+        $result = $this->cron->fireNextHeatTargetCron();
+        $this->assertEquals(0, $result['exitCode']);
+
+        // Verify cleanup
+        $heatTargetEntries = $this->cron->getHeatTargetEntries();
+        $this->assertEmpty($heatTargetEntries, "Crons should be cleaned up after target reached");
+
+        $this->ifttt->assertEventsInOrder(
+            ['hot-tub-heat-on', 'hot-tub-heat-off'],
+            "IFTTT should show heater ON then OFF"
+        );
+
+        $this->step("\n  ══════════════════════════════════════════════════════");
+        $this->step("  ✓ SCHEDULED JOB → HEAT-TO-TARGET → FOLLOW-UP VERIFIED!");
+        $this->step("  ══════════════════════════════════════════════════════\n");
+    }
+
+    /**
+     * Fire a specific scheduled job's cron command.
+     *
+     * @param string $jobId The job ID to fire
+     * @return array{exitCode: int, stdout: string, stderr: string, command: string}
+     */
+    private function fireScheduledJobCron(string $jobId): array
+    {
+        $crontab = shell_exec('crontab -l 2>/dev/null') ?? '';
+        $lines = explode("\n", $crontab);
+
+        foreach ($lines as $line) {
+            if (str_contains($line, "HOTTUB:$jobId")) {
+                // Extract command from cron entry
+                $withoutComment = preg_replace('/#.*$/', '', $line);
+                $parts = preg_split('/\s+/', trim($withoutComment), 6);
+
+                if (count($parts) >= 6) {
+                    $command = trim($parts[5]);
+
+                    // Execute the command
+                    $descriptors = [
+                        0 => ['pipe', 'r'],
+                        1 => ['pipe', 'w'],
+                        2 => ['pipe', 'w'],
+                    ];
+
+                    $process = proc_open($command, $descriptors, $pipes, null, null);
+
+                    if (!is_resource($process)) {
+                        return [
+                            'exitCode' => -1,
+                            'stdout' => '',
+                            'stderr' => 'Failed to start process',
+                            'command' => $command,
+                        ];
+                    }
+
+                    fclose($pipes[0]);
+                    $stdout = stream_get_contents($pipes[1]);
+                    $stderr = stream_get_contents($pipes[2]);
+                    fclose($pipes[1]);
+                    fclose($pipes[2]);
+                    $exitCode = proc_close($process);
+
+                    return [
+                        'exitCode' => $exitCode,
+                        'stdout' => $stdout,
+                        'stderr' => $stderr,
+                        'command' => $command,
+                    ];
+                }
+            }
+        }
+
+        throw new \RuntimeException("No cron entry found for job: $jobId");
+    }
+
+    /**
+     * @test
+     * BUG ANALYSIS: Compare timezone handling between SchedulerService and TargetTemperatureService.
+     *
+     * This test documents the DRY violation:
+     * - SchedulerService uses TimeConverter::getSystemTimezone() (correct)
+     * - TargetTemperatureService uses date_default_timezone_get() (potentially wrong)
+     *
+     * On hosts where PHP timezone differs from system timezone, this causes
+     * heat-target crons to be scheduled at wrong times.
+     */
+    public function e2e_timezoneConsistencyCheck(): void
+    {
+        $this->step("Checking timezone configuration...");
+
+        // Get PHP timezone
+        $phpTimezone = date_default_timezone_get();
+        $this->step("  PHP timezone (date_default_timezone_get): $phpTimezone");
+
+        // Get system timezone (what cron uses)
+        $systemTimezone = $this->getSystemTimezone();
+        $this->step("  System timezone (what cron uses): $systemTimezone");
+
+        // If they differ, this test documents the mismatch
+        if ($phpTimezone !== $systemTimezone) {
+            $this->step("\n  ⚠️  WARNING: TIMEZONE MISMATCH DETECTED!");
+            $this->step("  This means TargetTemperatureService will schedule crons");
+            $this->step("  at wrong times because it uses date_default_timezone_get()");
+            $this->step("  instead of TimeConverter::getSystemTimezone().");
+
+            // Calculate the offset difference
+            $phpTz = new \DateTimeZone($phpTimezone);
+            $sysTz = new \DateTimeZone($systemTimezone);
+            $now = new \DateTime();
+            $phpOffset = $phpTz->getOffset($now) / 3600;
+            $sysOffset = $sysTz->getOffset($now) / 3600;
+            $diff = abs($phpOffset - $sysOffset);
+
+            $this->step("  Offset difference: {$diff} hours");
+            $this->step("  Crons will fire {$diff} hours late/early!\n");
+        } else {
+            $this->step("  ✓ Timezones match - no mismatch on this system");
+        }
+
+        // Verify cron scheduling uses correct times by testing the full flow
+        $this->step("\nVerifying cron scheduling precision...");
+
+        $response = $this->esp32->reportTemperature(82.0);
+        $this->assertEquals(200, $response['status']);
+
+        $response = $this->api->post('/api/equipment/heat-to-target', [
+            'target_temp_f' => 101.0,
+        ]);
+        $this->assertEquals(200, $response['status']);
+
+        $entries = $this->cron->getHeatTargetEntries();
+        $this->assertNotEmpty($entries);
+
+        // Parse the scheduled time from cron
+        $scheduledTime = $this->cron->parseScheduledTime($entries[0]);
+        $scheduledDateTime = new \DateTime('@' . $scheduledTime);
+        $scheduledDateTime->setTimezone(new \DateTimeZone($systemTimezone));
+
+        $this->step("  Cron scheduled for: " . $scheduledDateTime->format('Y-m-d H:i:s T'));
+        $this->step("  Current time:       " . date('Y-m-d H:i:s T'));
+
+        $secondsUntilFire = $scheduledTime - time();
+        $this->step("  Seconds until fire: $secondsUntilFire");
+
+        $this->assertGreaterThan(0, $secondsUntilFire,
+            "Cron should be scheduled for the future");
+
+        // Clean up
+        $this->api->delete('/api/equipment/heat-to-target');
+
+        $this->step("  ✓ Cron scheduling verified");
+    }
+
+    /**
+     * Get the system timezone (where cron runs).
+     * This mirrors TimeConverter::getSystemTimezone() logic.
+     */
+    private function getSystemTimezone(): string
+    {
+        // Method 1: /etc/timezone (Debian/Ubuntu)
+        if (is_readable('/etc/timezone')) {
+            $tz = trim(file_get_contents('/etc/timezone'));
+            if ($tz && $this->isValidTimezone($tz)) {
+                return $tz;
+            }
+        }
+
+        // Method 2: /etc/localtime symlink (RHEL/CentOS/macOS)
+        if (is_link('/etc/localtime')) {
+            $link = readlink('/etc/localtime');
+            if (preg_match('#zoneinfo/(.+)$#', $link, $matches)) {
+                $tz = $matches[1];
+                if ($this->isValidTimezone($tz)) {
+                    return $tz;
+                }
+            }
+        }
+
+        // Method 3: TZ environment variable
+        $envTz = getenv('TZ');
+        if ($envTz && $this->isValidTimezone($envTz)) {
+            return $envTz;
+        }
+
+        // Fallback: PHP's timezone
+        return date_default_timezone_get();
+    }
+
+    private function isValidTimezone(string $tz): bool
+    {
+        try {
+            new \DateTimeZone($tz);
+            return true;
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * @test
+     * BUG REPRODUCTION: Heat-target cron scheduled with wrong timezone.
+     *
+     * This test reproduces the EXACT production bug:
+     * - TargetTemperatureService uses date_default_timezone_get() for cron scheduling
+     * - SchedulerService uses TimeConverter::getSystemTimezone()
+     * - When PHP timezone != system timezone, heat-target crons fire at wrong times
+     *
+     * Production failure (Jan 25, 2026):
+     * - PHP timezone was likely UTC
+     * - System timezone was likely America/New_York (EST, UTC-5)
+     * - Heat-target cron was scheduled for 14:30 UTC
+     * - But cron interpreted 14:30 as EST, so it would fire at 14:30 EST = 19:30 UTC
+     * - Result: heater ran 5+ hours longer than intended
+     *
+     * This test SHOULD FAIL until the bug is fixed.
+     */
+    public function e2e_heatTargetCronUsesCorrectTimezone(): void
+    {
+        $phpTimezone = date_default_timezone_get();
+        $systemTimezone = $this->getSystemTimezone();
+
+        $this->step("PHP timezone: $phpTimezone");
+        $this->step("System timezone: $systemTimezone");
+
+        // Report temperature below target
+        $response = $this->esp32->reportTemperature(82.0);
+        $this->assertEquals(200, $response['status']);
+
+        // Start heat-to-target
+        $response = $this->api->post('/api/equipment/heat-to-target', [
+            'target_temp_f' => 101.0,
+        ]);
+        $this->assertEquals(200, $response['status']);
+
+        // Get the heat-target cron entry
+        $entries = $this->cron->getHeatTargetEntries();
+        $this->assertNotEmpty($entries, "Heat-target cron should be scheduled");
+
+        $cronEntry = $entries[0];
+        $this->step("Cron entry: $cronEntry");
+
+        // Parse the scheduled time from cron
+        $scheduledTimestamp = $this->cron->parseScheduledTime($cronEntry);
+
+        // Calculate what time the cron SHOULD fire (based on current time + expected delay)
+        // The expected delay is roughly: ESP32 interval + buffer + rounding to minute boundary
+        $now = time();
+        $expectedMinimum = $now + 5; // At least 5 seconds safety margin
+        $expectedMaximum = $now + 120; // At most ~2 minutes (interval + buffer + rounding)
+
+        $this->step("Current time (UTC): " . gmdate('Y-m-d H:i:s', $now));
+        $this->step("Cron scheduled for (Unix): $scheduledTimestamp");
+
+        // The cron entry contains minute/hour/day/month which CronSimulator parses
+        // using date_default_timezone_get(). But cron daemon interprets those values
+        // in the SYSTEM timezone.
+        //
+        // If the two timezones differ, the parsed timestamp will be wrong.
+
+        // Calculate what time cron will ACTUALLY fire (interpreting cron's hour/minute in system tz)
+        preg_match('/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\*/', $cronEntry, $matches);
+        $cronMinute = (int) $matches[1];
+        $cronHour = (int) $matches[2];
+        $cronDay = (int) $matches[3];
+        $cronMonth = (int) $matches[4];
+
+        $this->step("Cron time fields: minute=$cronMinute, hour=$cronHour, day=$cronDay, month=$cronMonth");
+
+        // When cron daemon fires this job (interpreting time in system timezone)
+        $cronFire = new \DateTime();
+        $cronFire->setTimezone(new \DateTimeZone($systemTimezone));
+        $cronFire->setDate((int)date('Y'), $cronMonth, $cronDay);
+        $cronFire->setTime($cronHour, $cronMinute, 0);
+        $actualFireTimestamp = $cronFire->getTimestamp();
+
+        $this->step("Actual cron fire time (UTC): " . gmdate('Y-m-d H:i:s', $actualFireTimestamp));
+
+        // The bug: if PHP tz != system tz, actualFireTimestamp will be hours off
+        $diffSeconds = abs($actualFireTimestamp - $scheduledTimestamp);
+        $diffHours = $diffSeconds / 3600;
+
+        if ($diffSeconds > 300) { // More than 5 minutes difference indicates timezone bug
+            $this->step("\n  BUG DETECTED: Cron time mismatch!");
+            $this->step("  CronSimulator parsed time: " . gmdate('Y-m-d H:i:s', $scheduledTimestamp) . " UTC");
+            $this->step("  Actual cron fire time:     " . gmdate('Y-m-d H:i:s', $actualFireTimestamp) . " UTC");
+            $this->step("  Difference: " . round($diffHours, 2) . " hours");
+            $this->step("\n  This is the production bug from Jan 25, 2026!");
+            $this->step("  TargetTemperatureService uses date_default_timezone_get() (=$phpTimezone)");
+            $this->step("  But cron runs in system timezone ($systemTimezone)");
+        }
+
+        // This assertion SHOULD FAIL until the bug is fixed
+        $this->assertLessThan(
+            300, // 5 minutes tolerance
+            $diffSeconds,
+            "BUG: Heat-target cron scheduled at wrong time due to timezone mismatch!\n" .
+            "PHP timezone: $phpTimezone\n" .
+            "System timezone: $systemTimezone\n" .
+            "CronSimulator parsed: " . gmdate('Y-m-d H:i:s', $scheduledTimestamp) . " UTC\n" .
+            "Actual fire time:     " . gmdate('Y-m-d H:i:s', $actualFireTimestamp) . " UTC\n" .
+            "Difference: " . round($diffHours, 2) . " hours\n\n" .
+            "ROOT CAUSE: TargetTemperatureService::scheduleNextCheck() uses\n" .
+            "date_default_timezone_get() instead of TimeConverter::getSystemTimezone().\n" .
+            "This is a DRY violation - SchedulerService does this correctly."
+        );
+
+        // Clean up
+        $this->api->delete('/api/equipment/heat-to-target');
+    }
 }
