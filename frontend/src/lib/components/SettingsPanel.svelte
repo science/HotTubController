@@ -15,10 +15,53 @@
 		setTargetTempF,
 		TARGET_TEMP_DEFAULTS
 	} from '$lib/settings';
+	import { api, type TargetTemperatureState } from '$lib/api';
+	import { onMount } from 'svelte';
+
+	// Props
+	let { isAdmin = false }: { isAdmin?: boolean } = $props();
 
 	// Auto heat-off state (loaded from localStorage)
 	let autoHeatOffEnabled = $state(getAutoHeatOffEnabled());
 	let autoHeatOffMinutes = $state(getAutoHeatOffMinutes());
+
+	// Server-side heat-target state (admin only)
+	let serverHeatTargetState = $state<TargetTemperatureState | null>(null);
+	let loadingHeatTarget = $state(false);
+	let cancellingHeatTarget = $state(false);
+	let heatTargetError = $state<string | null>(null);
+
+	async function loadServerHeatTargetState() {
+		if (!isAdmin) return;
+		loadingHeatTarget = true;
+		heatTargetError = null;
+		try {
+			serverHeatTargetState = await api.getTargetTempStatus();
+		} catch (e) {
+			heatTargetError = e instanceof Error ? e.message : 'Failed to load';
+		} finally {
+			loadingHeatTarget = false;
+		}
+	}
+
+	async function cancelServerHeatTarget() {
+		cancellingHeatTarget = true;
+		heatTargetError = null;
+		try {
+			await api.cancelTargetTemp();
+			serverHeatTargetState = { active: false, target_temp_f: null };
+		} catch (e) {
+			heatTargetError = e instanceof Error ? e.message : 'Failed to cancel';
+		} finally {
+			cancellingHeatTarget = false;
+		}
+	}
+
+	onMount(() => {
+		if (isAdmin) {
+			loadServerHeatTargetState();
+		}
+	});
 
 	// Refresh temp on heater-off state
 	let refreshTempOnHeaterOff = $state(getRefreshTempOnHeaterOff());
@@ -169,4 +212,53 @@
 			</p>
 		</div>
 	</div>
+
+	<!-- Admin: Server Heat-Target Status -->
+	{#if isAdmin}
+		<div class="border-t border-slate-700 pt-4 mt-4">
+			<h3 class="text-sm font-medium text-slate-300 mb-3">Server Heat-Target Status (Admin)</h3>
+
+			{#if loadingHeatTarget}
+				<p class="text-slate-400 text-sm">Loading...</p>
+			{:else if heatTargetError}
+				<p class="text-red-400 text-sm">{heatTargetError}</p>
+			{:else if serverHeatTargetState?.active}
+				<div class="bg-orange-500/20 border border-orange-500/50 rounded-lg p-3 space-y-2">
+					<div class="flex items-center gap-2">
+						<span class="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
+						<span class="text-orange-400 text-sm font-medium">Heat-to-target ACTIVE</span>
+					</div>
+					<p class="text-slate-300 text-sm">
+						Target: {serverHeatTargetState.target_temp_f}°F
+					</p>
+					{#if serverHeatTargetState.started_at}
+						<p class="text-slate-400 text-xs">
+							Started: {new Date(serverHeatTargetState.started_at).toLocaleString()}
+						</p>
+					{/if}
+					<button
+						onclick={cancelServerHeatTarget}
+						disabled={cancellingHeatTarget}
+						class="mt-2 w-full bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded transition-colors"
+					>
+						{cancellingHeatTarget ? 'Cancelling...' : 'Cancel All Heat-Target Jobs'}
+					</button>
+					<p class="text-slate-500 text-xs">
+						This will remove the heat-target state, all related cron entries, and job files.
+					</p>
+				</div>
+			{:else}
+				<div class="text-slate-400 text-sm flex items-center gap-2">
+					<span class="w-2 h-2 bg-slate-500 rounded-full"></span>
+					<span>No active heat-to-target job</span>
+				</div>
+				<button
+					onclick={loadServerHeatTargetState}
+					class="mt-2 text-slate-400 hover:text-slate-200 text-xs underline"
+				>
+					Refresh status
+				</button>
+			{/if}
+		</div>
+	{/if}
 </div>
