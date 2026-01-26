@@ -141,6 +141,110 @@ class TargetTemperatureServiceTest extends TestCase
         $this->assertFalse($state['active']);
     }
 
+    // ========== Job file cleanup tests ==========
+
+    public function testStopCleansUpHeatTargetJobFiles(): void
+    {
+        // Set up directory structure that mimics production:
+        // storage/state/target-temperature.json
+        // storage/scheduled-jobs/heat-target-*.json
+        $tempDir = sys_get_temp_dir() . '/target-temp-cleanup-test-' . uniqid();
+        $stateDir = $tempDir . '/state';
+        $jobsDir = $tempDir . '/scheduled-jobs';
+        mkdir($stateDir, 0755, true);
+        mkdir($jobsDir, 0755, true);
+
+        $stateFile = $stateDir . '/target-temperature.json';
+
+        // Create some heat-target job files
+        $jobFile1 = $jobsDir . '/heat-target-abc12345.json';
+        $jobFile2 = $jobsDir . '/heat-target-def67890.json';
+        file_put_contents($jobFile1, json_encode(['jobId' => 'heat-target-abc12345']));
+        file_put_contents($jobFile2, json_encode(['jobId' => 'heat-target-def67890']));
+
+        // Also create a non-heat-target job file (should NOT be deleted)
+        $otherJobFile = $jobsDir . '/job-regular123.json';
+        file_put_contents($otherJobFile, json_encode(['jobId' => 'job-regular123']));
+
+        $service = new TargetTemperatureService($stateFile);
+        $service->start(103.5);
+
+        // Verify files exist before stop
+        $this->assertFileExists($jobFile1);
+        $this->assertFileExists($jobFile2);
+        $this->assertFileExists($otherJobFile);
+
+        $service->stop();
+
+        // Verify heat-target job files are deleted
+        $this->assertFileDoesNotExist($jobFile1, 'heat-target job file 1 should be deleted');
+        $this->assertFileDoesNotExist($jobFile2, 'heat-target job file 2 should be deleted');
+
+        // Verify non-heat-target job file is NOT deleted
+        $this->assertFileExists($otherJobFile, 'Regular job file should NOT be deleted');
+
+        // Cleanup
+        unlink($otherJobFile);
+        rmdir($jobsDir);
+        rmdir($stateDir);
+        rmdir($tempDir);
+    }
+
+    public function testStopHandlesMissingJobsDirectory(): void
+    {
+        // Set up state file but NO scheduled-jobs directory
+        $tempDir = sys_get_temp_dir() . '/target-temp-no-jobs-' . uniqid();
+        $stateDir = $tempDir . '/state';
+        mkdir($stateDir, 0755, true);
+        // Intentionally NOT creating $tempDir . '/scheduled-jobs'
+
+        $stateFile = $stateDir . '/target-temperature.json';
+
+        $service = new TargetTemperatureService($stateFile);
+        $service->start(103.5);
+
+        // This should not throw an exception even if jobs dir doesn't exist
+        $service->stop();
+
+        $state = $service->getState();
+        $this->assertFalse($state['active']);
+
+        // Cleanup
+        rmdir($stateDir);
+        rmdir($tempDir);
+    }
+
+    public function testStopCleansUpJobFilesEvenWhenStateFileAlreadyDeleted(): void
+    {
+        // Edge case: state file was already deleted but job files remain
+        $tempDir = sys_get_temp_dir() . '/target-temp-edge-' . uniqid();
+        $stateDir = $tempDir . '/state';
+        $jobsDir = $tempDir . '/scheduled-jobs';
+        mkdir($stateDir, 0755, true);
+        mkdir($jobsDir, 0755, true);
+
+        $stateFile = $stateDir . '/target-temperature.json';
+
+        // Create orphaned job file (state file doesn't exist)
+        $jobFile = $jobsDir . '/heat-target-orphaned.json';
+        file_put_contents($jobFile, json_encode(['jobId' => 'heat-target-orphaned']));
+
+        $service = new TargetTemperatureService($stateFile);
+        // Note: NOT calling start(), state file doesn't exist
+
+        $this->assertFileExists($jobFile);
+
+        $service->stop();
+
+        // Job file should still be cleaned up
+        $this->assertFileDoesNotExist($jobFile, 'Orphaned heat-target job file should be deleted');
+
+        // Cleanup
+        rmdir($jobsDir);
+        rmdir($stateDir);
+        rmdir($tempDir);
+    }
+
     // ========== checkAndAdjust tests ==========
 
     public function testCheckAndAdjustTurnsHeaterOnWhenCurrentBelowTargetAndHeaterOff(): void

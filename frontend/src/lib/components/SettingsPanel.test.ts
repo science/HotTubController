@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/svelte';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/svelte';
 import SettingsPanel from './SettingsPanel.svelte';
 import * as autoHeatOff from '$lib/autoHeatOff';
 import * as settings from '$lib/settings';
+import { api } from '$lib/api';
+
+// Mock the api module
+vi.mock('$lib/api', () => ({
+	api: {
+		getTargetTempStatus: vi.fn(),
+		cancelTargetTemp: vi.fn()
+	}
+}));
 
 // Mock the modules
 vi.mock('$lib/autoHeatOff', () => ({
@@ -225,6 +234,132 @@ describe('SettingsPanel', () => {
 			await fireEvent.input(slider, { target: { value: '105.25' } });
 
 			expect(input.value).toBe('105.25');
+		});
+	});
+
+	describe('admin heat-target status section', () => {
+		beforeEach(() => {
+			vi.mocked(api.getTargetTempStatus).mockReset();
+			vi.mocked(api.cancelTargetTemp).mockReset();
+		});
+
+		it('does not show admin section when isAdmin is false', () => {
+			vi.mocked(api.getTargetTempStatus).mockResolvedValue({ active: false, target_temp_f: null });
+			render(SettingsPanel, { props: { isAdmin: false } });
+
+			expect(screen.queryByText(/server heat-target status/i)).toBeNull();
+		});
+
+		it('does not show admin section by default (isAdmin not passed)', () => {
+			vi.mocked(api.getTargetTempStatus).mockResolvedValue({ active: false, target_temp_f: null });
+			render(SettingsPanel);
+
+			expect(screen.queryByText(/server heat-target status/i)).toBeNull();
+		});
+
+		it('shows admin section when isAdmin is true', async () => {
+			vi.mocked(api.getTargetTempStatus).mockResolvedValue({ active: false, target_temp_f: null });
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByText(/server heat-target status/i)).toBeTruthy();
+			});
+		});
+
+		it('fetches heat-target status on mount when admin', async () => {
+			vi.mocked(api.getTargetTempStatus).mockResolvedValue({ active: false, target_temp_f: null });
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(api.getTargetTempStatus).toHaveBeenCalled();
+			});
+		});
+
+		it('shows inactive state when no active heat-target', async () => {
+			vi.mocked(api.getTargetTempStatus).mockResolvedValue({ active: false, target_temp_f: null });
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByText(/no active heat-to-target job/i)).toBeTruthy();
+			});
+		});
+
+		it('shows active state with target temperature', async () => {
+			vi.mocked(api.getTargetTempStatus).mockResolvedValue({
+				active: true,
+				target_temp_f: 103.5,
+				started_at: '2026-01-25T14:30:00Z'
+			});
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByText(/heat-to-target active/i)).toBeTruthy();
+				expect(screen.getByText(/target: 103.5°f/i)).toBeTruthy();
+			});
+		});
+
+		it('shows cancel button when heat-target is active', async () => {
+			vi.mocked(api.getTargetTempStatus).mockResolvedValue({
+				active: true,
+				target_temp_f: 103.5
+			});
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /cancel all heat-target jobs/i })).toBeTruthy();
+			});
+		});
+
+		it('calls cancelTargetTemp API when cancel button clicked', async () => {
+			vi.mocked(api.getTargetTempStatus).mockResolvedValue({
+				active: true,
+				target_temp_f: 103.5
+			});
+			vi.mocked(api.cancelTargetTemp).mockResolvedValue({ success: true, message: 'Cancelled' });
+
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /cancel all heat-target jobs/i })).toBeTruthy();
+			});
+
+			const cancelButton = screen.getByRole('button', { name: /cancel all heat-target jobs/i });
+			await fireEvent.click(cancelButton);
+
+			await waitFor(() => {
+				expect(api.cancelTargetTemp).toHaveBeenCalled();
+			});
+		});
+
+		it('updates UI to show inactive after successful cancel', async () => {
+			vi.mocked(api.getTargetTempStatus).mockResolvedValue({
+				active: true,
+				target_temp_f: 103.5
+			});
+			vi.mocked(api.cancelTargetTemp).mockResolvedValue({ success: true, message: 'Cancelled' });
+
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /cancel all heat-target jobs/i })).toBeTruthy();
+			});
+
+			const cancelButton = screen.getByRole('button', { name: /cancel all heat-target jobs/i });
+			await fireEvent.click(cancelButton);
+
+			await waitFor(() => {
+				expect(screen.getByText(/no active heat-to-target job/i)).toBeTruthy();
+			});
+		});
+
+		it('shows error message when API fails', async () => {
+			vi.mocked(api.getTargetTempStatus).mockRejectedValue(new Error('Network error'));
+
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByText(/network error/i)).toBeTruthy();
+			});
 		});
 	});
 });
