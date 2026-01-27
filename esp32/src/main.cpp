@@ -5,15 +5,21 @@
 #include <HTTPUpdate.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <time.h>
 #include <api_client.h>
 #include <telnet_debugger.h>
+#include <report_scheduler.h>
 
 // Firmware version - increment this with each release
-#define FIRMWARE_VERSION "1.3.0"
+#define FIRMWARE_VERSION "1.4.0"
 
 // Hardware pins
 #define ONE_WIRE_BUS 4
 #define LED_PIN 2
+
+// NTP configuration
+#define NTP_SERVER "pool.ntp.org"
+#define NTP_SYNC_TIMEOUT_MS 10000  // 10 seconds max wait for NTP sync
 
 // WIFI_SSID, WIFI_PASSWORD, ESP32_API_KEY, API_ENDPOINT injected via build flags
 
@@ -24,8 +30,37 @@ BackoffTimer backoffTimer;
 TelnetDebugger* debugger = nullptr;
 
 String deviceId;
-unsigned long lastReportTime = 0;
-int currentIntervalMs = DEFAULT_INTERVAL_SEC * 1000;
+
+/**
+ * ESP32-specific time provider using NTP.
+ * Implements TimeProvider interface for ReportScheduler.
+ */
+class Esp32TimeProvider : public TimeProvider {
+public:
+    uint32_t getCurrentTime() const override {
+        time_t now;
+        time(&now);
+        return static_cast<uint32_t>(now);
+    }
+
+    int getSecondOfMinute() const override {
+        struct tm timeinfo;
+        time_t now;
+        time(&now);
+        localtime_r(&now, &timeinfo);
+        return timeinfo.tm_sec;
+    }
+
+    bool isTimeSynced() const override {
+        time_t now;
+        time(&now);
+        // NTP synced if time is after 2024 (before sync, time starts at 1970)
+        return now > 1704067200; // 2024-01-01 00:00:00 UTC
+    }
+};
+
+Esp32TimeProvider* timeProvider = nullptr;
+ReportScheduler* reportScheduler = nullptr;
 
 void setupOTA() {
     Serial.println("Setting up OTA...");
@@ -129,6 +164,41 @@ void connectWiFi() {
     }
 }
 
+/**
+ * Initialize NTP time synchronization.
+ * Uses UTC to avoid timezone complexity.
+ * Falls back gracefully if NTP sync fails - scheduler will use interval-only timing.
+ */
+void setupNTP() {
+    Serial.println("Configuring NTP...");
+
+    // Configure time with UTC (no timezone offset)
+    // ESP32's SNTP library handles periodic re-sync internally
+    configTime(0, 0, NTP_SERVER);
+
+    // Wait for initial sync with timeout
+    Serial.print("Waiting for NTP sync");
+    unsigned long startMs = millis();
+    while (!timeProvider->isTimeSynced() &&
+           (millis() - startMs) < NTP_SYNC_TIMEOUT_MS) {
+        delay(100);
+        Serial.print(".");
+    }
+
+    if (timeProvider->isTimeSynced()) {
+        struct tm timeinfo;
+        time_t now;
+        time(&now);
+        localtime_r(&now, &timeinfo);
+        Serial.printf("\nNTP synced! Time: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
+                      timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
+                      timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+    } else {
+        // NTP failed - scheduler will fall back to interval-only timing
+        Serial.println("\nNTP sync timeout - using interval-only timing (no :55 alignment)");
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     pinMode(LED_PIN, OUTPUT);
@@ -146,6 +216,22 @@ void setup() {
 
     // Connect to WiFi
     connectWiFi();
+
+    // Initialize time provider (needed before NTP setup)
+    timeProvider = new Esp32TimeProvider();
+
+    // Initialize NTP time synchronization
+    if (WiFi.status() == WL_CONNECTED) {
+        setupNTP();
+    } else {
+        Serial.println("WiFi not connected - skipping NTP setup");
+    }
+
+    // Initialize report scheduler with :55 second alignment
+    // Scheduler handles fallback to interval-only timing if NTP not synced
+    reportScheduler = new ReportScheduler(timeProvider, DEFAULT_INTERVAL_SEC, 55);
+    Serial.printf("Report scheduler initialized (interval: %ds, align to :55)\n",
+                  DEFAULT_INTERVAL_SEC);
 
     // Get device ID (MAC address)
     deviceId = ApiClient::getMacAddress();
@@ -167,8 +253,7 @@ void setup() {
         Serial.printf("Telnet debugger available at %s:23\n", WiFi.localIP().toString().c_str());
     }
 
-    // Trigger immediate first report
-    lastReportTime = millis() - currentIntervalMs - 1000;
+    Serial.println("Setup complete - first report will be sent immediately");
 }
 
 void loop() {
@@ -178,18 +263,24 @@ void loop() {
     // Handle telnet connections
     debugger->loop();
 
-    unsigned long now = millis();
-
-    // Check if it's time to report
-    if (now - lastReportTime >= (unsigned long)currentIntervalMs) {
-        lastReportTime = now;
-
+    // Check if scheduler says it's time to report
+    if (reportScheduler->shouldSend()) {
         // Check WiFi and reconnect if needed
         if (WiFi.status() != WL_CONNECTED) {
             Serial.println("WiFi disconnected, reconnecting...");
             WiFi.disconnect();
             delay(1000);
             connectWiFi();
+
+            // If still not connected, record send to prevent tight loop
+            // and skip this report cycle
+            if (WiFi.status() != WL_CONNECTED) {
+                Serial.println("WiFi reconnect failed - skipping this report");
+                reportScheduler->recordSend();
+                backoffTimer.recordFailure();
+                reportScheduler->setInterval(backoffTimer.getDelayMs() / 1000);
+                return; // Return to main loop
+            }
         }
 
         // Read all sensors
@@ -217,6 +308,17 @@ void loop() {
             }
         }
 
+        // Log scheduler state for debugging
+        if (timeProvider->isTimeSynced()) {
+            struct tm timeinfo;
+            time_t now;
+            time(&now);
+            localtime_r(&now, &timeinfo);
+            Serial.printf("Sending at %02d:%02d:%02d (second %d)\n",
+                          timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec,
+                          timeinfo.tm_sec);
+        }
+
         // Blink LED to show activity
         digitalWrite(LED_PIN, HIGH);
 
@@ -228,10 +330,19 @@ void loop() {
 
         digitalWrite(LED_PIN, LOW);
 
+        // Always record the send to advance scheduler state
+        reportScheduler->recordSend();
+
         if (response.success) {
             backoffTimer.recordSuccess();
-            currentIntervalMs = response.intervalSeconds * 1000;
-            Serial.printf("Success! Next report in %d seconds\n", response.intervalSeconds);
+            reportScheduler->setInterval(response.intervalSeconds);
+
+            int secsUntil = reportScheduler->getSecondsUntilSend();
+            if (timeProvider->isTimeSynced() && response.intervalSeconds >= 60) {
+                Serial.printf("Success! Next report in ~%d seconds (aligned to :55)\n", secsUntil);
+            } else {
+                Serial.printf("Success! Next report in %d seconds\n", response.intervalSeconds);
+            }
 
             // Check if firmware update is available
             if (response.updateAvailable) {
@@ -242,9 +353,12 @@ void loop() {
             }
         } else {
             backoffTimer.recordFailure();
-            currentIntervalMs = backoffTimer.getDelayMs();
-            Serial.printf("Failed (HTTP %d). Retry in %lu ms\n",
-                          response.httpCode, backoffTimer.getDelayMs());
+            // On failure, use backoff interval
+            int backoffSec = backoffTimer.getDelayMs() / 1000;
+            reportScheduler->setInterval(backoffSec);
+            Serial.printf("Failed (HTTP %d). Retry in %d seconds (state: %s)\n",
+                          response.httpCode, backoffSec,
+                          ReportScheduler::stateToString(reportScheduler->getState()));
 
             // Check if we should reboot
             if (backoffTimer.shouldReboot()) {

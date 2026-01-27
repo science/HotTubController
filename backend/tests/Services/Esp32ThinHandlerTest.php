@@ -533,7 +533,7 @@ class Esp32ThinHandlerTest extends TestCase
         @rmdir($firmwareDir);
     }
 
-    public function testResponseDoesNotIncludeFirmwareInfoWhenDeviceIsUpToDate(): void
+    public function testResponseDoesNotIncludeFirmwareInfoWhenDeviceVersionMatchesServer(): void
     {
         // Set up firmware service
         $firmwareDir = sys_get_temp_dir() . '/esp32-firmware-test-' . uniqid();
@@ -570,6 +570,51 @@ class Esp32ThinHandlerTest extends TestCase
         $this->assertEquals(200, $result['status']);
         $this->assertArrayNotHasKey('firmware_version', $result['body']);
         $this->assertArrayNotHasKey('firmware_url', $result['body']);
+
+        // Cleanup
+        @unlink($firmwareDir . '/firmware.bin');
+        @unlink($firmwareConfig);
+        @rmdir($firmwareDir);
+    }
+
+    public function testResponseIncludesFirmwareInfoForRollback(): void
+    {
+        // Device has NEWER version than server - this enables rollback
+        $firmwareDir = sys_get_temp_dir() . '/esp32-firmware-test-' . uniqid();
+        $firmwareConfig = $firmwareDir . '/config.json';
+        mkdir($firmwareDir, 0755, true);
+
+        // Server has older version (rollback target)
+        file_put_contents($firmwareConfig, json_encode([
+            'version' => '1.3.0',
+            'filename' => 'firmware.bin',
+        ]));
+        file_put_contents($firmwareDir . '/firmware.bin', 'fake firmware data');
+
+        $handler = new Esp32ThinHandler(
+            $this->tempStorageFile,
+            $this->tempEnvFile,
+            $this->tempEquipmentStatusFile,
+            $firmwareDir,
+            $firmwareConfig,
+            'https://example.com/api'
+        );
+
+        $result = $handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                'firmware_version' => '1.4.0',  // Device is NEWER than server
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertEquals(200, $result['status']);
+        // Should offer "rollback" to server version
+        $this->assertEquals('1.3.0', $result['body']['firmware_version']);
+        $this->assertEquals('https://example.com/api/esp32/firmware/download/', $result['body']['firmware_url']);
 
         // Cleanup
         @unlink($firmwareDir . '/firmware.bin');

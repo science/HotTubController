@@ -210,8 +210,9 @@ class Esp32ThinHandler
             return [];
         }
 
-        // Check if update is available (device version is older)
-        if (version_compare($deviceVersion, $config['version'], '>=')) {
+        // Check if update/sync is needed (device version differs from server)
+        // Using != enables both upgrades AND rollbacks
+        if (version_compare($deviceVersion, $config['version'], '==')) {
             return [];
         }
 

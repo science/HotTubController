@@ -95,15 +95,24 @@ class Esp32FirmwareServiceTest extends TestCase
         $this->assertTrue($service->isUpdateAvailable('1.1.9'));
     }
 
-    public function testIsUpdateAvailableReturnsFalseWhenDeviceVersionIsSameOrNewer(): void
+    public function testIsUpdateAvailableReturnsTrueWhenDeviceVersionIsNewer(): void
+    {
+        // This enables rollback - device can "downgrade" to server version
+        $this->createConfig(['version' => '1.2.0', 'filename' => 'firmware.bin']);
+
+        $service = new Esp32FirmwareService($this->firmwareDir, $this->configFile);
+
+        $this->assertTrue($service->isUpdateAvailable('1.3.0'));
+        $this->assertTrue($service->isUpdateAvailable('2.0.0'));
+    }
+
+    public function testIsUpdateAvailableReturnsFalseWhenDeviceVersionIsSame(): void
     {
         $this->createConfig(['version' => '1.2.0', 'filename' => 'firmware.bin']);
 
         $service = new Esp32FirmwareService($this->firmwareDir, $this->configFile);
 
         $this->assertFalse($service->isUpdateAvailable('1.2.0'));
-        $this->assertFalse($service->isUpdateAvailable('1.3.0'));
-        $this->assertFalse($service->isUpdateAvailable('2.0.0'));
     }
 
     // === Tests for getting firmware path ===
@@ -154,16 +163,31 @@ class Esp32FirmwareServiceTest extends TestCase
         $this->assertEquals([], $info);
     }
 
-    public function testGetFirmwareInfoForApiReturnsEmptyArrayWhenNoUpdateAvailable(): void
+    public function testGetFirmwareInfoForApiReturnsEmptyArrayWhenVersionsMatch(): void
     {
         $this->createConfig(['version' => '1.2.0', 'filename' => 'firmware.bin']);
         file_put_contents($this->firmwareDir . '/firmware.bin', 'fake firmware');
 
         $service = new Esp32FirmwareService($this->firmwareDir, $this->configFile);
 
+        // Same version - no update needed
         $info = $service->getFirmwareInfoForApi('1.2.0', 'https://example.com');
 
         $this->assertEquals([], $info);
+    }
+
+    public function testGetFirmwareInfoForApiReturnsInfoForRollback(): void
+    {
+        // Device has newer version than server - this is a rollback scenario
+        $this->createConfig(['version' => '1.2.0', 'filename' => 'firmware.bin']);
+        file_put_contents($this->firmwareDir . '/firmware.bin', 'fake firmware');
+
+        $service = new Esp32FirmwareService($this->firmwareDir, $this->configFile);
+
+        $info = $service->getFirmwareInfoForApi('1.5.0', 'https://example.com/api');
+
+        $this->assertEquals('1.2.0', $info['firmware_version']);
+        $this->assertEquals('https://example.com/api/esp32/firmware/download/', $info['firmware_url']);
     }
 
     public function testGetFirmwareInfoForApiReturnsUpdateInfoWhenAvailable(): void

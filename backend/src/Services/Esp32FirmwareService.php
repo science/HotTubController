@@ -68,6 +68,15 @@ class Esp32FirmwareService
      *
      * @param string $deviceVersion Current version running on the device
      */
+    /**
+     * Check if an update/sync is needed for the given device version.
+     *
+     * Returns true if device version differs from server version (in either direction).
+     * This enables both upgrades AND rollbacks - the device should always match
+     * the server's configured version.
+     *
+     * @param string $deviceVersion Current version running on the device
+     */
     public function isUpdateAvailable(string $deviceVersion): bool
     {
         $currentVersion = $this->getCurrentVersion();
@@ -75,7 +84,8 @@ class Esp32FirmwareService
             return false;
         }
 
-        return version_compare($deviceVersion, $currentVersion, '<');
+        // Update needed if versions differ (enables rollback)
+        return version_compare($deviceVersion, $currentVersion, '!=');
     }
 
     /**
