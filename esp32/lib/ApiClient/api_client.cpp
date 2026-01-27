@@ -64,7 +64,7 @@ ApiResponse ApiClient::postTemperature(const char* deviceId, float tempC, float 
 
 ApiResponse ApiClient::postSensors(const char* deviceId, SensorReading* sensors, int sensorCount,
                                    unsigned long uptimeSeconds, const char* firmwareVersion) {
-    ApiResponse response = {false, DEFAULT_INTERVAL_SEC, 0, false, "", ""};
+    ApiResponse response = {false, DEFAULT_INTERVAL_SEC, -1, 0, false, "", ""};
 
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("WiFi not connected, skipping API call");
@@ -114,6 +114,11 @@ ApiResponse ApiClient::postSensors(const char* deviceId, SensorReading* sensors,
             response.success = true;
             if (!responseDoc["interval_seconds"].isNull()) {
                 response.intervalSeconds = clampInterval(responseDoc["interval_seconds"].as<int>());
+            }
+
+            // Parse align_second if provided (caller handles validation/default)
+            if (!responseDoc["align_second"].isNull()) {
+                response.alignSecond = responseDoc["align_second"].as<int>();
             }
 
             // Check for firmware update info

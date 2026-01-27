@@ -18,6 +18,7 @@
 struct ApiResponse {
     bool success;
     int intervalSeconds;
+    int alignSecond;      // Target second for :MM:SS alignment (-1 = not provided)
     int httpCode;
     bool updateAvailable;
     char firmwareVersion[16];

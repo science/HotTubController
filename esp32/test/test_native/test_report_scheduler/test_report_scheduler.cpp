@@ -368,6 +368,83 @@ void test_getSecondsUntilSend_returns_0_when_ready(void) {
     TEST_ASSERT_EQUAL(0, scheduler->getSecondsUntilSend());
 }
 
+// ==================== setAlignSecond Tests ====================
+
+void test_setAlignSecond_updates_alignment_target(void) {
+    scheduler->setAlignSecond(53);
+    TEST_ASSERT_EQUAL(53, scheduler->getAlignSecond());
+}
+
+void test_setAlignSecond_affects_alignment_window(void) {
+    scheduler->setAlignSecond(53);
+    scheduler->recordSend();
+    mockTime->advanceTime(300);
+
+    // At :52 should NOT trigger (below new window 53-57)
+    mockTime->setSecond(52);
+    TEST_ASSERT_FALSE(scheduler->shouldSend());
+
+    // At :53 SHOULD trigger (at new target)
+    mockTime->setSecond(53);
+    TEST_ASSERT_TRUE(scheduler->shouldSend());
+}
+
+void test_setAlignSecond_clamps_negative_to_default(void) {
+    scheduler->setAlignSecond(-5);
+    // Should use default (53) not crash or use invalid value
+    TEST_ASSERT_EQUAL(ReportScheduler::SCHED_DEFAULT_ALIGN_SECOND, scheduler->getAlignSecond());
+}
+
+void test_setAlignSecond_clamps_above_59_to_default(void) {
+    scheduler->setAlignSecond(60);
+    TEST_ASSERT_EQUAL(ReportScheduler::SCHED_DEFAULT_ALIGN_SECOND, scheduler->getAlignSecond());
+
+    scheduler->setAlignSecond(100);
+    TEST_ASSERT_EQUAL(ReportScheduler::SCHED_DEFAULT_ALIGN_SECOND, scheduler->getAlignSecond());
+}
+
+void test_setAlignSecond_accepts_valid_range_0_to_59(void) {
+    // 0 is valid (align at :00)
+    scheduler->setAlignSecond(0);
+    TEST_ASSERT_EQUAL(0, scheduler->getAlignSecond());
+
+    // 30 is valid (align at :30)
+    scheduler->setAlignSecond(30);
+    TEST_ASSERT_EQUAL(30, scheduler->getAlignSecond());
+
+    // 59 is valid (align at :59)
+    scheduler->setAlignSecond(59);
+    TEST_ASSERT_EQUAL(59, scheduler->getAlignSecond());
+}
+
+void test_setAlignSecond_with_zero_still_works(void) {
+    // Edge case: align at :00
+    scheduler->setAlignSecond(0);
+    scheduler->recordSend();
+    mockTime->advanceTime(300);
+    mockTime->setSecond(0);
+    TEST_ASSERT_TRUE(scheduler->shouldSend());
+}
+
+void test_getAlignSecond_returns_current_value(void) {
+    // Default from constructor
+    TEST_ASSERT_EQUAL(55, scheduler->getAlignSecond());
+
+    scheduler->setAlignSecond(53);
+    TEST_ASSERT_EQUAL(53, scheduler->getAlignSecond());
+}
+
+void test_constructor_with_invalid_alignSecond_uses_default(void) {
+    delete scheduler;
+    // Pass invalid alignSecond to constructor
+    scheduler = new ReportScheduler(mockTime, 300, -10);
+    TEST_ASSERT_EQUAL(ReportScheduler::SCHED_DEFAULT_ALIGN_SECOND, scheduler->getAlignSecond());
+
+    delete scheduler;
+    scheduler = new ReportScheduler(mockTime, 300, 100);
+    TEST_ASSERT_EQUAL(ReportScheduler::SCHED_DEFAULT_ALIGN_SECOND, scheduler->getAlignSecond());
+}
+
 // ==================== Edge Case Tests ====================
 
 void test_handles_zero_interval_gracefully(void) {
@@ -446,6 +523,16 @@ int main(int argc, char **argv) {
     RUN_TEST(test_getSecondsUntilSend_returns_0_on_boot);
     RUN_TEST(test_getSecondsUntilSend_returns_remaining_interval);
     RUN_TEST(test_getSecondsUntilSend_returns_0_when_ready);
+
+    // setAlignSecond tests
+    RUN_TEST(test_setAlignSecond_updates_alignment_target);
+    RUN_TEST(test_setAlignSecond_affects_alignment_window);
+    RUN_TEST(test_setAlignSecond_clamps_negative_to_default);
+    RUN_TEST(test_setAlignSecond_clamps_above_59_to_default);
+    RUN_TEST(test_setAlignSecond_accepts_valid_range_0_to_59);
+    RUN_TEST(test_setAlignSecond_with_zero_still_works);
+    RUN_TEST(test_getAlignSecond_returns_current_value);
+    RUN_TEST(test_constructor_with_invalid_alignSecond_uses_default);
 
     // Edge case tests
     RUN_TEST(test_handles_zero_interval_gracefully);

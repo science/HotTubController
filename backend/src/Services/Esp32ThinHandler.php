@@ -19,6 +19,7 @@ class Esp32ThinHandler
 {
     private const DEFAULT_INTERVAL = 300;  // 5 minutes
     private const HEATING_INTERVAL = 60;   // 1 minute when heater is on
+    private const DEFAULT_ALIGN_SECOND = 53;  // Target second for :mm:53 alignment
 
     private string $storageFile;
     private string $envFile;
@@ -127,6 +128,7 @@ class Esp32ThinHandler
         $response = [
             'status' => 'ok',
             'interval_seconds' => $this->getInterval(),
+            'align_second' => self::DEFAULT_ALIGN_SECOND,
         ];
 
         // Check for firmware updates if device reported its version

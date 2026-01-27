@@ -317,6 +317,22 @@ class Esp32ThinHandlerTest extends TestCase
         $this->assertEquals(300, $result['body']['interval_seconds']);
     }
 
+    public function testReturnsAlignSecondInResponse(): void
+    {
+        $result = $this->handler->handle(
+            [
+                'device_id' => 'esp32-01',
+                'sensors' => [
+                    ['address' => '28-abc123', 'temp_c' => 38.5],
+                ],
+            ],
+            'test-api-key-12345'
+        );
+
+        $this->assertArrayHasKey('align_second', $result['body']);
+        $this->assertEquals(53, $result['body']['align_second']);
+    }
+
     public function testHandlesMultipleSensors(): void
     {
         $result = $this->handler->handle(
