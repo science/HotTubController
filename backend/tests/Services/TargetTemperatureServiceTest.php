@@ -141,6 +141,38 @@ class TargetTemperatureServiceTest extends TestCase
         $this->assertFalse($state['active']);
     }
 
+    public function testStopTurnsOffHeaterWhenHeaterIsOn(): void
+    {
+        $this->equipmentStatus->setHeaterOn();
+
+        $this->mockIfttt->expects($this->once())
+            ->method('trigger')
+            ->with('hot-tub-heat-off')
+            ->willReturn(true);
+
+        $service = $this->createService();
+        $service->start(103.5);
+
+        $service->stop();
+
+        $this->assertFalse($this->equipmentStatus->getStatus()['heater']['on']);
+    }
+
+    public function testStopDoesNotTriggerIftttWhenHeaterAlreadyOff(): void
+    {
+        $this->equipmentStatus->setHeaterOff();
+
+        $this->mockIfttt->expects($this->never())
+            ->method('trigger');
+
+        $service = $this->createService();
+        $service->start(103.5);
+
+        $service->stop();
+
+        $this->assertFalse($this->equipmentStatus->getStatus()['heater']['on']);
+    }
+
     // ========== Job file cleanup tests ==========
 
     public function testStopCleansUpHeatTargetJobFiles(): void
