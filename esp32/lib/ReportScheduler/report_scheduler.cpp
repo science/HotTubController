@@ -5,12 +5,19 @@ ReportScheduler::ReportScheduler(TimeProvider* timeProvider,
                                  int alignToSecond)
     : timeProvider(timeProvider)
     , intervalSeconds(clampInterval(intervalSeconds))
-    , alignToSecond(alignToSecond)
+    , alignToSecond(clampAlignSecond(alignToSecond))
     , state(STATE_BOOT_SEND)
     , lastSendTime(0)
     , intervalStartTime(0)
     , alignWaitStartTime(0)
 {
+}
+
+int ReportScheduler::clampAlignSecond(int second) {
+    if (second < 0 || second > 59) {
+        return SCHED_DEFAULT_ALIGN_SECOND;
+    }
+    return second;
 }
 
 bool ReportScheduler::shouldSend() {
@@ -74,6 +81,14 @@ void ReportScheduler::setInterval(int seconds) {
 
 int ReportScheduler::getInterval() const {
     return intervalSeconds;
+}
+
+void ReportScheduler::setAlignSecond(int second) {
+    alignToSecond = clampAlignSecond(second);
+}
+
+int ReportScheduler::getAlignSecond() const {
+    return alignToSecond;
 }
 
 SchedulerState ReportScheduler::getState() const {

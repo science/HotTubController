@@ -11,7 +11,7 @@
 #include <report_scheduler.h>
 
 // Firmware version - increment this with each release
-#define FIRMWARE_VERSION "1.4.0"
+#define FIRMWARE_VERSION "1.5.0"
 
 // Hardware pins
 #define ONE_WIRE_BUS 4
@@ -227,11 +227,11 @@ void setup() {
         Serial.println("WiFi not connected - skipping NTP setup");
     }
 
-    // Initialize report scheduler with :55 second alignment
+    // Initialize report scheduler with :53 second alignment (provides margin before :00 cron)
     // Scheduler handles fallback to interval-only timing if NTP not synced
-    reportScheduler = new ReportScheduler(timeProvider, DEFAULT_INTERVAL_SEC, 55);
-    Serial.printf("Report scheduler initialized (interval: %ds, align to :55)\n",
-                  DEFAULT_INTERVAL_SEC);
+    reportScheduler = new ReportScheduler(timeProvider, DEFAULT_INTERVAL_SEC);
+    Serial.printf("Report scheduler initialized (interval: %ds, align to :%02d)\n",
+                  DEFAULT_INTERVAL_SEC, reportScheduler->getAlignSecond());
 
     // Get device ID (MAC address)
     deviceId = ApiClient::getMacAddress();
@@ -337,9 +337,15 @@ void loop() {
             backoffTimer.recordSuccess();
             reportScheduler->setInterval(response.intervalSeconds);
 
+            // Update alignment target if server provided one (handles invalid values gracefully)
+            if (response.alignSecond >= 0) {
+                reportScheduler->setAlignSecond(response.alignSecond);
+            }
+
             int secsUntil = reportScheduler->getSecondsUntilSend();
             if (timeProvider->isTimeSynced() && response.intervalSeconds >= 60) {
-                Serial.printf("Success! Next report in ~%d seconds (aligned to :55)\n", secsUntil);
+                Serial.printf("Success! Next report in ~%d seconds (aligned to :%02d)\n",
+                              secsUntil, reportScheduler->getAlignSecond());
             } else {
                 Serial.printf("Success! Next report in %d seconds\n", response.intervalSeconds);
             }

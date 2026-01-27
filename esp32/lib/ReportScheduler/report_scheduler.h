@@ -44,7 +44,7 @@ class ReportScheduler {
 public:
     // Configuration constants (prefixed to avoid macro conflicts)
     static const int SCHED_DEFAULT_INTERVAL_SEC = 300;
-    static const int SCHED_DEFAULT_ALIGN_SECOND = 55;
+    static const int SCHED_DEFAULT_ALIGN_SECOND = 53;  // Target :53 for margin before :00 cron
     static const int SCHED_MIN_INTERVAL_FOR_ALIGNMENT = 60;
     static const int SCHED_ALIGNMENT_WINDOW_START = 55;
     static const int SCHED_ALIGNMENT_WINDOW_END = 59;
@@ -87,6 +87,18 @@ public:
     int getInterval() const;
 
     /**
+     * Update the alignment target second (0-59).
+     * Invalid values (< 0 or > 59) are ignored and default is used.
+     * @param second Target second for alignment (0-59)
+     */
+    void setAlignSecond(int second);
+
+    /**
+     * Get current alignment target second.
+     */
+    int getAlignSecond() const;
+
+    /**
      * Get current scheduler state (for debugging/telemetry).
      */
     SchedulerState getState() const;
@@ -122,6 +134,7 @@ private:
     bool isAlignedSecond() const;
     bool shouldSkipAlignment() const;
     bool hasAlignWaitTimedOut() const;
+    static int clampAlignSecond(int second);
 
     // Interval bounds (prefixed to avoid macro conflicts)
     static const int SCHED_MIN_INTERVAL_SEC = 10;
