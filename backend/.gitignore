@@ -33,3 +33,7 @@ config/env.production
 # Firmware directory - tracked in git for deployment
 # (binaries are small ~1MB and benefit from version control)
 !/storage/firmware/
+
+# Test .env backups (created during e2e tests)
+.env.e2e-backup
+.env.serve-test-backup

@@ -7,6 +7,7 @@ namespace HotTub\Services;
 use HotTub\Contracts\CrontabAdapterInterface;
 use HotTub\Contracts\HealthchecksClientInterface;
 use InvalidArgumentException;
+use HotTub\Services\CronSchedulingService;
 
 /**
  * Service for scheduling one-off equipment control jobs.
@@ -34,6 +35,7 @@ class SchedulerService
     private string $apiBaseUrl;
     private TimeConverter $timeConverter;
     private ?HealthchecksClientInterface $healthchecksClient;
+    private CronSchedulingService $cronSchedulingService;
 
     public function __construct(
         private string $jobsDir,
@@ -41,13 +43,15 @@ class SchedulerService
         string $apiBaseUrl,
         private CrontabAdapterInterface $crontabAdapter,
         ?TimeConverter $timeConverter = null,
-        ?HealthchecksClientInterface $healthchecksClient = null
+        ?HealthchecksClientInterface $healthchecksClient = null,
+        ?CronSchedulingService $cronSchedulingService = null
     ) {
         // Normalize apiBaseUrl by stripping trailing slashes to prevent double-slash URLs
         // when concatenating with endpoints like '/api/equipment/heater/on'
         $this->apiBaseUrl = rtrim($apiBaseUrl, '/');
         $this->timeConverter = $timeConverter ?? new TimeConverter();
         $this->healthchecksClient = $healthchecksClient;
+        $this->cronSchedulingService = $cronSchedulingService ?? new CronSchedulingService($crontabAdapter);
     }
 
     /**
@@ -89,16 +93,13 @@ class SchedulerService
         // Convert to UTC for storage (industry standard for APIs)
         $utcDateTime = $this->timeConverter->toUtc($scheduledTime);
 
-        // Convert to server-local timezone for cron scheduling
-        // Cron runs in the server's local timezone, so we must schedule accordingly
-        $serverDateTime = $this->timeConverter->toServerTimezone($scheduledTime);
-
         // Generate unique job ID with job- prefix for one-off
         $jobId = 'job-' . bin2hex(random_bytes(4));
 
         // Create health check if monitoring is enabled
-        // Use date-specific cron expression (e.g., "30 14 15 12 *" for 2:30pm on Dec 15)
-        $cronExpressionUtc = $this->dateToCronExpression($utcDateTime);
+        // Use CronSchedulingService for UTC cron expression (healthchecks use UTC)
+        $timestamp = $utcDateTime->getTimestamp();
+        $cronExpressionUtc = $this->cronSchedulingService->getCronExpression($timestamp, useUtc: true);
         $checkName = $this->formatCheckName($jobId, $action, false);
         $healthcheckData = $this->createHealthCheck($checkName, $cronExpressionUtc);
         $healthcheckUuid = $healthcheckData['uuid'] ?? null;
@@ -128,20 +129,11 @@ class SchedulerService
         $jobFile = $this->jobsDir . '/' . $jobId . '.json';
         file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-        // Create crontab entry with descriptive label (e.g., HOTTUB:job-xxx:ON:ONCE)
-        // Use server-local time for cron expression since cron runs in server timezone
-        $cronExpression = $this->dateToCronExpression($serverDateTime);
+        // Schedule cron job using centralized service (handles timezone correctly)
         $actionLabel = self::ACTION_LABELS[$action];
-        $cronEntry = sprintf(
-            '%s %s %s # HOTTUB:%s:%s:ONCE',
-            $cronExpression,
-            escapeshellarg($this->cronRunnerPath),
-            escapeshellarg($jobId),
-            $jobId,
-            $actionLabel
-        );
-
-        $this->crontabAdapter->addEntry($cronEntry);
+        $command = sprintf('%s %s', escapeshellarg($this->cronRunnerPath), escapeshellarg($jobId));
+        $comment = sprintf('HOTTUB:%s:%s:ONCE', $jobId, $actionLabel);
+        $this->cronSchedulingService->scheduleAt($timestamp, $command, $comment);
 
         return [
             'jobId' => $jobId,
@@ -177,19 +169,16 @@ class SchedulerService
             // New format: time with timezone offset
             // Convert to UTC for storage, server-local for cron
             $storedTime = $this->timeConverter->formatTimeUtc($time);
-            $serverDateTime = $this->timeConverter->parseTimeWithOffset($time, toServerTz: true);
-            $cronExpression = $this->dateTimeToCronExpression($serverDateTime);
             // For health check, we need the UTC time
             $utcDateTime = $this->timeConverter->parseTimeWithOffset($time, toUtc: true);
-            $healthcheckCronExpression = $this->dateTimeToCronExpression($utcDateTime);
+            $healthcheckCronExpression = $this->formatDailyCronExpression($utcDateTime);
         } else {
             // Legacy format: bare HH:MM (assumes server timezone)
             // We treat bare time as server timezone, so health check should also use that
             $storedTime = $time;
-            $cronExpression = $this->timeToCronExpression($time);
             // Note: For bare HH:MM format, we assume server timezone which may not be UTC
             // The health check will use UTC, so we need to document this limitation
-            $healthcheckCronExpression = $cronExpression;
+            $healthcheckCronExpression = $this->formatDailyCronFromTime($time);
         }
 
         // Create health check for recurring job monitoring
@@ -228,18 +217,19 @@ class SchedulerService
         $jobFile = $this->jobsDir . '/' . $jobId . '.json';
         file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-        // Create crontab entry (e.g., HOTTUB:rec-xxx:ON:DAILY)
+        // Schedule recurring cron job using centralized service
         $actionLabel = self::ACTION_LABELS[$action];
-        $cronEntry = sprintf(
-            '%s %s %s # HOTTUB:%s:%s:DAILY',
-            $cronExpression,
-            escapeshellarg($this->cronRunnerPath),
-            escapeshellarg($jobId),
-            $jobId,
-            $actionLabel
-        );
+        $command = sprintf('%s %s', escapeshellarg($this->cronRunnerPath), escapeshellarg($jobId));
+        $comment = sprintf('HOTTUB:%s:%s:DAILY', $jobId, $actionLabel);
 
-        $this->crontabAdapter->addEntry($cronEntry);
+        if ($hasTimezoneOffset) {
+            // Use CronSchedulingService for correct timezone conversion
+            $this->cronSchedulingService->scheduleDaily($time, $command, $comment);
+        } else {
+            // Legacy bare HH:MM format - schedule directly (assumes server timezone)
+            $cronExpression = $this->formatDailyCronFromTime($time);
+            $this->crontabAdapter->addEntry(sprintf('%s %s # %s', $cronExpression, $command, $comment));
+        }
 
         return [
             'jobId' => $jobId,
@@ -251,10 +241,10 @@ class SchedulerService
     }
 
     /**
-     * Convert a DateTime to cron expression for recurring daily jobs.
+     * Format daily cron expression from DateTime (for healthcheck schedules).
      * Output: "minute hour * * *" (runs every day at that time)
      */
-    private function dateTimeToCronExpression(\DateTime $dateTime): string
+    private function formatDailyCronExpression(\DateTime $dateTime): string
     {
         return sprintf(
             '%d %d * * *',
@@ -379,26 +369,11 @@ class SchedulerService
     }
 
     /**
-     * Convert a DateTime to cron expression for one-off jobs.
-     * Format: minute hour day month *
-     */
-    private function dateToCronExpression(\DateTime $dateTime): string
-    {
-        return sprintf(
-            '%d %d %d %d *',
-            (int) $dateTime->format('i'), // minute (cast to int to remove leading zeros)
-            (int) $dateTime->format('G'), // hour (24-hour, no leading zero)
-            (int) $dateTime->format('j'), // day of month (no leading zero)
-            (int) $dateTime->format('n')  // month (no leading zero)
-        );
-    }
-
-    /**
-     * Convert a time string to cron expression for recurring daily jobs.
+     * Format daily cron expression from bare HH:MM time string (legacy format).
      * Input: "HH:MM" (e.g., "06:30" or "18:00")
      * Output: "minute hour * * *" (runs every day at that time)
      */
-    private function timeToCronExpression(string $time): string
+    private function formatDailyCronFromTime(string $time): string
     {
         $parts = explode(':', $time);
         $hour = (int) $parts[0];

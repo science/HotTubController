@@ -166,8 +166,11 @@ class CronSimulator
         $month = (int) $matches[4];
         $year = (int) date('Y');
 
+        // Use SYSTEM timezone (where cron daemon runs), NOT PHP's configured timezone.
+        // This accurately simulates how cron will interpret the time fields.
+        $systemTimezone = \HotTub\Services\TimeConverter::getSystemTimezone();
         $dt = new \DateTime();
-        $dt->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+        $dt->setTimezone(new \DateTimeZone($systemTimezone));
         $dt->setDate($year, $month, $day);
         $dt->setTime($hour, $minute, 0);
 

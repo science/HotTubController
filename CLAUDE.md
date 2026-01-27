@@ -121,13 +121,16 @@ cd backend && composer cleanup:healthchecks
   - `Esp32SensorConfigController` - Sensor role assignment and calibration
 - **Services**:
   - `EnvLoader` - File-based `.env` configuration loading
+  - `CronSchedulingService` - **Centralized cron scheduling with correct timezone handling** (see DRY Principles)
   - `SchedulerService` - Creates/lists/cancels cron jobs with Healthchecks.io monitoring
+  - `TargetTemperatureService` - Heat-to-target feature with automatic cron-based temperature checks
   - `AuthService` - JWT token validation
   - `EquipmentStatusService` - Tracks heater/pump on/off state in JSON file
   - `RequestLogger` - API request logging in JSON Lines format
   - `LogRotationService` - Compresses and deletes old log files
   - `CrontabBackupService` - Timestamped backups before crontab modifications
   - `MaintenanceCronService` - Sets up monthly log rotation cron job
+  - `TimeConverter` - Timezone conversion between UTC, client offset, and system timezone
   - `Esp32TemperatureService` - Stores ESP32 temperature readings
   - `Esp32SensorConfigService` - Manages sensor roles and calibration offsets
   - `Esp32CalibratedTemperatureService` - Applies calibration to raw ESP32 readings
@@ -142,6 +145,7 @@ cd backend && composer cleanup:healthchecks
   - `HealthchecksClient` - Real API calls to Healthchecks.io
   - `NullHealthchecksClient` - No-op client (stub mode or no API key)
 - **Factory**: `HealthchecksClientFactory` - Creates client based on EXTERNAL_API_MODE
+- **Cron Scheduling**: `CronSchedulingService` - Centralized cron job scheduling (see DRY Principles below)
 
 ### Frontend
 - **Framework**: SvelteKit with Svelte 5 runes (`$state`, `$effect`)
@@ -178,6 +182,67 @@ cd backend && composer cleanup:healthchecks
 - `POST /api/users` - Create user (admin only)
 - `DELETE /api/users/{username}` - Delete user (admin only)
 - `POST /api/maintenance/logs/rotate` - Rotate log files (cron auth)
+
+## DRY Principles
+
+### General Guidance
+
+When implementing features that involve system-level operations (cron, timezones, external APIs), always check if a centralized service already exists. Duplicating this logic leads to subtle bugs.
+
+**Before writing new code, check for existing services:**
+- Timezone conversion → `TimeConverter`
+- Cron scheduling → `CronSchedulingService`
+- External API calls → Use existing client interfaces (`IftttClientInterface`, `HealthchecksClientInterface`)
+- Crontab operations → `CrontabAdapterInterface`
+
+### Cron Scheduling (CRITICAL)
+
+**NEVER schedule cron jobs by directly formatting cron expressions.** Always use `CronSchedulingService`.
+
+**Why this matters:** Cron daemon runs in the OS system timezone (e.g., `America/Los_Angeles`), but PHP often runs in UTC. Using `date_default_timezone_get()` or `date()` to format cron expressions causes jobs to fire hours early or late.
+
+**Correct approach:**
+```php
+// One-time job at specific timestamp
+$this->cronSchedulingService->scheduleAt($unixTimestamp, $command, $comment);
+
+// Recurring daily job with timezone offset (e.g., "06:30-08:00" for 6:30 AM Pacific)
+$this->cronSchedulingService->scheduleDaily($timeWithOffset, $command, $comment);
+
+// Get cron expression without scheduling (for healthchecks, logging)
+$cronExpr = $this->cronSchedulingService->getCronExpression($timestamp, useUtc: true);
+```
+
+**Wrong approach (DO NOT DO THIS):**
+```php
+// WRONG: Uses PHP timezone, not system timezone where cron runs
+$dateTime = new DateTime('@' . $timestamp);
+$dateTime->setTimezone(new DateTimeZone(date_default_timezone_get())); // BUG!
+$cronExpr = sprintf('%d %d %d %d *', $minute, $hour, $day, $month);
+$this->crontabAdapter->addEntry("$cronExpr $command");
+```
+
+**Architecture:**
+```
+CronSchedulingService (use this for scheduling)
+├── scheduleAt()     → One-time jobs with correct timezone
+├── scheduleDaily()  → Recurring jobs with timezone offset
+└── getCronExpression() → Get expression only (for healthchecks)
+
+CrontabAdapter (direct use OK for these operations only)
+├── listEntries()    → Reading crontab (no timezone issues)
+├── removeByPattern() → Deleting entries (no timezone issues)
+└── addEntry()       → ONLY for static schedules like "0 3 1 * *"
+```
+
+**When is direct CrontabAdapter use acceptable?**
+- Reading entries (`listEntries()`) - no timezone conversion needed
+- Deleting entries (`removeByPattern()`) - pattern matching only
+- Static schedules (e.g., `MaintenanceCronService` uses hardcoded `0 3 1 * *`)
+
+**When MUST you use CronSchedulingService?**
+- Any dynamic scheduling based on user input or timestamps
+- Any job where the fire time matters (heat-target, scheduled equipment control)
 
 ## Git Workflow
 

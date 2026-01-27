@@ -18,23 +18,33 @@ class ServeScriptTest extends TestCase
     private string $envPath;
     private ?string $originalEnvContent = null;
 
+    private string $envBackupPath;
+
     protected function setUp(): void
     {
         $this->backendDir = dirname(__DIR__, 2);
         $this->envPath = $this->backendDir . '/.env';
+        $this->envBackupPath = $this->backendDir . '/.env.serve-test-backup';
 
-        // Backup original .env if it exists
+        // CRITICAL: Check for orphaned backup from killed test and restore it first
+        if (file_exists($this->envBackupPath)) {
+            rename($this->envBackupPath, $this->envPath);
+        }
+
+        // Backup original .env if it exists (to file, not memory - survives kill)
         if (file_exists($this->envPath)) {
+            copy($this->envPath, $this->envBackupPath);
             $this->originalEnvContent = file_get_contents($this->envPath);
         }
     }
 
     protected function tearDown(): void
     {
-        // Restore original .env
-        if ($this->originalEnvContent !== null) {
-            file_put_contents($this->envPath, $this->originalEnvContent);
-        } elseif (file_exists($this->envPath)) {
+        // Restore original .env from file backup
+        if (file_exists($this->envBackupPath)) {
+            rename($this->envBackupPath, $this->envPath);
+            $this->originalEnvContent = null;
+        } elseif (file_exists($this->envPath) && $this->originalEnvContent === null) {
             // If there was no original, remove the test one
             unlink($this->envPath);
         }
