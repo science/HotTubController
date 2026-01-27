@@ -78,6 +78,13 @@ class TargetTemperatureService
 
     public function stop(): void
     {
+        // Turn off heater if it's currently on
+        $equipmentState = $this->equipmentStatus?->getStatus() ?? ['heater' => ['on' => false]];
+        if ($equipmentState['heater']['on'] === true) {
+            $this->iftttClient?->trigger('hot-tub-heat-off');
+            $this->equipmentStatus?->setHeaterOff();
+        }
+
         // Delete the state file
         if (file_exists($this->stateFile)) {
             unlink($this->stateFile);
