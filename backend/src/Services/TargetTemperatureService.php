@@ -12,7 +12,6 @@ class TargetTemperatureService
     public const MIN_TARGET_TEMP_F = 80.0;
     public const MAX_TARGET_TEMP_F = 110.0;
     public const CRON_JOB_PREFIX = 'heat-target';
-    private const CHECK_BUFFER_SECONDS = 5;
     // Temperature tolerance for floating-point comparison (0.1°F)
     // This accounts for C→F conversion precision and sensor accuracy
     private const TEMP_TOLERANCE_F = 0.1;
@@ -85,10 +84,20 @@ class TargetTemperatureService
             $this->equipmentStatus?->setHeaterOff();
         }
 
-        // Delete the state file
+        // Delete the state file FIRST - this prevents any concurrent cron job
+        // from scheduling a new check (checkAndAdjust checks state['active'])
         if (file_exists($this->stateFile)) {
             unlink($this->stateFile);
         }
+
+        // Clean up cron jobs
+        $this->cleanupCronJobs();
+
+        // Race condition protection: A cron job might have been executing
+        // concurrently and scheduled a new check before we deleted the state.
+        // Wait briefly and clean up again to catch any stragglers.
+        usleep(100000); // 100ms - enough for concurrent cron to finish scheduling
+        $this->cleanupCronJobs();
 
         // Clean up any orphaned heat-target job files
         $this->cleanupJobFiles();
@@ -213,10 +222,8 @@ class TargetTemperatureService
             $heaterTurnedOff = true;
         }
 
-        // Clean up cron jobs
-        $this->cleanupCronJobs();
-
         // Clear state - target reached
+        // Note: stop() handles cron cleanup and job file cleanup
         $this->stop();
 
         return [
@@ -237,32 +244,23 @@ class TargetTemperatureService
      *
      * Returns a Unix timestamp that is:
      * 1. At a minute boundary (:00 seconds)
-     * 2. In a future minute (not current minute)
+     * 2. In the next available minute
      * 3. At least CRON_SAFETY_MARGIN_SECONDS from now
      *
      * This ensures cron daemon will fire the job. The daemon fires at :00 of
      * each minute - if we add an entry for the current minute after :00, it
      * will never execute.
+     *
+     * Note: ESP32 prereport alignment (`:53` or `:55`) ensures temperature data
+     * is fresh when each check runs. The backend does NOT sync to ESP32 timing.
      */
     public function calculateNextCheckTime(): int
     {
-        $latest = $this->esp32Temp?->getLatest();
-        $receivedAt = $latest['received_at'] ?? time();
-        $interval = $this->esp32Temp?->getInterval() ?? Esp32TemperatureService::DEFAULT_INTERVAL;
-
-        // Calculate desired check time based on ESP32 reporting
-        $nextReport = $receivedAt + $interval;
-        $desiredCheckTime = $nextReport + self::CHECK_BUFFER_SECONDS;
-
-        // If desired time is in the past, add an interval
         $now = time();
-        if ($desiredCheckTime <= $now) {
-            $desiredCheckTime = $now + self::CRON_SAFETY_MARGIN_SECONDS;
-        }
 
         // Round UP to the next minute boundary
         // Example: 5:01:24 → 5:02:00
-        $nextMinuteBoundary = (int) ceil($desiredCheckTime / 60) * 60;
+        $nextMinuteBoundary = (int) ceil($now / 60) * 60;
 
         // If less than safety margin until that minute, skip to the one after
         // Example: At 5:01:57, next boundary is 5:02:00 (3 seconds away)

@@ -7,7 +7,9 @@ namespace HotTub\Tests\Controllers;
 use PHPUnit\Framework\TestCase;
 use HotTub\Controllers\EquipmentController;
 use HotTub\Services\EquipmentStatusService;
+use HotTub\Services\TargetTemperatureService;
 use HotTub\Contracts\IftttClientInterface;
+use HotTub\Contracts\CrontabAdapterInterface;
 
 /**
  * Unit tests for EquipmentController.
@@ -220,6 +222,124 @@ class EquipmentControllerTest extends TestCase
         $status = $this->statusService->getStatus();
         $this->assertTrue($status['heater']['on'], 'Heater should still be on after failed command');
         $this->assertTrue($status['pump']['on'], 'Pump should still be on after failed command');
+    }
+
+    // ========== Heat-to-Target Cancellation Tests ==========
+
+    /**
+     * CRITICAL UX: Manual heater off MUST cancel heat-to-target.
+     *
+     * Without this, the user turns off heater and it turns back on 60 seconds
+     * later because heat-to-target cron is still running. This is confusing
+     * and violates the principle that manual actions override automation.
+     */
+    public function testHeaterOffCancelsHeatToTargetWhenActive(): void
+    {
+        $this->mockIftttClient->method('trigger')->willReturn(true);
+        $this->mockIftttClient->method('getMode')->willReturn('stub');
+
+        // Set up heat-to-target state file
+        $tempDir = sys_get_temp_dir() . '/heat-target-cancel-test-' . uniqid();
+        $stateDir = $tempDir . '/state';
+        mkdir($stateDir, 0755, true);
+        $targetTempStateFile = $stateDir . '/target-temperature.json';
+
+        // Create TargetTemperatureService with active state
+        $targetTempService = new TargetTemperatureService($targetTempStateFile);
+        $targetTempService->start(102.0);
+
+        // Verify heat-to-target is active
+        $this->assertTrue($targetTempService->getState()['active'], 'Heat-to-target should be active');
+
+        $controller = new EquipmentController(
+            $this->logFile,
+            $this->mockIftttClient,
+            $this->statusService,
+            $targetTempService
+        );
+
+        $controller->heaterOff();
+
+        // Heat-to-target should now be inactive
+        $state = $targetTempService->getState();
+        $this->assertFalse($state['active'], 'Heat-to-target must be canceled when heater is turned off manually');
+
+        // Cleanup
+        if (file_exists($targetTempStateFile)) {
+            unlink($targetTempStateFile);
+        }
+        rmdir($stateDir);
+        rmdir($tempDir);
+    }
+
+    /**
+     * Verify heaterOff cleans up heat-to-target cron entries.
+     */
+    public function testHeaterOffRemovesHeatToTargetCronEntries(): void
+    {
+        $this->mockIftttClient->method('trigger')->willReturn(true);
+        $this->mockIftttClient->method('getMode')->willReturn('stub');
+
+        // Create mock crontab adapter that expects removeByPattern to be called
+        $mockCrontab = $this->createMock(CrontabAdapterInterface::class);
+        $mockCrontab->expects($this->atLeastOnce())
+            ->method('removeByPattern')
+            ->with($this->stringContains('heat-target'));
+
+        // Set up target temp service with crontab
+        $tempDir = sys_get_temp_dir() . '/heat-target-cron-test-' . uniqid();
+        $stateDir = $tempDir . '/state';
+        mkdir($stateDir, 0755, true);
+        $targetTempStateFile = $stateDir . '/target-temperature.json';
+
+        $targetTempService = new TargetTemperatureService(
+            $targetTempStateFile,
+            null, // ifttt
+            null, // equipmentStatus
+            null, // esp32Temp
+            $mockCrontab
+        );
+        $targetTempService->start(102.0);
+
+        $controller = new EquipmentController(
+            $this->logFile,
+            $this->mockIftttClient,
+            $this->statusService,
+            $targetTempService
+        );
+
+        $controller->heaterOff();
+
+        // Cleanup
+        if (file_exists($targetTempStateFile)) {
+            unlink($targetTempStateFile);
+        }
+        rmdir($stateDir);
+        rmdir($tempDir);
+    }
+
+    /**
+     * Verify heaterOff works without TargetTemperatureService (backwards compatible).
+     */
+    public function testHeaterOffWorksWithoutTargetTempService(): void
+    {
+        $this->mockIftttClient->method('trigger')->willReturn(true);
+        $this->mockIftttClient->method('getMode')->willReturn('stub');
+
+        $this->statusService->setHeaterOn();
+
+        // Create controller WITHOUT TargetTemperatureService
+        $controller = new EquipmentController(
+            $this->logFile,
+            $this->mockIftttClient,
+            $this->statusService
+            // No targetTempService - should still work
+        );
+
+        $controller->heaterOff();
+
+        $status = $this->statusService->getStatus();
+        $this->assertFalse($status['heater']['on'], 'Heater should be off even without TargetTemperatureService');
     }
 
     // ========== Pump Run Tests ==========

@@ -103,7 +103,8 @@ class TargetTemperatureIntegrationTest extends TestCase
             ->method('addEntry')
             ->with($this->stringContains('HOTTUB:heat-target'));
 
-        $this->mockCrontab->expects($this->once())
+        // Called twice: once for cleanup, once for race condition protection
+        $this->mockCrontab->expects($this->exactly(2))
             ->method('removeByPattern')
             ->with('HOTTUB:heat-target');
 
@@ -161,7 +162,8 @@ class TargetTemperatureIntegrationTest extends TestCase
 
         $this->mockIfttt->method('trigger')->willReturn(true);
         $this->mockCrontab->method('addEntry');
-        $this->mockCrontab->expects($this->once())
+        // Called twice: once for cleanup, once for race condition protection
+        $this->mockCrontab->expects($this->exactly(2))
             ->method('removeByPattern')
             ->with('HOTTUB:heat-target');
 

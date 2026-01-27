@@ -6,6 +6,7 @@ namespace HotTub\Controllers;
 
 use HotTub\Services\EventLogger;
 use HotTub\Services\EquipmentStatusService;
+use HotTub\Services\TargetTemperatureService;
 use HotTub\Contracts\IftttClientInterface;
 
 /**
@@ -21,7 +22,8 @@ class EquipmentController
     public function __construct(
         string $logFile,
         private IftttClientInterface $iftttClient,
-        private ?EquipmentStatusService $statusService = null
+        private ?EquipmentStatusService $statusService = null,
+        private ?TargetTemperatureService $targetTempService = null
     ) {
         $this->logger = new EventLogger($logFile);
     }
@@ -86,9 +88,14 @@ class EquipmentController
      * Triggers the IFTTT hot-tub-heat-off event which:
      * 1. Turns off heating element immediately
      * 2. Stops pump (hardware controller handles this)
+     * 3. Cancels any active heat-to-target automation
      *
      * Note: The hardware controller turns off both the heater and pump
      * when this command is triggered, so we update both statuses.
+     *
+     * IMPORTANT: Manual heater off cancels heat-to-target to prevent the
+     * confusing UX where the heater turns back on 60 seconds later.
+     * Manual user action should override automation.
      */
     public function heaterOff(): array
     {
@@ -100,9 +107,20 @@ class EquipmentController
             $this->statusService->setPumpOff();
         }
 
+        // Cancel heat-to-target if active (manual action overrides automation)
+        $heatToTargetCanceled = false;
+        if ($success && $this->targetTempService !== null) {
+            $state = $this->targetTempService->getState();
+            if ($state['active']) {
+                $this->targetTempService->stop();
+                $heatToTargetCanceled = true;
+            }
+        }
+
         $this->logger->log('heater_off', [
             'ifttt_success' => $success,
             'ifttt_mode' => $this->iftttClient->getMode(),
+            'heat_to_target_canceled' => $heatToTargetCanceled,
         ]);
 
         return [
@@ -111,6 +129,7 @@ class EquipmentController
                 'success' => $success,
                 'action' => 'heater_off',
                 'timestamp' => $timestamp,
+                'heat_to_target_canceled' => $heatToTargetCanceled,
             ],
         ];
     }
