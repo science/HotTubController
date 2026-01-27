@@ -95,8 +95,8 @@ $iftttClient = $factory->create();
 $equipmentStatusFile = __DIR__ . '/../storage/state/equipment-status.json';
 $equipmentStatusService = new EquipmentStatusService($equipmentStatusFile);
 
-// Create controller with IFTTT client and status service
-$equipmentController = new EquipmentController($logFile, $iftttClient, $equipmentStatusService);
+// Note: EquipmentController is created AFTER TargetTemperatureService (see below)
+// because heaterOff() needs to cancel heat-to-target when user manually turns off heater
 
 // Create blinds controller (optional feature, isolated by config)
 $blindsController = new BlindsController($logFile, $iftttClient, $config);
@@ -142,6 +142,11 @@ $targetTemperatureService = new TargetTemperatureService(
     $esp32SensorConfigService
 );
 $targetTemperatureController = new TargetTemperatureController($targetTemperatureService);
+
+// Create equipment controller with IFTTT client, status service, and target temp service
+// Note: TargetTemperatureService is passed so heaterOff() can cancel heat-to-target
+// (manual user action should override automation)
+$equipmentController = new EquipmentController($logFile, $iftttClient, $equipmentStatusService, $targetTemperatureService);
 
 // Create Healthchecks.io client for job monitoring (feature flag: disabled if no API key)
 $healthchecksFactory = new HealthchecksClientFactory($config);
@@ -248,6 +253,16 @@ $router->get('/api/users', fn() => $userController->list(), $requireAdmin);
 $router->post('/api/users', fn() => handleUserCreate($userController), $requireAdmin);
 $router->delete('/api/users/{username}', fn($params) => $userController->delete($params['username']), $requireAdmin);
 $router->put('/api/users/{username}/password', fn($params) => handleUserPasswordUpdate($userController, $params['username']), $requireAdmin);
+
+// Admin-only system diagnostics
+$router->get('/api/admin/crontab', fn() => [
+    'status' => 200,
+    'body' => [
+        'entries' => $crontabAdapter->listEntries(),
+        'count' => count($crontabAdapter->listEntries()),
+        'timestamp' => date('c'),
+    ],
+], $requireAdmin);
 
 // Protected maintenance routes (called by cron with CRON_JWT)
 // Note: /api/cron/health bypasses framework via .htaccess -> cron-health.php

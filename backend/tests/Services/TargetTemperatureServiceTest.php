@@ -425,7 +425,8 @@ class TargetTemperatureServiceTest extends TestCase
 
         $this->mockIfttt->method('trigger')->willReturn(true);
 
-        $this->mockCrontab->expects($this->once())
+        // Called twice: once for cleanup, once for race condition protection
+        $this->mockCrontab->expects($this->exactly(2))
             ->method('removeByPattern')
             ->with('HOTTUB:heat-target');
 
@@ -434,15 +435,9 @@ class TargetTemperatureServiceTest extends TestCase
         $this->assertTrue($result['target_reached']);
     }
 
-    public function testCalculateNextCheckTimeReturnsMinuteBoundaryAfterNextEsp32Report(): void
+    public function testCalculateNextCheckTimeReturnsValidMinuteBoundary(): void
     {
         $service = $this->createServiceWithCron();
-
-        // Store a reading - received_at is set to current time by store()
-        $this->storeEsp32Reading(82.0);
-
-        // The ESP32 interval is 60 seconds when heater is on
-        $this->equipmentStatus->setHeaterOn();
 
         $now = time();
         $nextCheckTime = $service->calculateNextCheckTime();
@@ -474,37 +469,15 @@ class TargetTemperatureServiceTest extends TestCase
     }
 
     /**
-     * RACE CONDITION TEST: With old ESP32 reading, cron must still be in future minute.
+     * Verify scheduling doesn't depend on external state (ESP32 readings, etc).
      *
-     * Bug scenario:
-     * - ESP32 last reported 90 seconds ago
-     * - calculateNextCheckTime() calculates: receivedAt + 60 + 5 = now - 25 (past!)
-     * - Without fix, could schedule for current minute, which never fires
-     *
-     * Fix: Schedule at minute boundary in a strictly future minute with safety margin.
+     * The scheduling algorithm should be deterministic based solely on current time.
+     * This test verifies it works even without any ESP32 data.
      */
-    public function testCalculateNextCheckTimeWithOldReadingStillReturnsValidFutureMinute(): void
+    public function testCalculateNextCheckTimeWorksWithoutEsp32Data(): void
     {
         $service = $this->createServiceWithCron();
-
-        // Store a reading from 90 seconds ago
-        $oldReceivedAt = time() - 90;
-        $this->esp32Temp->store([
-            'device_id' => 'TEST:AA:BB:CC:DD:EE',
-            'sensors' => [
-                ['address' => '28:AA:BB:CC:DD:EE:FF:00', 'temp_c' => 28.0, 'temp_f' => 82.0],
-            ],
-            'uptime_seconds' => 3600,
-        ]);
-
-        // Manually set received_at to simulate old reading
-        $stateFile = $this->esp32TempFile;
-        $data = json_decode(file_get_contents($stateFile), true);
-        $data['received_at'] = $oldReceivedAt;
-        file_put_contents($stateFile, json_encode($data));
-
-        // Heater is on, so interval is 60 seconds
-        $this->equipmentStatus->setHeaterOn();
+        // Note: NOT storing any ESP32 reading - esp32TempFile doesn't exist
 
         $now = time();
         $nextCheckTime = $service->calculateNextCheckTime();
@@ -513,16 +486,13 @@ class TargetTemperatureServiceTest extends TestCase
 
         // Must be at minute boundary
         $this->assertEquals(0, $nextCheckTime % 60,
-            "With old ESP32 reading, must still schedule at minute boundary");
+            "Must schedule at minute boundary");
 
         // Must be in a strictly future minute
         $this->assertGreaterThan(
             $currentMinute,
             $scheduledMinute,
-            "With old ESP32 reading, must schedule for FUTURE minute, not current.\n" .
-            "Current: " . date('Y-m-d H:i:s', $now) . " (minute $currentMinute)\n" .
-            "Scheduled: " . date('Y-m-d H:i:s', $nextCheckTime) . " (minute $scheduledMinute)\n" .
-            "Cron daemon fires at :00 - scheduling for current minute means it never fires!"
+            "Must schedule for FUTURE minute, not current"
         );
 
         // Must have at least 5 seconds safety margin
@@ -640,6 +610,105 @@ class TargetTemperatureServiceTest extends TestCase
             );
 
             usleep(100000); // 100ms between iterations
+        }
+    }
+
+    // ========== Next minute scheduling tests (no ESP32 syncing) ==========
+
+    /**
+     * Verify scheduling does NOT sync to ESP32 timing.
+     *
+     * The old buggy code would calculate:
+     * - nextReport = receivedAt + interval (e.g., now + 58 seconds if just reported)
+     * - desiredCheckTime = nextReport + 5 = now + 63 seconds
+     * - Round up to minute boundary = minute+2 instead of minute+1!
+     *
+     * This caused skipped minutes in production (06:57 → 06:59, skipping 06:58).
+     *
+     * The fix: Always schedule for the immediate next minute, regardless of
+     * when ESP32 last reported. ESP32 prereport alignment (`:53` or `:55`)
+     * ensures data is fresh when the check runs.
+     */
+    public function testCalculateNextCheckTimeIgnoresEsp32Timing(): void
+    {
+        $service = $this->createServiceWithCron();
+        $this->equipmentStatus->setHeaterOn();
+
+        // Store ESP32 reading received just now (2 seconds ago)
+        // Old code would calculate: nextReport = now + 58, desiredTime = now + 63
+        // Then round up to minute+2, SKIPPING the immediate next minute!
+        $now = time();
+        $this->esp32Temp->store([
+            'device_id' => 'TEST:AA:BB:CC:DD:EE',
+            'sensors' => [
+                ['address' => '28:AA:BB:CC:DD:EE:FF:00', 'temp_c' => 28.0, 'temp_f' => 82.0],
+            ],
+            'uptime_seconds' => 3600,
+        ]);
+
+        // Manually set received_at to 2 seconds ago
+        $data = json_decode(file_get_contents($this->esp32TempFile), true);
+        $data['received_at'] = $now - 2;
+        file_put_contents($this->esp32TempFile, json_encode($data));
+
+        $nextCheckTime = $service->calculateNextCheckTime();
+
+        // Calculate expected: should be NEXT minute, not minute+2
+        $currentMinute = (int) floor($now / 60);
+        $secondsIntoMinute = $now % 60;
+
+        // If we're late in the minute (> 55 seconds, i.e., less than 5 seconds margin),
+        // next minute is too close, so we expect minute+2. Otherwise, we expect minute+1.
+        // Note: safety margin is < 5, so at :55 we have exactly 5 seconds which is OK.
+        $expectedMinute = ($secondsIntoMinute > 55)
+            ? $currentMinute + 2
+            : $currentMinute + 1;
+
+        $scheduledMinute = (int) floor($nextCheckTime / 60);
+
+        $this->assertEquals(
+            $expectedMinute,
+            $scheduledMinute,
+            "Should schedule for immediate next minute, not sync to ESP32 timing.\n" .
+            "Now: " . date('Y-m-d H:i:s', $now) . " (second $secondsIntoMinute of minute)\n" .
+            "Expected minute: $expectedMinute\n" .
+            "Scheduled minute: $scheduledMinute\n" .
+            "ESP32 timing should NOT affect scheduling!"
+        );
+    }
+
+    /**
+     * Verify that scheduling is simple: always next minute (or +2 if close).
+     *
+     * Run this test at different seconds-into-minute to verify behavior:
+     * - At :00-:54 → schedule for next minute
+     * - At :55-:59 → schedule for minute+2 (safety margin)
+     */
+    public function testCalculateNextCheckTimeAlwaysSchedulesNextAvailableMinute(): void
+    {
+        $service = $this->createServiceWithCron();
+        $this->storeEsp32Reading(82.0);
+        $this->equipmentStatus->setHeaterOn();
+
+        $now = time();
+        $nextCheckTime = $service->calculateNextCheckTime();
+
+        $currentMinute = (int) floor($now / 60);
+        $scheduledMinute = (int) floor($nextCheckTime / 60);
+        $secondsIntoMinute = $now % 60;
+
+        // Should be exactly 1 minute ahead (or 2 if we're close to boundary)
+        $minutesDiff = $scheduledMinute - $currentMinute;
+
+        if ($secondsIntoMinute > 55) {
+            // Very late in minute (< 5 seconds margin), expect +2
+            $this->assertEquals(2, $minutesDiff,
+                "At second $secondsIntoMinute, should schedule 2 minutes ahead");
+        } else {
+            // Normal case (>= 5 seconds margin), expect +1
+            $this->assertEquals(1, $minutesDiff,
+                "At second $secondsIntoMinute, should schedule 1 minute ahead, " .
+                "but got $minutesDiff minutes ahead");
         }
     }
 
