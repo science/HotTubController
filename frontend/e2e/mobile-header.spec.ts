@@ -17,7 +17,7 @@ test.describe('Mobile Header Layout', () => {
 		});
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 	});
 
@@ -50,9 +50,6 @@ test.describe('Mobile Header Layout', () => {
 				titleBox.y + titleBox.height > userInfoBox.y;
 
 			const elementsOverlap = horizontalOverlap && verticalOverlap;
-
-			// Take screenshot for debugging
-			await page.screenshot({ path: '/tmp/mobile-header-test.png' });
 
 			expect(elementsOverlap, 'Header title and user info should not overlap').toBe(false);
 		}

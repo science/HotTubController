@@ -11,7 +11,7 @@
 #include <report_scheduler.h>
 
 // Firmware version - increment this with each release
-#define FIRMWARE_VERSION "1.5.0"
+#define FIRMWARE_VERSION "1.5.1"
 
 // Hardware pins
 #define ONE_WIRE_BUS 4

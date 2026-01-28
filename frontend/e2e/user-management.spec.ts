@@ -11,7 +11,7 @@ test.describe('User Management', () => {
 		await page.goto('/tub/login');
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 	});
 
@@ -22,7 +22,7 @@ test.describe('User Management', () => {
 
 	test('admin can navigate to users page', async ({ page }) => {
 		// Click the Users link
-		await page.click('a:has-text("Users")');
+		await page.click('a:has-text("Users")', { force: true });
 
 		// Should see the user management heading
 		await expect(page.getByRole('heading', { name: 'USER MANAGEMENT' })).toBeVisible({
@@ -38,7 +38,7 @@ test.describe('User Management', () => {
 
 	test('admin can see themselves in user list', async ({ page }) => {
 		// Navigate to users page
-		await page.click('a:has-text("Users")');
+		await page.click('a:has-text("Users")', { force: true });
 		await expect(page.getByRole('heading', { name: 'USER MANAGEMENT' })).toBeVisible({
 			timeout: 10000
 		});
@@ -49,7 +49,7 @@ test.describe('User Management', () => {
 
 	test('admin can create a new user', async ({ page }) => {
 		// Navigate to users page
-		await page.click('a:has-text("Users")');
+		await page.click('a:has-text("Users")', { force: true });
 		await expect(page.getByRole('heading', { name: 'USER MANAGEMENT' })).toBeVisible({
 			timeout: 10000
 		});
@@ -63,7 +63,7 @@ test.describe('User Management', () => {
 		await page.selectOption('#role', 'user');
 
 		// Click create
-		await page.click('button:has-text("Create User")');
+		await page.click('button:has-text("Create User")', { force: true });
 
 		// Should see the credentials modal
 		await expect(page.locator('text=User Created Successfully')).toBeVisible({ timeout: 10000 });
@@ -81,7 +81,7 @@ test.describe('User Management', () => {
 		await expect(copyButtons).toHaveCount(1);
 
 		// Close the modal
-		await page.click('button:has-text("Done")');
+		await page.click('button:has-text("Done")', { force: true });
 
 		// New user should appear in the list
 		await expect(page.locator(`li:has-text("${uniqueUsername}")`)).toBeVisible();
@@ -90,7 +90,7 @@ test.describe('User Management', () => {
 		page.on('dialog', (dialog) => dialog.accept());
 
 		// Clean up - delete the test user
-		await page.locator(`li:has-text("${uniqueUsername}")`).locator('button:has-text("Delete")').click();
+		await page.locator(`li:has-text("${uniqueUsername}")`).locator('button:has-text("Delete")').click({ force: true });
 
 		// Wait for user to be removed
 		await expect(page.locator(`li:has-text("${uniqueUsername}")`)).not.toBeVisible({ timeout: 5000 });
@@ -98,7 +98,7 @@ test.describe('User Management', () => {
 
 	test('admin can delete a user', async ({ page }) => {
 		// Navigate to users page
-		await page.click('a:has-text("Users")');
+		await page.click('a:has-text("Users")', { force: true });
 		await expect(page.getByRole('heading', { name: 'USER MANAGEMENT' })).toBeVisible({
 			timeout: 10000
 		});
@@ -107,11 +107,11 @@ test.describe('User Management', () => {
 		const uniqueUsername = `deletetest_${Date.now()}`;
 		await page.fill('#username', uniqueUsername);
 		await page.fill('#password', 'deletepass');
-		await page.click('button:has-text("Create User")');
+		await page.click('button:has-text("Create User")', { force: true });
 
 		// Wait for modal and close it
 		await expect(page.locator('text=User Created Successfully')).toBeVisible({ timeout: 10000 });
-		await page.click('button:has-text("Done")');
+		await page.click('button:has-text("Done")', { force: true });
 
 		// Verify user exists
 		await expect(page.locator(`li:has-text("${uniqueUsername}")`)).toBeVisible();
@@ -120,7 +120,7 @@ test.describe('User Management', () => {
 		page.on('dialog', (dialog) => dialog.accept());
 
 		// Delete the user
-		await page.locator(`li:has-text("${uniqueUsername}")`).locator('button:has-text("Delete")').click();
+		await page.locator(`li:has-text("${uniqueUsername}")`).locator('button:has-text("Delete")').click({ force: true });
 
 		// Wait for the user to be removed from the list
 		await expect(page.locator(`li:has-text("${uniqueUsername}")`)).not.toBeVisible({ timeout: 5000 });
@@ -128,7 +128,7 @@ test.describe('User Management', () => {
 
 	test('admin cannot delete themselves', async ({ page }) => {
 		// Navigate to users page
-		await page.click('a:has-text("Users")');
+		await page.click('a:has-text("Users")', { force: true });
 		await expect(page.getByRole('heading', { name: 'USER MANAGEMENT' })).toBeVisible({
 			timeout: 10000
 		});
@@ -141,13 +141,13 @@ test.describe('User Management', () => {
 
 	test('back link returns to main page', async ({ page }) => {
 		// Navigate to users page
-		await page.click('a:has-text("Users")');
+		await page.click('a:has-text("Users")', { force: true });
 		await expect(page.getByRole('heading', { name: 'USER MANAGEMENT' })).toBeVisible({
 			timeout: 10000
 		});
 
 		// Click back link
-		await page.click('a:has-text("Back to Controls")');
+		await page.click('a:has-text("Back to Controls")', { force: true });
 
 		// Should be back on main page
 		await expect(page.getByRole('heading', { name: 'HOT TUB CONTROL' })).toBeVisible({

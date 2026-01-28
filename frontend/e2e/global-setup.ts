@@ -8,9 +8,10 @@ import { fileURLToPath } from 'url';
  * These are usernames created by E2E tests that may be left behind on failure.
  */
 const TEST_USER_PATTERNS = [
-	/^testuser_\d+$/,      // testuser_1234567890 (from user-management.spec.ts)
-	/^deletetest_\d+$/,    // deletetest_1234567890 (from user-management.spec.ts)
-	/^basic_e2e_test$/,    // basic_e2e_test (from basic-user-role.spec.ts)
+	/^testuser_\d+$/,                // testuser_1234567890 (from user-management.spec.ts)
+	/^testuser_heat_settings_\d+$/,  // testuser_heat_settings_* (from heat-target-settings.spec.ts)
+	/^deletetest_\d+$/,              // deletetest_1234567890 (from user-management.spec.ts)
+	/^basic_e2e_test$/,              // basic_e2e_test (from basic-user-role.spec.ts)
 ];
 
 /**
@@ -108,6 +109,20 @@ function setupEsp32TestData(stateDir: string): void {
 }
 
 /**
+ * Resets heat-target settings to default values.
+ * This ensures tests start with a known state.
+ */
+function resetHeatTargetSettings(stateDir: string): void {
+	const settingsFile = join(stateDir, 'heat-target-settings.json');
+	const defaultSettings = {
+		enabled: false,
+		target_temp_f: 103.0,
+		updated_at: new Date().toISOString()
+	};
+	writeFileSync(settingsFile, JSON.stringify(defaultSettings, null, 4));
+}
+
+/**
  * Cleans up scheduled job files from previous test runs.
  */
 function cleanupJobFiles(jobsDir: string): number {
@@ -156,6 +171,10 @@ async function globalSetup(config: FullConfig) {
 	// Set up ESP32 test data so temperature tests can verify both sources
 	setupEsp32TestData(stateDir);
 	console.log(`[E2E Setup] Set up ESP32 test data`);
+
+	// Reset heat-target settings to defaults
+	resetHeatTargetSettings(stateDir);
+	console.log(`[E2E Setup] Reset heat-target settings to defaults`);
 }
 
 export default globalSetup;

@@ -10,7 +10,13 @@
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { buildInfo } from '$lib/config';
-	import { getRefreshTempOnHeaterOff, getTargetTempEnabled, getTargetTempF } from '$lib/settings';
+	import { getRefreshTempOnHeaterOff } from '$lib/settings';
+	import {
+		getEnabled as getTargetTempEnabled,
+		getTargetTempF,
+		getHeatButtonLabel,
+		getHeatButtonTooltip
+	} from '$lib/stores/heatTargetSettings.svelte';
 	import {
 		fetchStatus,
 		getHeaterOn,
@@ -141,10 +147,10 @@
 		<!-- Compact Primary Controls -->
 		<div class="grid grid-cols-3 gap-2">
 			<CompactControlButton
-				label="Heat On"
+				label={getHeatButtonLabel()}
 				icon="flame"
 				variant="primary"
-				tooltip={getTargetTempEnabled() ? `Heat to ${getTargetTempF()}°F` : 'Turn on the hot tub heater'}
+				tooltip={getHeatButtonTooltip()}
 				active={heaterOn}
 				onClick={handleHeatOn}
 			/>

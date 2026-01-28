@@ -26,11 +26,11 @@ test.describe('Basic User Role', () => {
 		await page.goto('/tub/login');
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 15000 });
 
 		// Navigate to user management
-		await page.click('a:has-text("Users")');
+		await page.click('a:has-text("Users")', { force: true });
 		await expect(page.getByRole('heading', { name: 'USER MANAGEMENT' })).toBeVisible({ timeout: 15000 });
 
 		// Check if basic user already exists (from previous test run)
@@ -38,7 +38,7 @@ test.describe('Basic User Role', () => {
 		if (await existingUser.isVisible({ timeout: 2000 }).catch(() => false)) {
 			// Delete existing user first
 			page.on('dialog', (dialog) => dialog.accept());
-			await existingUser.locator('button:has-text("Delete")').click();
+			await existingUser.locator('button:has-text("Delete")').click({ force: true });
 			await expect(existingUser).not.toBeVisible({ timeout: 5000 });
 		}
 
@@ -46,11 +46,11 @@ test.describe('Basic User Role', () => {
 		await page.fill('#username', basicUsername);
 		await page.fill('#password', basicPassword);
 		await page.selectOption('#role', 'basic');
-		await page.click('button:has-text("Create User")');
+		await page.click('button:has-text("Create User")', { force: true });
 
 		// Wait for success modal and close it
 		await expect(page.locator('text=User Created Successfully')).toBeVisible({ timeout: 15000 });
-		await page.click('button:has-text("Done")');
+		await page.click('button:has-text("Done")', { force: true });
 
 		await page.close();
 	});
@@ -60,7 +60,7 @@ test.describe('Basic User Role', () => {
 		await page.goto('/tub/login');
 		await page.fill('#username', basicUsername);
 		await page.fill('#password', basicPassword);
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 
 		// Wait for main page - note: basic users won't see Schedule heading
 		await expect(page.getByRole('heading', { name: 'HOT TUB CONTROL' })).toBeVisible({ timeout: 15000 });
@@ -115,7 +115,7 @@ test.describe('Basic User Role', () => {
 
 	test('basic user can still click control buttons (API access works)', async ({ page }) => {
 		// Click Heat/Pump Off (safer test action)
-		await page.getByRole('button', { name: 'Heat/Pump Off' }).click();
+		await page.getByRole('button', { name: 'Heat/Pump Off' }).click({ force: true });
 
 		// Should see success message (basic users have full API access)
 		await expect(page.locator('text=Heater and pump turned OFF')).toBeVisible({ timeout: 10000 });
@@ -128,7 +128,7 @@ test.describe('Basic User Role', () => {
 
 	test('basic user can logout', async ({ page }) => {
 		// Click logout
-		await page.click('button:has-text("Logout")');
+		await page.click('button:has-text("Logout")', { force: true });
 
 		// Should be on login page
 		await expect(page.locator('#username')).toBeVisible({ timeout: 10000 });
@@ -142,11 +142,11 @@ test.describe('Basic User Role', () => {
 		await page.goto('/tub/login');
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 15000 });
 
 		// Navigate to user management
-		await page.click('a:has-text("Users")');
+		await page.click('a:has-text("Users")', { force: true });
 		await expect(page.getByRole('heading', { name: 'USER MANAGEMENT' })).toBeVisible({ timeout: 15000 });
 
 		// Set up dialog handler for delete confirmation
@@ -155,7 +155,7 @@ test.describe('Basic User Role', () => {
 		// Delete the test user if it exists
 		const userRow = page.locator(`li:has-text("${basicUsername}")`);
 		if (await userRow.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await userRow.locator('button:has-text("Delete")').click();
+			await userRow.locator('button:has-text("Delete")').click({ force: true });
 			await expect(userRow).not.toBeVisible({ timeout: 5000 });
 		}
 

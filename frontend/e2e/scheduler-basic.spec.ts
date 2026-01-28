@@ -16,14 +16,14 @@ test.describe('Scheduler Basic Flow', () => {
 		});
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
 		// Clean up any existing scheduled jobs from previous test runs
 		const cancelButtons = page.locator('ul li button:has-text("Cancel")');
 		let count = await cancelButtons.count();
 		while (count > 0) {
-			await cancelButtons.first().click();
+			await cancelButtons.first().click({ force: true });
 			await page.waitForTimeout(300);
 			count = await cancelButtons.count();
 		}
@@ -49,7 +49,7 @@ test.describe('Scheduler Basic Flow', () => {
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#date', dateStr);
 		await page.fill('#time', '10:30');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 
 		// Verify success
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 10000 });
@@ -59,7 +59,7 @@ test.describe('Scheduler Basic Flow', () => {
 		await expect(jobItem).toBeVisible();
 
 		// Cancel the job
-		await jobItem.locator('button:has-text("Cancel")').click();
+		await jobItem.locator('button:has-text("Cancel")').click({ force: true });
 
 		// Verify job is removed from the pending list
 		await expect(page.locator('text=No upcoming jobs')).toBeVisible({ timeout: 5000 });

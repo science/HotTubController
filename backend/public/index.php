@@ -13,10 +13,12 @@ use HotTub\Controllers\TemperatureController;
 use HotTub\Controllers\MaintenanceController;
 use HotTub\Controllers\Esp32SensorConfigController;
 use HotTub\Controllers\TargetTemperatureController;
+use HotTub\Controllers\HeatTargetSettingsController;
 use HotTub\Services\Esp32TemperatureService;
 use HotTub\Services\Esp32SensorConfigService;
 use HotTub\Services\Esp32CalibratedTemperatureService;
 use HotTub\Services\TargetTemperatureService;
+use HotTub\Services\HeatTargetSettingsService;
 use HotTub\Services\LogRotationService;
 use HotTub\Services\ScheduledJobsCleanupService;
 use HotTub\Services\EnvLoader;
@@ -109,6 +111,11 @@ $esp32TemperatureService = new Esp32TemperatureService($esp32TemperatureFile, $e
 $esp32SensorConfigService = new Esp32SensorConfigService($esp32ConfigFile);
 $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TemperatureService, $esp32SensorConfigService);
 $esp32SensorConfigController = new Esp32SensorConfigController($esp32SensorConfigService, $esp32TemperatureService);
+
+// Create heat-target settings service and controller
+$heatTargetSettingsFile = __DIR__ . '/../storage/state/heat-target-settings.json';
+$heatTargetSettingsService = new HeatTargetSettingsService($heatTargetSettingsFile);
+$heatTargetSettingsController = new HeatTargetSettingsController($heatTargetSettingsService);
 
 // Create temperature controller (ESP32 only)
 $temperatureController = new TemperatureController($esp32CalibratedService);
@@ -207,9 +214,13 @@ $requireAdmin = fn() => $authMiddleware->requireAdmin($headers, $cookies);
 $router = new Router();
 
 // Public routes
-$router->get('/api/health', function() use ($equipmentController, $blindsController) {
+$router->get('/api/health', function() use ($equipmentController, $blindsController, $heatTargetSettingsService) {
     $response = $equipmentController->health();
     $response['body']['blindsEnabled'] = $blindsController->isEnabled();
+    $response['body']['heatTargetSettings'] = [
+        'enabled' => $heatTargetSettingsService->isEnabled(),
+        'target_temp_f' => $heatTargetSettingsService->getTargetTempF(),
+    ];
     return $response;
 });
 
@@ -242,6 +253,10 @@ $router->get('/api/temperature/all', fn() => $temperatureController->getAll(), $
 // ESP32 sensor configuration endpoints (require auth)
 $router->get('/api/esp32/sensors', fn() => $esp32SensorConfigController->list(), $requireAuth);
 $router->put('/api/esp32/sensors/{address}', fn($params) => handleEsp32SensorUpdate($esp32SensorConfigController, $params['address']), $requireAuth);
+
+// Heat-target settings endpoints
+$router->get('/api/settings/heat-target', fn() => $heatTargetSettingsController->get(), $requireAuth);
+$router->put('/api/settings/heat-target', fn() => handleHeatTargetSettingsUpdate($heatTargetSettingsController), $requireAdmin);
 
 // Protected schedule routes (with auth middleware)
 $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireAuth);
@@ -384,4 +399,10 @@ function handleHeatToTarget(TargetTemperatureController $controller): array
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->start($input);
+}
+
+function handleHeatTargetSettingsUpdate(HeatTargetSettingsController $controller): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->update($input);
 }

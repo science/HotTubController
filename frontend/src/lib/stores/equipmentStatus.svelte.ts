@@ -1,4 +1,5 @@
 import { api, type EquipmentStatus, type HealthResponse } from '$lib/api';
+import { initFromHealthResponse as initHeatTargetSettings } from './heatTargetSettings.svelte';
 
 export interface EquipmentStatusState {
 	heaterOn: boolean;
@@ -36,6 +37,8 @@ export async function fetchStatus(): Promise<void> {
 		}
 		// Update blinds feature flag from health response
 		blindsEnabled = response.blindsEnabled ?? false;
+		// Initialize heat-target settings from health response
+		initHeatTargetSettings(response);
 	} catch (e) {
 		error = e instanceof Error ? e.message : 'Failed to fetch status';
 	} finally {

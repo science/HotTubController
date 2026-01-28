@@ -1,5 +1,6 @@
 #include <unity.h>
 #include <report_scheduler.h>
+#include <cstdio>
 
 /**
  * Mock time provider for deterministic testing.
@@ -468,6 +469,118 @@ void test_recordSend_from_READY_TO_SEND_resets_properly(void) {
     TEST_ASSERT_FALSE(scheduler->shouldSend());
 }
 
+// ==================== Drift Prevention Tests ====================
+
+/**
+ * Test that recordSend anchors interval start to alignment second, not actual send time.
+ * This prevents drift caused by API latency.
+ *
+ * Scenario: alignment at :53, interval 60s
+ * - Send triggered at :53
+ * - API takes 1 second, recordSend called at :54
+ * - Next send should still occur at :53, not :54
+ */
+void test_recordSend_anchors_to_alignment_second_prevents_drift(void) {
+    // Create scheduler with alignment at :53, interval 60s
+    delete scheduler;
+    delete mockTime;
+
+    // Start at second :53 of some minute
+    uint32_t baseTime = 1704067200; // 2024-01-01 00:00:00 UTC
+    baseTime = (baseTime / 60) * 60 + 53; // Align to :53
+    mockTime = new MockTimeProvider(baseTime, true);
+    scheduler = new ReportScheduler(mockTime, 60, 53);
+
+    // Boot send happens immediately
+    TEST_ASSERT_TRUE(scheduler->shouldSend());
+    TEST_ASSERT_EQUAL(STATE_BOOT_SEND, scheduler->getState());
+
+    // Simulate: API call takes 1 second, recordSend called at :54
+    mockTime->advanceTime(1); // Now at :54
+    scheduler->recordSend();
+    TEST_ASSERT_EQUAL(STATE_INTERVAL_WAIT, scheduler->getState());
+
+    // Advance 59 seconds - should now be at :53 of next minute
+    mockTime->advanceTime(59); // Total: 60 seconds from :53 anchor
+    TEST_ASSERT_EQUAL(53, mockTime->getSecondOfMinute());
+
+    // With drift fix: interval anchored to :53, so 60 seconds elapsed, should be ready
+    // Without fix: interval started at :54, only 59 seconds elapsed, not ready
+    bool ready = scheduler->shouldSend();
+    TEST_ASSERT_TRUE_MESSAGE(ready,
+        "Should be ready to send at :53 - interval should anchor to alignment second, not API completion time");
+}
+
+/**
+ * Test that drift doesn't accumulate over multiple cycles.
+ * Each cycle should send at the same alignment second.
+ */
+void test_no_drift_accumulation_over_multiple_cycles(void) {
+    delete scheduler;
+    delete mockTime;
+
+    // Start at second :53
+    uint32_t baseTime = (1704067200 / 60) * 60 + 53;
+    mockTime = new MockTimeProvider(baseTime, true);
+    scheduler = new ReportScheduler(mockTime, 60, 53);
+
+    // Boot send
+    TEST_ASSERT_TRUE(scheduler->shouldSend());
+
+    // Simulate 5 cycles, each with 1 second of "API latency"
+    for (int cycle = 0; cycle < 5; cycle++) {
+        // API latency: 1 second passes before recordSend
+        mockTime->advanceTime(1);
+        scheduler->recordSend();
+
+        // Advance to next :53 (59 seconds from :54 = 60 seconds from :53)
+        mockTime->advanceTime(59);
+
+        // Verify we're at :53
+        TEST_ASSERT_EQUAL_MESSAGE(53, mockTime->getSecondOfMinute(),
+            "Test setup error: should be at :53");
+
+        // Should be ready to send at :53 each cycle
+        bool ready = scheduler->shouldSend();
+        char msg[100];
+        snprintf(msg, sizeof(msg), "Cycle %d: should be ready at :53, not drifted", cycle + 1);
+        TEST_ASSERT_TRUE_MESSAGE(ready, msg);
+    }
+}
+
+/**
+ * Test that anchoring only applies when alignment is enabled.
+ * Short intervals (< 60s) skip alignment and should use actual time.
+ */
+void test_short_interval_does_not_anchor_uses_actual_time(void) {
+    delete scheduler;
+    delete mockTime;
+
+    // Start at second :53
+    uint32_t baseTime = (1704067200 / 60) * 60 + 53;
+    mockTime = new MockTimeProvider(baseTime, true);
+    scheduler = new ReportScheduler(mockTime, 30, 53); // 30 second interval - no alignment
+
+    // Boot send
+    TEST_ASSERT_TRUE(scheduler->shouldSend());
+
+    // Simulate 1 second API latency
+    mockTime->advanceTime(1); // Now at :54
+    scheduler->recordSend();
+
+    // Advance 29 seconds (one short of 30)
+    mockTime->advanceTime(29); // Now at :23 of next minute
+
+    // Should NOT be ready - only 29 seconds elapsed from :54
+    TEST_ASSERT_FALSE(scheduler->shouldSend());
+
+    // Advance 1 more second (total 30 from :54)
+    mockTime->advanceTime(1); // Now at :24
+
+    // Now should be ready (30 seconds elapsed from actual send time)
+    TEST_ASSERT_TRUE(scheduler->shouldSend());
+}
+
 // ==================== Main ====================
 
 int main(int argc, char **argv) {
@@ -538,6 +651,11 @@ int main(int argc, char **argv) {
     RUN_TEST(test_handles_zero_interval_gracefully);
     RUN_TEST(test_handles_negative_interval_gracefully);
     RUN_TEST(test_recordSend_from_READY_TO_SEND_resets_properly);
+
+    // Drift prevention tests
+    RUN_TEST(test_recordSend_anchors_to_alignment_second_prevents_drift);
+    RUN_TEST(test_no_drift_accumulation_over_multiple_cycles);
+    RUN_TEST(test_short_interval_does_not_anchor_uses_actual_time);
 
     return UNITY_END();
 }

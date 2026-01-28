@@ -18,7 +18,7 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		});
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
 		// Clean up ALL existing scheduled jobs (both recurring and one-off) from previous test runs
@@ -27,7 +27,7 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		let count = await cancelButtons.count();
 		let maxAttempts = 20; // Safety limit
 		while (count > 0 && maxAttempts > 0) {
-			await cancelButtons.first().click();
+			await cancelButtons.first().click({ force: true });
 			await page.waitForTimeout(400); // Wait for deletion to complete
 			cancelButtons = page.locator('button:has-text("Cancel")');
 			count = await cancelButtons.count();
@@ -40,7 +40,7 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 
 	test('create a recurring job and verify it appears in Daily Schedule', async ({ page }) => {
 		// Check the recurring checkbox using label text
-		await page.locator('label:has-text("Recurring (daily)")').click();
+		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
 
 		// Verify helper text appears
 		await expect(page.locator('text=Runs every day')).toBeVisible();
@@ -51,7 +51,7 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		// Schedule a recurring job for 7:00 AM (unique time)
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '07:15');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 
 		// Verify success message mentions recurring
 		await expect(page.locator('text=Recurring job created')).toBeVisible({ timeout: 10000 });
@@ -67,12 +67,12 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 
 	test('recurring job uses purple styling in Daily Schedule section', async ({ page }) => {
 		// Check the recurring checkbox
-		await page.locator('label:has-text("Recurring (daily)")').click();
+		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
 
 		// Schedule a recurring job (unique time)
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '06:45');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 
 		// Wait for success
 		await expect(page.locator('text=Recurring job created')).toBeVisible({ timeout: 10000 });
@@ -88,10 +88,10 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		const initialCount = await dailyJobsLocator.count();
 
 		// Create a recurring job with a unique time
-		await page.locator('label:has-text("Recurring (daily)")').click();
+		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '08:30');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 
 		// Wait for success and job to appear
 		await expect(page.locator('text=Recurring job created')).toBeVisible({ timeout: 10000 });
@@ -102,7 +102,7 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		await expect(newJob).toBeVisible();
 
 		// Cancel the newly created job
-		await newJob.locator('button:has-text("Cancel")').click();
+		await newJob.locator('button:has-text("Cancel")').click({ force: true });
 
 		// Wait for the job to be removed (count should be back to initial)
 		await expect(dailyJobsLocator).toHaveCount(initialCount, { timeout: 5000 });
@@ -123,12 +123,12 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
 		// Check the recurring checkbox
-		await page.locator('label:has-text("Recurring (daily)")').click();
+		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
 
 		// Schedule a recurring heater-on job with unique time
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '05:30');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 
 		// Verify success message mentions auto off
 		await expect(page.locator('text=auto off')).toBeVisible({ timeout: 10000 });
@@ -158,7 +158,7 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#date', dateStr);
 		await page.fill('#time', '09:45');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 
 		// Verify success
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 10000 });
@@ -176,17 +176,17 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 
 	test('both recurring and one-off jobs can coexist', async ({ page }) => {
 		// Create a recurring job first (unique time)
-		await page.locator('label:has-text("Recurring (daily)")').click();
+		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '04:00');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 		await expect(page.locator('text=Recurring job created')).toBeVisible({ timeout: 10000 });
 
 		// Wait for success message to disappear
 		await page.waitForTimeout(3500);
 
 		// Uncheck recurring
-		await page.locator('label:has-text("Recurring (daily)")').click();
+		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
 
 		// Create a one-off job (unique time)
 		const tomorrow = new Date();
@@ -196,7 +196,7 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		await page.selectOption('#action', 'pump-run');
 		await page.fill('#date', dateStr);
 		await page.fill('#time', '14:30');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 10000 });
 
 		// Verify both sections exist

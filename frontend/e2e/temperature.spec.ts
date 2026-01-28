@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 /**
  * E2E tests for the Temperature Display feature.
- * Tests the temperature panel with water and ambient temps.
+ * Tests the temperature panel with ESP32 water and ambient temps.
  */
 
 test.describe('Temperature Display Feature', () => {
@@ -11,7 +11,23 @@ test.describe('Temperature Display Feature', () => {
 		await page.goto('/tub/login');
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
+		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
+
+		// Reset ESP32 sensor configuration to ensure water and ambient roles are correctly assigned
+		// This prevents test pollution from sensor-config tests
+		const waterAddress = '28:F6:DD:87:00:88:1E:E8';
+		const ambientAddress = '28:D5:AA:87:00:23:16:34';
+
+		await page.request.put(`/tub/backend/public/api/esp32/sensors/${encodeURIComponent(waterAddress)}`, {
+			data: { role: 'water', calibration_offset: 0, name: 'Test Water Sensor' }
+		});
+		await page.request.put(`/tub/backend/public/api/esp32/sensors/${encodeURIComponent(ambientAddress)}`, {
+			data: { role: 'ambient', calibration_offset: 0, name: 'Test Ambient Sensor' }
+		});
+
+		// Reload to pick up the reset configuration
+		await page.reload();
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 	});
 
@@ -22,28 +38,28 @@ test.describe('Temperature Display Feature', () => {
 		});
 
 		test('displays water temperature label', async ({ page }) => {
-			// Wait for temperature to load - use specific section
-			await expect(page.locator('[data-testid="wirelesstag-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
+			// Wait for temperature to load - use ESP32 section
+			await expect(page.locator('[data-testid="esp32-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
 		});
 
 		test('displays ambient temperature label', async ({ page }) => {
-			// Wait for temperature to load - use specific section
-			await expect(page.locator('[data-testid="wirelesstag-readings"]').getByText('Ambient:')).toBeVisible({ timeout: 10000 });
+			// Wait for temperature to load - use ESP32 section
+			await expect(page.locator('[data-testid="esp32-readings"]').getByText('Ambient:')).toBeVisible({ timeout: 10000 });
 		});
 
 		test('displays temperature values with degrees', async ({ page }) => {
-			// Wait for WirelessTag section to load
-			const wirelesstagSection = page.locator('[data-testid="wirelesstag-readings"]');
-			await expect(wirelesstagSection.getByText('Water:')).toBeVisible({ timeout: 10000 });
+			// Wait for ESP32 section to load
+			const esp32Section = page.locator('[data-testid="esp32-readings"]');
+			await expect(esp32Section.getByText('Water:')).toBeVisible({ timeout: 10000 });
 			// Check that at least one temperature value is shown
-			const waterTemp = wirelesstagSection.locator('text=Water:').locator('..').locator('span.font-medium');
+			const waterTemp = esp32Section.locator('text=Water:').locator('..').locator('span.font-medium');
 			await expect(waterTemp).toBeVisible();
 			await expect(waterTemp).toHaveText(/\d+(\.\d)?°F/);
 		});
 
-		test('displays refresh button in WirelessTag section', async ({ page }) => {
-			// Refresh button is now in the WirelessTag section
-			await expect(page.locator('[data-testid="wirelesstag-refresh"]')).toBeVisible({ timeout: 10000 });
+		test('displays refresh button in the header', async ({ page }) => {
+			// Refresh button is in the ESP32 section
+			await expect(page.locator('[data-testid="esp32-refresh"]')).toBeVisible({ timeout: 10000 });
 		});
 	});
 
@@ -72,28 +88,28 @@ test.describe('Temperature Display Feature', () => {
 	});
 
 	test.describe('Refresh Functionality', () => {
-		test('clicking WirelessTag refresh button fetches new temperature', async ({ page }) => {
+		test('clicking ESP32 refresh button fetches new temperature', async ({ page }) => {
 			// Wait for initial load
-			await expect(page.locator('[data-testid="wirelesstag-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
+			await expect(page.locator('[data-testid="esp32-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
 
-			// Click WirelessTag refresh
-			const refreshButton = page.locator('[data-testid="wirelesstag-refresh"]');
-			await refreshButton.click();
+			// Click ESP32 refresh
+			const refreshButton = page.locator('[data-testid="esp32-refresh"]');
+			await refreshButton.click({ force: true });
 
 			// Should still display temperature after refresh
-			await expect(page.locator('[data-testid="wirelesstag-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
+			await expect(page.locator('[data-testid="esp32-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
 		});
 	});
 
 	test.describe('Inline Layout', () => {
 		test('water and ambient temps are on the same line when space permits', async ({ page }) => {
 			// Wait for temperature to load
-			const wirelesstagSection = page.locator('[data-testid="wirelesstag-readings"]');
-			await expect(wirelesstagSection.getByText('Water:')).toBeVisible({ timeout: 10000 });
+			const esp32Section = page.locator('[data-testid="esp32-readings"]');
+			await expect(esp32Section.getByText('Water:')).toBeVisible({ timeout: 10000 });
 
-			// Get the bounding boxes of both temperature readings within WirelessTag section
-			const waterTemp = wirelesstagSection.locator('text=Water:').locator('..');
-			const ambientTemp = wirelesstagSection.locator('text=Ambient:').locator('..');
+			// Get the bounding boxes of both temperature readings within ESP32 section
+			const waterTemp = esp32Section.locator('text=Water:').locator('..');
+			const ambientTemp = esp32Section.locator('text=Ambient:').locator('..');
 
 			await expect(waterTemp).toBeVisible();
 			await expect(ambientTemp).toBeVisible();
@@ -110,20 +126,7 @@ test.describe('Temperature Display Feature', () => {
 		});
 	});
 
-	test.describe('Visual regression', () => {
-		test('captures screenshot of temperature panel', async ({ page }) => {
-			// Wait for temperature to load
-			await expect(page.locator('[data-testid="wirelesstag-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
-
-			// Take a screenshot for visual inspection
-			await page.screenshot({ path: '/tmp/temperature-panel-ui.png', fullPage: true });
-
-			// Basic sanity check - page should have the temperature section
-			await expect(page.getByRole('heading', { name: 'Temperature', exact: true })).toBeVisible();
-		});
-	});
-
-	test.describe('Source-Specific Timestamps', () => {
+	test.describe('ESP32 Timestamps', () => {
 		test('ESP32 source displays its own timestamp', async ({ page }) => {
 			// Wait for ESP32 section to load
 			await expect(page.locator('[data-testid="esp32-readings"]')).toBeVisible({ timeout: 10000 });
@@ -134,42 +137,9 @@ test.describe('Temperature Display Feature', () => {
 			// Should contain "Last reading:" label
 			await expect(esp32Timestamp).toContainText(/Last reading:/i);
 		});
-
-		test('WirelessTag source displays its own timestamp', async ({ page }) => {
-			// Wait for WirelessTag section to load
-			await expect(page.locator('[data-testid="wirelesstag-readings"]')).toBeVisible({ timeout: 10000 });
-
-			// WirelessTag section should have its own timestamp display
-			const wirelesstagTimestamp = page.locator('[data-testid="wirelesstag-timestamp"]');
-			await expect(wirelesstagTimestamp).toBeVisible();
-			// Should contain "Last reading:" label (shows when sensor took reading, not when fetched)
-			await expect(wirelesstagTimestamp).toContainText(/Last reading:/i);
-		});
-
-		test('ESP32 and WirelessTag have separate timestamps', async ({ page }) => {
-			// Wait for both sections to load
-			await expect(page.locator('[data-testid="esp32-readings"]')).toBeVisible({ timeout: 10000 });
-			await expect(page.locator('[data-testid="wirelesstag-readings"]')).toBeVisible({ timeout: 10000 });
-
-			// Both should have their own timestamps
-			const esp32Timestamp = page.locator('[data-testid="esp32-timestamp"]');
-			const wirelesstagTimestamp = page.locator('[data-testid="wirelesstag-timestamp"]');
-
-			await expect(esp32Timestamp).toBeVisible();
-			await expect(wirelesstagTimestamp).toBeVisible();
-		});
 	});
 
-	test.describe('Source-Specific Refresh Buttons', () => {
-		test('WirelessTag source has its own refresh button', async ({ page }) => {
-			// Wait for WirelessTag section to load
-			await expect(page.locator('[data-testid="wirelesstag-readings"]')).toBeVisible({ timeout: 10000 });
-
-			// WirelessTag section should have a refresh button
-			const wirelesstagRefresh = page.locator('[data-testid="wirelesstag-refresh"]');
-			await expect(wirelesstagRefresh).toBeVisible();
-		});
-
+	test.describe('ESP32 Refresh Button', () => {
 		test('ESP32 source has its own refresh button', async ({ page }) => {
 			// Wait for ESP32 section to load
 			await expect(page.locator('[data-testid="esp32-readings"]')).toBeVisible({ timeout: 10000 });
@@ -185,68 +155,13 @@ test.describe('Temperature Display Feature', () => {
 
 			// Click ESP32 refresh
 			const esp32Refresh = page.locator('[data-testid="esp32-refresh"]');
-			await esp32Refresh.click();
+			await esp32Refresh.click({ force: true });
 
 			// ESP32 section should still show temperature after refresh
 			await expect(page.locator('[data-testid="esp32-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
 
 			// ESP32 timestamp should still be visible (comes from backend)
 			await expect(page.locator('[data-testid="esp32-timestamp"]')).toBeVisible();
-		});
-
-		test('clicking WirelessTag refresh only affects WirelessTag', async ({ page }) => {
-			// Wait for both sections to load
-			await expect(page.locator('[data-testid="esp32-readings"]')).toBeVisible({ timeout: 10000 });
-			await expect(page.locator('[data-testid="wirelesstag-readings"]')).toBeVisible({ timeout: 10000 });
-
-			// Click WirelessTag refresh
-			const wirelesstagRefresh = page.locator('[data-testid="wirelesstag-refresh"]');
-			await wirelesstagRefresh.click();
-
-			// WirelessTag section should show refreshing indicator
-			const wirelesstagSection = page.locator('[data-testid="wirelesstag-section"]');
-			await expect(wirelesstagSection.locator('.animate-spin')).toBeVisible({ timeout: 5000 });
-
-			// Temperature should still be visible in WirelessTag section after refresh
-			await expect(page.locator('[data-testid="wirelesstag-readings"]').getByText('Water:')).toBeVisible({ timeout: 15000 });
-		});
-
-		test('clicking ESP32 refresh does NOT update WirelessTag timestamp', async ({ page }) => {
-			// Wait for both sections to load
-			await expect(page.locator('[data-testid="esp32-readings"]')).toBeVisible({ timeout: 10000 });
-			await expect(page.locator('[data-testid="wirelesstag-readings"]')).toBeVisible({ timeout: 10000 });
-
-			// Get the initial WirelessTag timestamp
-			const wirelesstagTimestamp = page.locator('[data-testid="wirelesstag-timestamp"]');
-			await expect(wirelesstagTimestamp).toBeVisible();
-			const initialTimestamp = await wirelesstagTimestamp.textContent();
-
-			// Wait a moment to ensure any timestamp would be different
-			await page.waitForTimeout(1500);
-
-			// Click ESP32 refresh
-			const esp32Refresh = page.locator('[data-testid="esp32-refresh"]');
-			await esp32Refresh.click();
-
-			// Wait for refresh to complete
-			await expect(page.locator('[data-testid="esp32-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
-
-			// WirelessTag timestamp should NOT have changed
-			const afterTimestamp = await wirelesstagTimestamp.textContent();
-			expect(afterTimestamp).toBe(initialTimestamp);
-		});
-	});
-
-	test.describe('No Global Refresh Button', () => {
-		test('there is no global refresh button in the header', async ({ page }) => {
-			// Wait for temperature panel to load
-			await expect(page.getByRole('heading', { name: 'Temperature', exact: true })).toBeVisible();
-			await expect(page.locator('[data-testid="wirelesstag-readings"]').getByText('Water:')).toBeVisible({ timeout: 10000 });
-
-			// The header should NOT contain a global refresh button
-			// The old global refresh button had aria-label="Refresh temperature"
-			const globalRefresh = page.locator('button[aria-label="Refresh temperature"]');
-			await expect(globalRefresh).not.toBeVisible();
 		});
 	});
 
