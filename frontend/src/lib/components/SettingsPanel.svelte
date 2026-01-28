@@ -6,15 +6,16 @@
 		setAutoHeatOffMinutes,
 		AUTO_HEAT_OFF_DEFAULTS
 	} from '$lib/autoHeatOff';
+	import { getRefreshTempOnHeaterOff, setRefreshTempOnHeaterOff } from '$lib/settings';
 	import {
-		getRefreshTempOnHeaterOff,
-		setRefreshTempOnHeaterOff,
-		getTargetTempEnabled,
-		setTargetTempEnabled,
+		getEnabled as getTargetTempEnabled,
 		getTargetTempF,
-		setTargetTempF,
-		TARGET_TEMP_DEFAULTS
-	} from '$lib/settings';
+		getMinTempF,
+		getMaxTempF,
+		updateSettings as updateTargetTempSettings,
+		getIsLoading as getTargetTempLoading,
+		getError as getTargetTempError
+	} from '$lib/stores/heatTargetSettings.svelte';
 	import { api, type TargetTemperatureState } from '$lib/api';
 	import { onMount } from 'svelte';
 
@@ -30,6 +31,18 @@
 	let loadingHeatTarget = $state(false);
 	let cancellingHeatTarget = $state(false);
 	let heatTargetError = $state<string | null>(null);
+
+	// Local state for target temp form (synced from store)
+	let localTargetTempEnabled = $state(getTargetTempEnabled());
+	let localTargetTempF = $state(getTargetTempF());
+	let savingTargetTemp = $state(false);
+	let targetTempSaveError = $state<string | null>(null);
+	let userHasEditedTargetTemp = $state(false); // Track if user made changes
+
+	// Track if local values differ from store (dirty state)
+	let targetTempDirty = $derived(
+		localTargetTempEnabled !== getTargetTempEnabled() || localTargetTempF !== getTargetTempF()
+	);
 
 	async function loadServerHeatTargetState() {
 		if (!isAdmin) return;
@@ -57,18 +70,36 @@
 		}
 	}
 
+	async function saveTargetTempSettings() {
+		savingTargetTemp = true;
+		targetTempSaveError = null;
+		try {
+			await updateTargetTempSettings(localTargetTempEnabled, localTargetTempF);
+			userHasEditedTargetTemp = false; // Reset after successful save
+		} catch (e) {
+			targetTempSaveError = e instanceof Error ? e.message : 'Failed to save';
+		} finally {
+			savingTargetTemp = false;
+		}
+	}
+
 	onMount(() => {
 		if (isAdmin) {
 			loadServerHeatTargetState();
 		}
 	});
 
+	// Sync local state with store when store updates (e.g., from health response)
+	// Only sync when user hasn't made unsaved changes
+	$effect(() => {
+		if (!userHasEditedTargetTemp) {
+			localTargetTempEnabled = getTargetTempEnabled();
+			localTargetTempF = getTargetTempF();
+		}
+	});
+
 	// Refresh temp on heater-off state
 	let refreshTempOnHeaterOff = $state(getRefreshTempOnHeaterOff());
-
-	// Target temperature settings
-	let targetTempEnabled = $state(getTargetTempEnabled());
-	let targetTempF = $state(getTargetTempF());
 
 	function handleAutoHeatOffToggle(event: Event) {
 		const target = event.target as HTMLInputElement;
@@ -95,16 +126,16 @@
 
 	function handleTargetTempEnabledToggle(event: Event) {
 		const target = event.target as HTMLInputElement;
-		targetTempEnabled = target.checked;
-		setTargetTempEnabled(target.checked);
+		localTargetTempEnabled = target.checked;
+		userHasEditedTargetTemp = true;
 	}
 
 	function handleTargetTempChange(event: Event) {
 		const target = event.target as HTMLInputElement;
 		const value = parseFloat(target.value);
 		if (!isNaN(value)) {
-			targetTempF = value;
-			setTargetTempF(value);
+			localTargetTempF = value;
+			userHasEditedTargetTemp = true;
 		}
 	}
 </script>
@@ -160,63 +191,84 @@
 		</p>
 	</div>
 
-	<!-- Target Temperature -->
-	<div class="border-t border-slate-700 pt-4 mt-4">
-		<h3 class="text-sm font-medium text-slate-300 mb-3">Target Temperature</h3>
-		<div class="space-y-3">
-			<label class="flex items-center gap-2 cursor-pointer">
-				<input
-					type="checkbox"
-					checked={targetTempEnabled}
-					onchange={handleTargetTempEnabledToggle}
-					class="w-4 h-4 rounded border-slate-500 bg-slate-700 text-orange-500 focus:ring-orange-500 focus:ring-offset-slate-800"
-				/>
-				<span class="text-slate-200 text-sm">Enable heat to target</span>
-			</label>
-
-			<div class="ml-6 space-y-2">
-				<div class="flex items-center gap-3">
-					<label for="targetTempSlider" class="text-slate-400 text-sm">Target temp</label>
+	<!-- Target Temperature (Admin only) -->
+	{#if isAdmin}
+		<div class="border-t border-slate-700 pt-4 mt-4">
+			<h3 class="text-sm font-medium text-slate-300 mb-3">Target Temperature (Global Setting)</h3>
+			<div class="space-y-3">
+				<label class="flex items-center gap-2 cursor-pointer">
 					<input
-						type="number"
-						id="targetTempInput"
-						aria-label="Target temp input"
-						value={targetTempF}
-						onchange={handleTargetTempChange}
-						min={TARGET_TEMP_DEFAULTS.minTempF}
-						max={TARGET_TEMP_DEFAULTS.maxTempF}
-						step="0.25"
-						inputmode="decimal"
-						class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-orange-400 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-					/><span class="text-orange-400 font-medium">°F</span>
-				</div>
-				<input
-					type="range"
-					id="targetTempSlider"
-					aria-label="Target temp"
-					value={targetTempF}
-					oninput={handleTargetTempChange}
-					min={TARGET_TEMP_DEFAULTS.minTempF}
-					max={TARGET_TEMP_DEFAULTS.maxTempF}
-					step="0.25"
-					class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
-				/>
-				<div class="flex justify-between text-xs text-slate-500">
-					<span>{TARGET_TEMP_DEFAULTS.minTempF}°F</span>
-					<span>{TARGET_TEMP_DEFAULTS.maxTempF}°F</span>
-				</div>
-			</div>
+						type="checkbox"
+						checked={localTargetTempEnabled}
+						onchange={handleTargetTempEnabledToggle}
+						disabled={savingTargetTemp}
+						class="w-4 h-4 rounded border-slate-500 bg-slate-700 text-orange-500 focus:ring-orange-500 focus:ring-offset-slate-800 disabled:opacity-50"
+					/>
+					<span class="text-slate-200 text-sm">Enable heat to target</span>
+				</label>
 
-			<p class="text-slate-500 text-xs ml-6">
-				When enabled, heater will automatically turn off when target is reached
-			</p>
+				<div class="ml-6 space-y-2">
+					<div class="flex items-center gap-3">
+						<label for="targetTempSlider" class="text-slate-400 text-sm">Target temp</label>
+						<input
+							type="number"
+							id="targetTempInput"
+							aria-label="Target temp input"
+							value={localTargetTempF}
+							onchange={handleTargetTempChange}
+							min={getMinTempF()}
+							max={getMaxTempF()}
+							step="0.25"
+							inputmode="decimal"
+							disabled={savingTargetTemp}
+							class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-orange-400 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+						/><span class="text-orange-400 font-medium">°F</span>
+					</div>
+					<input
+						type="range"
+						id="targetTempSlider"
+						aria-label="Target temp"
+						value={localTargetTempF}
+						oninput={handleTargetTempChange}
+						min={getMinTempF()}
+						max={getMaxTempF()}
+						step="0.25"
+						disabled={savingTargetTemp}
+						class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500 disabled:opacity-50"
+					/>
+					<div class="flex justify-between text-xs text-slate-500">
+						<span>{getMinTempF()}°F</span>
+						<span>{getMaxTempF()}°F</span>
+					</div>
+				</div>
+
+				<p class="text-slate-500 text-xs ml-6">
+					When enabled, heater will automatically turn off when target is reached. This setting
+					affects all users.
+				</p>
+
+				{#if targetTempDirty}
+					<div class="ml-6 flex items-center gap-2">
+						<button
+							onclick={saveTargetTempSettings}
+							disabled={savingTargetTemp}
+							class="bg-orange-600 hover:bg-orange-700 disabled:bg-orange-800 disabled:cursor-not-allowed text-white text-sm font-medium py-1.5 px-4 rounded transition-colors"
+						>
+							{savingTargetTemp ? 'Saving...' : 'Save Settings'}
+						</button>
+						{#if targetTempSaveError}
+							<span class="text-red-400 text-sm">{targetTempSaveError}</span>
+						{/if}
+					</div>
+				{/if}
+			</div>
 		</div>
-	</div>
+	{/if}
 
 	<!-- Admin: Server Heat-Target Status -->
 	{#if isAdmin}
 		<div class="border-t border-slate-700 pt-4 mt-4">
-			<h3 class="text-sm font-medium text-slate-300 mb-3">Server Heat-Target Status (Admin)</h3>
+			<h3 class="text-sm font-medium text-slate-300 mb-3">Active Heat-Target Job</h3>
 
 			{#if loadingHeatTarget}
 				<p class="text-slate-400 text-sm">Loading...</p>
@@ -241,7 +293,7 @@
 						disabled={cancellingHeatTarget}
 						class="mt-2 w-full bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded transition-colors"
 					>
-						{cancellingHeatTarget ? 'Cancelling...' : 'Cancel All Heat-Target Jobs'}
+						{cancellingHeatTarget ? 'Cancelling...' : 'Cancel Heat-Target Job'}
 					</button>
 					<p class="text-slate-500 text-xs">
 						This will remove the heat-target state, all related cron entries, and job files.

@@ -41,6 +41,12 @@ vi.mock('$lib/config', () => ({
 	},
 }));
 
+// Mock heatTargetSettings store
+vi.mock('$lib/stores/heatTargetSettings.svelte', () => ({
+	getEnabled: vi.fn(() => false),
+	getTargetTempF: vi.fn(() => 103)
+}));
+
 describe('SchedulePanel auto-refresh', () => {
 	beforeEach(() => {
 		vi.useFakeTimers();

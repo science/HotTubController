@@ -87,11 +87,17 @@ export interface EquipmentStatus {
 	pump: EquipmentState;
 }
 
+export interface HeatTargetSettings {
+	enabled: boolean;
+	target_temp_f: number;
+}
+
 export interface HealthResponse {
 	status: string;
 	ifttt_mode: string;
 	equipmentStatus: EquipmentStatus;
 	blindsEnabled?: boolean;
+	heatTargetSettings?: HeatTargetSettings;
 }
 
 export interface TargetTemperatureState {
@@ -254,5 +260,13 @@ export const api = {
 	heatToTarget: (target_temp_f: number) =>
 		postJson<TargetTemperatureState>('/api/equipment/heat-to-target', { target_temp_f }),
 	getTargetTempStatus: () => get<TargetTemperatureState>('/api/equipment/heat-to-target'),
-	cancelTargetTemp: () => del('/api/equipment/heat-to-target')
+	cancelTargetTemp: () => del('/api/equipment/heat-to-target'),
+
+	// Heat-target settings endpoints (shared backend settings)
+	getHeatTargetSettings: () => get<HeatTargetSettings>('/api/settings/heat-target'),
+	updateHeatTargetSettings: (enabled: boolean, target_temp_f: number) =>
+		put<HeatTargetSettings & { message: string }>('/api/settings/heat-target', {
+			enabled,
+			target_temp_f
+		})
 };

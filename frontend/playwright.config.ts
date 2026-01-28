@@ -32,7 +32,8 @@ export default defineConfig({
 	webServer: [
 		{
 			// Backend server - must match vite.config.ts proxy target (8080)
-			command: 'php -S localhost:8080 -t ../backend/public',
+			// Uses router.php for URL rewriting (required for PHP built-in server)
+			command: 'cd ../backend/public && php -S localhost:8080 router.php',
 			url: 'http://localhost:8080/api/health',
 			reuseExistingServer: !process.env.CI,
 			timeout: 10000,

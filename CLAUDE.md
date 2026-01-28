@@ -12,56 +12,127 @@ Hot tub controller system with a PHP backend API, SvelteKit frontend, and ESP32 
 backend/           # PHP API (PHPUnit tests)
 frontend/          # SvelteKit + TypeScript + Tailwind (Vitest unit tests, Playwright E2E)
 esp32/             # ESP32 firmware (PlatformIO, Unity tests)
+scripts/           # Test and build automation scripts
 ```
 
-## Build & Test Commands
+## Running Tests
 
-### Backend (PHP)
+### Unified Test Script (REQUIRED)
+
+**Always use the unified test script to run tests.** It handles environment setup, port cleanup, and configuration automatically.
+
+```bash
+./scripts/test.sh              # Run ALL tests (setup + backend + frontend + esp32 + e2e)
+./scripts/test.sh e2e          # Run only E2E tests
+./scripts/test.sh backend      # Run only backend tests
+./scripts/test.sh frontend     # Run only frontend unit tests
+./scripts/test.sh esp32        # Run only ESP32 tests
+./scripts/test.sh status       # Check if environment is ready for testing
+./scripts/test.sh setup        # Configure environment for testing
+./scripts/test.sh cleanup      # Kill leftover processes on ports 8080/5173
+```
+
+**What the script does automatically:**
+1. Copies `backend/config/env.testing` → `backend/.env` (configures `JWT_SECRET`, `EXTERNAL_API_MODE=stub`)
+2. Kills leftover processes on test ports (8080, 5173)
+3. Runs the requested test suite(s)
+4. Cleans up after tests complete
+
+**Common issues the script prevents:**
+- `JWT_SECRET` empty → "Key material must not be empty" error
+- `EXTERNAL_API_MODE=live` → Tests hit real external APIs
+- Port 8080/5173 in use → Playwright can't start servers
+
+### Pre-PR Testing Checklist
+
+**Before creating a PR to production:**
+
+```bash
+./scripts/test.sh              # Runs all test suites
+```
+
+This runs:
+- Backend PHPUnit tests (685 tests)
+- Frontend Vitest unit tests (150 tests)
+- ESP32 Unity native tests (58 tests)
+- Playwright E2E tests (104 tests)
+
+### Manual Test Commands (Reference Only)
+
+If you need to run tests manually (not recommended), here are the individual commands:
+
+**Backend (PHP):**
 ```bash
 cd backend
-composer test                           # Run tests (excludes live API tests)
-composer test:all                       # Run ALL tests including live API tests
-composer test:live                      # Run only live API tests
-./vendor/bin/phpunit --filter=testName  # Run single test
+php vendor/bin/phpunit                  # Run tests (requires .env configured)
+php vendor/bin/phpunit --filter=testName  # Run single test
+```
+
+**Frontend (SvelteKit):**
+```bash
+cd frontend
+npm run test             # Run Vitest unit tests
+npm run test:watch       # Unit tests in watch mode
+npm run test:e2e         # Run Playwright E2E tests (requires backend .env configured)
+npm run test:e2e:ui      # E2E tests with interactive UI
+```
+
+**ESP32 (PlatformIO):**
+```bash
+cd esp32
+pio test -e native              # Run native unit tests (runs on host machine)
+pio test                        # Run embedded unit tests (requires device)
+pio test -e hardware_test       # Run ALL tests including hardware integration
+```
+
+### E2E Test Details
+
+Playwright tests in `frontend/e2e/` test frontend-backend integration:
+- Auto-starts PHP backend on port 8080
+- Auto-starts Vite frontend on port 5174
+- Frontend served at `/tub` base path
+- Tests run against Chromium by default
+
+**Test data setup:**
+- `global-setup.ts` creates ESP32 test data and resets heat-target settings
+- `global-teardown.ts` cleans up test user accounts
+
+### Test Artifact Cleanup
+
+Tests create artifacts that are automatically cleaned up:
+
+**E2E Tests (Users):**
+- `global-setup.ts` cleans stale test users BEFORE tests run
+- `global-teardown.ts` cleans test users AFTER tests run
+- Patterns cleaned: `testuser_*`, `deletetest_*`, `basic_e2e_test`, `testuser_heat_settings_*`
+
+**PHPUnit Tests (Healthchecks):**
+- Each test's `tearDown()` deletes checks it created
+- Patterns cleaned: `poc-test-*`, `live-test-*`, `workflow-test-*`, `channel-test-*`
+
+## Build Commands
+
+### Backend
+```bash
+cd backend
 php -S localhost:8080 -t public         # Start dev server
 ```
 
-**Test Groups:**
-- Default (`composer test`): Fast tests using stubs/mocks - safe for daily development
-- Live (`composer test:live`): Tests that hit real external APIs (Healthchecks.io, etc.)
-- All (`composer test:all`): Full suite - **run before pushing to production**
-
-Tests tagged `@group live` are excluded by default to keep the feedback loop fast and avoid hitting external APIs unnecessarily.
-
-### Frontend (SvelteKit)
+### Frontend
 ```bash
 cd frontend
 npm run dev              # Start dev server (port 5173)
 npm run build            # Production build
-npm run test             # Run Vitest unit tests
-npm run test:watch       # Unit tests in watch mode
-npm run test:e2e         # Run Playwright E2E tests (auto-starts backend + frontend)
-npm run test:e2e:ui      # E2E tests with interactive UI
 npm run check            # TypeScript/Svelte type checking
 ```
 
-**E2E Testing**: Playwright tests in `frontend/e2e/` test frontend-backend integration. They auto-start servers on ports 5174 (frontend) and 8081 (backend). The frontend is served at `/tub` base path.
-
-### ESP32 (PlatformIO)
+### ESP32
 ```bash
 cd esp32
 pio run                          # Build firmware
 pio run -t upload                # Build and upload to device
-pio test                         # Run unit tests only (safe for CI)
-pio test -e hardware_test        # Run ALL tests including hardware integration
 pio device monitor               # Serial monitor
 ```
-
-**Test Environments:**
-- Default (`pio test`): Runs only unit tests from `test/test_unit/`
-- Hardware (`pio test -e hardware_test`): Runs ALL tests including `test/test_hardware_integration/`
-
-Hardware integration tests require physical sensors connected and should only be run manually when working with the ESP32 device.
 
 **ESP32 Configuration:**
 The ESP32 uses build-time secrets injection via `load_env.py`. Create `esp32/.env`:
@@ -75,35 +146,6 @@ ESP32_API_KEY=your-api-key
 **ESP32 Remote Access:**
 - **Telnet debugger**: `telnet <esp32-ip> 23` - commands: `diag`, `read`, `info`, `scan`
 - **HTTP OTA updates**: Automatic via API response; deploy new firmware by updating `backend/storage/firmware/`
-- See README.md "ESP32 Remote Debugging" and "ESP32 HTTP OTA Firmware Updates" for detailed instructions
-
-### Test Artifact Cleanup
-
-Tests create artifacts (user accounts, healthchecks.io checks) that are automatically cleaned up:
-
-**E2E Tests (Users)** - Fully automatic:
-- `global-setup.ts` cleans stale test users BEFORE tests run (catches previous run failures)
-- `global-teardown.ts` cleans test users AFTER tests run (catches current run failures)
-- Patterns cleaned: `testuser_*`, `deletetest_*`, `basic_e2e_test`
-
-**PHPUnit Tests (Healthchecks)** - Automatic with live tests:
-- Each test's `tearDown()` deletes checks it created
-- `composer test:live` and `composer test:all` run cleanup script after tests
-- Patterns cleaned: `poc-test-*`, `live-test-*`, `workflow-test-*`, `channel-test-*`
-
-**Manual cleanup** (if needed):
-```bash
-# Check for stale healthchecks (dry run)
-cd backend && composer cleanup:healthchecks:dry
-
-# Delete stale healthchecks
-cd backend && composer cleanup:healthchecks
-```
-
-**When writing new tests** that create external artifacts:
-- Use recognizable test prefixes (e.g., `testuser_`, `poc-test-`)
-- Add cleanup in `tearDown()` / `afterAll()` / `afterEach()`
-- Add new patterns to cleanup scripts if introducing new prefixes
 
 ## Architecture
 
@@ -115,6 +157,7 @@ cd backend && composer cleanup:healthchecks
   - `ScheduleController` - Scheduled job management via crontab
   - `AuthController` - JWT-based authentication
   - `UserController` - User management (admin only)
+  - `HeatTargetSettingsController` - Global heat-to-target settings (admin only)
   - `MaintenanceController` - Log rotation endpoint for cron
   - `TemperatureController` - Temperature readings from ESP32
   - `Esp32TemperatureController` - Receives temperature data from ESP32
@@ -124,6 +167,7 @@ cd backend && composer cleanup:healthchecks
   - `CronSchedulingService` - **Centralized cron scheduling with correct timezone handling** (see DRY Principles)
   - `SchedulerService` - Creates/lists/cancels cron jobs with Healthchecks.io monitoring
   - `TargetTemperatureService` - Heat-to-target feature with automatic cron-based temperature checks
+  - `HeatTargetSettingsService` - Stores global heat-to-target enabled/target_temp settings
   - `AuthService` - JWT token validation
   - `EquipmentStatusService` - Tracks heater/pump on/off state in JSON file
   - `RequestLogger` - API request logging in JSON Lines format
@@ -145,7 +189,6 @@ cd backend && composer cleanup:healthchecks
   - `HealthchecksClient` - Real API calls to Healthchecks.io
   - `NullHealthchecksClient` - No-op client (stub mode or no API key)
 - **Factory**: `HealthchecksClientFactory` - Creates client based on EXTERNAL_API_MODE
-- **Cron Scheduling**: `CronSchedulingService` - Centralized cron job scheduling (see DRY Principles below)
 
 ### Frontend
 - **Framework**: SvelteKit with Svelte 5 runes (`$state`, `$effect`)
@@ -155,16 +198,18 @@ cd backend && composer cleanup:healthchecks
 - **Stores**:
   - `auth.svelte.ts` - Authentication state with role-based access
   - `equipmentStatus.svelte.ts` - Equipment on/off state with auto-refresh
+  - `heatTargetSettings.svelte.ts` - Global heat-to-target settings from server
 - **Components**:
   - `CompactControlButton.svelte` - Equipment control buttons with active glow state
   - `EquipmentStatusBar.svelte` - Last update time and manual refresh button
   - `SchedulePanel.svelte` - Scheduled jobs list with auto-refresh
   - `QuickSchedulePanel.svelte` - Quick scheduling UI
-  - `TemperaturePanel.svelte` - Water/ambient temperature display
+  - `TemperaturePanel.svelte` - Water/ambient temperature display (ESP32 only)
+  - `SettingsPanel.svelte` - User settings and admin heat-target configuration
   - `SensorConfigPanel.svelte` - ESP32 sensor role/calibration configuration (admin only)
 
 ### API Endpoints
-- `GET /api/health` - Health check with equipment status
+- `GET /api/health` - Health check with equipment status and heat-target settings
 - `POST /api/auth/login` - Login (sets httpOnly cookie)
 - `POST /api/auth/logout` - Logout (clears cookie)
 - `GET /api/auth/me` - Get current user info
@@ -175,6 +220,8 @@ cd backend && composer cleanup:healthchecks
 - `POST /api/esp32/temperature` - Receive temperature data from ESP32 (API key auth)
 - `GET /api/esp32/sensors` - List ESP32 sensors with config (admin only)
 - `PUT /api/esp32/sensors/{address}` - Update sensor role/calibration (admin only)
+- `GET /api/settings/heat-target` - Get heat-to-target settings (auth required)
+- `PUT /api/settings/heat-target` - Update heat-to-target settings (admin only)
 - `POST /api/schedule` - Schedule a future action (auth required)
 - `GET /api/schedule` - List scheduled jobs (auth required)
 - `DELETE /api/schedule/{id}` - Cancel scheduled job (auth required)
@@ -222,19 +269,6 @@ $cronExpr = sprintf('%d %d %d %d *', $minute, $hour, $day, $month);
 $this->crontabAdapter->addEntry("$cronExpr $command");
 ```
 
-**Architecture:**
-```
-CronSchedulingService (use this for scheduling)
-├── scheduleAt()     → One-time jobs with correct timezone
-├── scheduleDaily()  → Recurring jobs with timezone offset
-└── getCronExpression() → Get expression only (for healthchecks)
-
-CrontabAdapter (direct use OK for these operations only)
-├── listEntries()    → Reading crontab (no timezone issues)
-├── removeByPattern() → Deleting entries (no timezone issues)
-└── addEntry()       → ONLY for static schedules like "0 3 1 * *"
-```
-
 **When is direct CrontabAdapter use acceptable?**
 - Reading entries (`listEntries()`) - no timezone conversion needed
 - Deleting entries (`removeByPattern()`) - pattern matching only
@@ -253,27 +287,12 @@ CrontabAdapter (direct use OK for these operations only)
 - If you find yourself on `production`, switch to `main` before making changes
 - The `production` branch represents what's deployed to the live server
 
-## Pre-PR Testing Checklist
+**IMPORTANT: Code flows one direction only: main → production. Never merge production back into main.**
 
-**Before creating a PR to production, run the full test suite locally:**
-
-```bash
-cd backend
-composer test:all    # Runs ALL tests including live API and E2E tests
-```
-
-This ensures:
-- Unit tests pass (fast, uses mocks)
-- Integration tests pass (uses mocks, tests component interactions)
-- Live API tests pass (hits real Healthchecks.io - requires API key)
-- E2E tests pass (starts real servers, tests full request chain)
-
-**If short on time**, at minimum run:
-```bash
-composer test        # Fast tests only (excludes live/E2E)
-```
-
-The GitHub Actions workflow only handles deployment - it does NOT run tests. Testing is your responsibility before merging.
+- Do NOT run `git merge origin/production` or similar commands
+- After a PR is merged to production, the merge commits belong to production's history, not main's
+- If you need to sync local main, use `git pull origin main` (not production)
+- The only exception: hotfixes made directly on production (which should be rare and require user approval)
 
 ## Production Server Access
 
@@ -288,32 +307,6 @@ FTP credentials in `backend/config/env.production` provide access to the product
 - ALL code changes MUST go through the git workflow: commit → push to main → PR to production → merge
 - NEVER use FTP, curl, or any other method to upload/modify files on production
 - Even for urgent hotfixes, use the PR workflow (it only takes a minute)
-- If you accidentally deploy via FTP, immediately create a proper PR to ensure git matches production
-
-**Why this matters:**
-- FTP bypasses version control, breaking traceability
-- Production state diverges from git, causing confusion
-- No code review or audit trail for changes
-- Merging PRs overwrites FTP changes anyway
-
-**IMPORTANT: Code flows one direction only: main → production. Never merge production back into main.**
-
-- Do NOT run `git merge origin/production` or similar commands
-- After a PR is merged to production, the merge commits belong to production's history, not main's
-- If you need to sync local main, use `git pull origin main` (not production)
-- The only exception: hotfixes made directly on production (which should be rare and require user approval)
-- If uncertain about branch operations, ask the user before proceeding
-
-```bash
-# Check current branch
-git branch
-
-# Switch to main if on production
-git checkout main
-
-# Sync local main with origin (correct way)
-git pull origin main
-```
 
 ## Development Methodology: TDD Red/Green
 
@@ -335,30 +328,28 @@ git pull origin main
 
 ### Environment Configuration
 
-The app uses **file-based configuration** via `backend/.env` for simple deployment:
+The app uses **file-based configuration** via `backend/.env`:
 
 ```
 backend/
-├── .env                          # Active config (gitignored)
-├── .env.example                  # Template with instructions
+├── .env                          # Active config (gitignored, created by test script or manually)
 ├── config/
 │   ├── env.development           # Local dev (stub mode)
-│   ├── env.testing               # PHPUnit tests (stub mode)
+│   ├── env.testing               # For tests (stub mode, has JWT_SECRET)
 │   ├── env.staging               # Staging server (live mode)
 │   └── env.production.example    # Production template (live mode)
 ```
 
-**Deployment workflow:**
-1. Copy the appropriate `config/env.*` file to `backend/.env`
-2. Update any placeholder values (API keys)
-3. Deploy - the app always reads from `backend/.env`
+**For testing:** The `./scripts/test.sh` script automatically configures `.env` correctly.
 
+**For development:**
 ```bash
-# Local development
-cp config/env.development .env
+cp backend/config/env.development backend/.env
+```
 
-# Production deployment
-cp config/env.production.example .env
+**For production:**
+```bash
+cp backend/config/env.production.example backend/.env
 # Edit .env to add your real IFTTT_WEBHOOK_KEY
 ```
 
@@ -367,7 +358,7 @@ A unified `EXTERNAL_API_MODE` controls ALL external service calls (IFTTT, Health
 
 ```bash
 # In .env file:
-EXTERNAL_API_MODE=stub   # Development: simulated calls (safe)
+EXTERNAL_API_MODE=stub   # Development/Testing: simulated calls (safe)
 EXTERNAL_API_MODE=live   # Production: real API calls (requires keys)
 ```
 
@@ -375,15 +366,7 @@ EXTERNAL_API_MODE=live   # Production: real API calls (requires keys)
 - `stub` - All external APIs use simulated responses (no network calls)
 - `live` - All external APIs make real calls (requires API keys)
 
-**Required `.env` variables for live mode:**
-```bash
-EXTERNAL_API_MODE=live
-IFTTT_WEBHOOK_KEY=your-ifttt-key          # For equipment control
-ESP32_API_KEY=your-esp32-api-key          # For temperature sensor auth
-```
-
 **Safety rules:**
-- Always use `EXTERNAL_API_MODE=stub` during development
+- Always use `EXTERNAL_API_MODE=stub` during development and testing
 - Never commit `backend/.env` (it's gitignored)
-- Tests automatically use stub mode via `phpunit.xml`
-- Live tests (`@group live`) explicitly pass `'live'` mode parameter
+- The test script automatically sets stub mode

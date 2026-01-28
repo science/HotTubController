@@ -86,7 +86,8 @@ test.describe('Auth State Recovery', () => {
 		await page.goto('/tub/login');
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		// Use keyboard Enter for more reliable form submission
+		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
 		// Should show username and logout button

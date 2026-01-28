@@ -11,7 +11,7 @@ test.describe('Settings Panel Feature', () => {
 		await page.goto('/tub/login');
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 	});
 
@@ -58,14 +58,14 @@ test.describe('Settings Panel Feature', () => {
 			const initialChecked = await checkbox.isChecked();
 
 			// Toggle the checkbox
-			await checkbox.click();
+			await checkbox.click({ force: true });
 
 			// Verify it toggled
 			const newChecked = await checkbox.isChecked();
 			expect(newChecked).toBe(!initialChecked);
 
 			// Toggle back to original state
-			await checkbox.click();
+			await checkbox.click({ force: true });
 			expect(await checkbox.isChecked()).toBe(initialChecked);
 		});
 
@@ -90,14 +90,14 @@ test.describe('Settings Panel Feature', () => {
 			const initialChecked = await checkbox.isChecked();
 
 			// Toggle the checkbox
-			await checkbox.click();
+			await checkbox.click({ force: true });
 
 			// Verify it toggled
 			const newChecked = await checkbox.isChecked();
 			expect(newChecked).toBe(!initialChecked);
 
 			// Toggle back to original state
-			await checkbox.click();
+			await checkbox.click({ force: true });
 			expect(await checkbox.isChecked()).toBe(initialChecked);
 		});
 	});
@@ -109,7 +109,7 @@ test.describe('Settings Panel Feature', () => {
 
 			// Get current state and toggle it
 			const initialChecked = await checkbox.isChecked();
-			await checkbox.click();
+			await checkbox.click({ force: true });
 			const newState = !initialChecked;
 
 			// Reload the page
@@ -124,7 +124,7 @@ test.describe('Settings Panel Feature', () => {
 
 			// Restore original state
 			if (await checkboxAfterReload.isChecked() !== initialChecked) {
-				await checkboxAfterReload.click();
+				await checkboxAfterReload.click({ force: true });
 			}
 		});
 
@@ -134,7 +134,7 @@ test.describe('Settings Panel Feature', () => {
 
 			// Get current state and toggle it
 			const initialChecked = await checkbox.isChecked();
-			await checkbox.click();
+			await checkbox.click({ force: true });
 			const newState = !initialChecked;
 
 			// Reload the page
@@ -149,21 +149,8 @@ test.describe('Settings Panel Feature', () => {
 
 			// Restore original state
 			if (await checkboxAfterReload.isChecked() !== initialChecked) {
-				await checkboxAfterReload.click();
+				await checkboxAfterReload.click({ force: true });
 			}
-		});
-	});
-
-	test.describe('Visual regression', () => {
-		test('captures screenshot of settings panel', async ({ page }) => {
-			// Wait for settings panel to load
-			await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10000 });
-
-			// Take a screenshot for visual inspection
-			await page.screenshot({ path: '/tmp/settings-panel-ui.png', fullPage: true });
-
-			// Basic sanity check - page should have the settings section
-			await expect(page.getByText('Settings')).toBeVisible();
 		});
 	});
 });

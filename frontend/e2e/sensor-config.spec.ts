@@ -11,7 +11,7 @@ test.describe('ESP32 Sensor Configuration Panel', () => {
 		await page.goto('/tub/login');
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 	});
 

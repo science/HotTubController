@@ -1,6 +1,6 @@
 {
-    "version": "1.5.0",
-    "filename": "firmware-1.5.0.bin",
-    "updated_at": "2026-01-26T22:30:00-08:00",
-    "notes": "Change alignment target to :53, make it server-configurable via API"
+    "version": "1.5.1",
+    "filename": "firmware-1.5.1.bin",
+    "updated_at": "2026-01-27T20:13:00-08:00",
+    "notes": "Fix alignment drift caused by API latency - anchor interval to alignment second"
 }

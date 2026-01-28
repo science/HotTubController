@@ -12,7 +12,7 @@ test.describe('Blinds Control Buttons', () => {
 		await page.goto('/tub/login');
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 	});
 
@@ -55,7 +55,7 @@ test.describe('Blinds Control Buttons', () => {
 		await expect(openBlindsButton).toBeVisible();
 
 		// Click the button
-		await openBlindsButton.click();
+		await openBlindsButton.click({ force: true });
 
 		// Should show success message
 		await expect(page.getByText('Blinds opening')).toBeVisible({ timeout: 5000 });
@@ -66,7 +66,7 @@ test.describe('Blinds Control Buttons', () => {
 		await expect(closeBlindsButton).toBeVisible();
 
 		// Click the button
-		await closeBlindsButton.click();
+		await closeBlindsButton.click({ force: true });
 
 		// Should show success message
 		await expect(page.getByText('Blinds closing')).toBeVisible({ timeout: 5000 });

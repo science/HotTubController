@@ -9,9 +9,24 @@ import { api } from '$lib/api';
 vi.mock('$lib/api', () => ({
 	api: {
 		getTargetTempStatus: vi.fn(),
-		cancelTargetTemp: vi.fn()
+		cancelTargetTemp: vi.fn(),
+		updateHeatTargetSettings: vi.fn()
 	}
 }));
+
+// Mock the heatTargetSettings store
+vi.mock('$lib/stores/heatTargetSettings.svelte', () => ({
+	getEnabled: vi.fn(() => false),
+	getTargetTempF: vi.fn(() => 103),
+	getMinTempF: vi.fn(() => 80),
+	getMaxTempF: vi.fn(() => 110),
+	updateSettings: vi.fn(),
+	getIsLoading: vi.fn(() => false),
+	getError: vi.fn(() => null)
+}));
+
+// Import the mocked store for manipulation in tests
+import * as heatTargetStore from '$lib/stores/heatTargetSettings.svelte';
 
 // Mock the modules
 vi.mock('$lib/autoHeatOff', () => ({
@@ -30,18 +45,8 @@ vi.mock('$lib/autoHeatOff', () => ({
 vi.mock('$lib/settings', () => ({
 	getRefreshTempOnHeaterOff: vi.fn(() => true),
 	setRefreshTempOnHeaterOff: vi.fn(),
-	getTargetTempEnabled: vi.fn(() => false),
-	setTargetTempEnabled: vi.fn(),
-	getTargetTempF: vi.fn(() => 103),
-	setTargetTempF: vi.fn(),
 	SETTINGS_DEFAULTS: {
 		refreshTempOnHeaterOff: true
-	},
-	TARGET_TEMP_DEFAULTS: {
-		enabled: false,
-		targetTempF: 103,
-		minTempF: 80,
-		maxTempF: 110
 	}
 }));
 
@@ -52,8 +57,9 @@ describe('SettingsPanel', () => {
 		vi.mocked(autoHeatOff.getAutoHeatOffEnabled).mockReturnValue(true);
 		vi.mocked(autoHeatOff.getAutoHeatOffMinutes).mockReturnValue(45);
 		vi.mocked(settings.getRefreshTempOnHeaterOff).mockReturnValue(true);
-		vi.mocked(settings.getTargetTempEnabled).mockReturnValue(false);
-		vi.mocked(settings.getTargetTempF).mockReturnValue(103);
+		vi.mocked(heatTargetStore.getEnabled).mockReturnValue(false);
+		vi.mocked(heatTargetStore.getTargetTempF).mockReturnValue(103);
+		vi.mocked(api.getTargetTempStatus).mockResolvedValue({ active: false, target_temp_f: null });
 	});
 
 	afterEach(() => {
@@ -127,7 +133,9 @@ describe('SettingsPanel', () => {
 			vi.mocked(settings.getRefreshTempOnHeaterOff).mockReturnValue(false);
 			render(SettingsPanel);
 
-			const checkbox = screen.getByLabelText(/refresh temperature when heater turns off/i) as HTMLInputElement;
+			const checkbox = screen.getByLabelText(
+				/refresh temperature when heater turns off/i
+			) as HTMLInputElement;
 			expect(checkbox.checked).toBe(false);
 		});
 
@@ -144,100 +152,76 @@ describe('SettingsPanel', () => {
 		});
 	});
 
-	describe('target temperature settings', () => {
-		it('renders target temperature section', () => {
-			render(SettingsPanel);
-			expect(screen.getByText(/target temperature/i)).toBeTruthy();
+	describe('target temperature settings (admin only)', () => {
+		it('does not render target temperature section for non-admin', () => {
+			render(SettingsPanel, { props: { isAdmin: false } });
+			expect(screen.queryByText(/target temperature/i)).toBeNull();
 		});
 
-		it('renders enable target temp checkbox', () => {
+		it('does not render target temperature section by default', () => {
 			render(SettingsPanel);
-			expect(screen.getByLabelText(/enable heat to target/i)).toBeTruthy();
+			expect(screen.queryByText(/target temperature/i)).toBeNull();
 		});
 
-		it('renders target temperature slider', () => {
-			render(SettingsPanel);
-			expect(screen.getByLabelText(/target temp$/i)).toBeTruthy();
+		it('renders target temperature section for admin', async () => {
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByText(/target temperature/i)).toBeTruthy();
+			});
 		});
 
-		it('loads target temp enabled state from storage', () => {
-			vi.mocked(settings.getTargetTempEnabled).mockReturnValue(true);
-			render(SettingsPanel);
+		it('renders enable target temp checkbox for admin', async () => {
+			render(SettingsPanel, { props: { isAdmin: true } });
 
-			const checkbox = screen.getByLabelText(/enable heat to target/i) as HTMLInputElement;
-			expect(checkbox.checked).toBe(true);
+			await waitFor(() => {
+				expect(screen.getByLabelText(/enable heat to target/i)).toBeTruthy();
+			});
 		});
 
-		it('saves target temp enabled state when toggled', async () => {
-			vi.mocked(settings.getTargetTempEnabled).mockReturnValue(false);
-			render(SettingsPanel);
+		it('renders target temperature slider for admin', async () => {
+			render(SettingsPanel, { props: { isAdmin: true } });
 
-			const checkbox = screen.getByLabelText(/enable heat to target/i);
-			await fireEvent.click(checkbox);
-
-			expect(settings.setTargetTempEnabled).toHaveBeenCalledWith(true);
+			await waitFor(() => {
+				expect(screen.getByLabelText(/target temp$/i)).toBeTruthy();
+			});
 		});
 
-		it('loads target temperature from storage', () => {
-			vi.mocked(settings.getTargetTempF).mockReturnValue(105);
-			render(SettingsPanel);
+		it('loads target temp enabled state from store', async () => {
+			vi.mocked(heatTargetStore.getEnabled).mockReturnValue(true);
+			render(SettingsPanel, { props: { isAdmin: true } });
 
-			// Check the input field value
-			const input = screen.getByRole('spinbutton', { name: /target temp input/i }) as HTMLInputElement;
-			expect(input.value).toBe('105');
+			await waitFor(() => {
+				const checkbox = screen.getByLabelText(/enable heat to target/i) as HTMLInputElement;
+				expect(checkbox.checked).toBe(true);
+			});
 		});
 
-		it('saves target temperature when slider changes', async () => {
-			render(SettingsPanel);
+		it('loads target temperature from store', async () => {
+			vi.mocked(heatTargetStore.getTargetTempF).mockReturnValue(105);
+			render(SettingsPanel, { props: { isAdmin: true } });
 
-			const slider = screen.getByLabelText(/target temp$/i);
-			await fireEvent.input(slider, { target: { value: '100' } });
-
-			expect(settings.setTargetTempF).toHaveBeenCalledWith(100);
+			await waitFor(() => {
+				const input = screen.getByRole('spinbutton', {
+					name: /target temp input/i
+				}) as HTMLInputElement;
+				expect(input.value).toBe('105');
+			});
 		});
 
-		it('displays current target temperature value', () => {
-			vi.mocked(settings.getTargetTempF).mockReturnValue(103);
-			render(SettingsPanel);
+		it('temperature input has numeric keyboard attributes for mobile', async () => {
+			render(SettingsPanel, { props: { isAdmin: true } });
 
-			// Check the input field shows the value
-			const input = screen.getByRole('spinbutton', { name: /target temp input/i }) as HTMLInputElement;
-			expect(input.value).toBe('103');
-		});
-
-		it('renders editable temperature input field', () => {
-			render(SettingsPanel);
-			const input = screen.getByRole('spinbutton', { name: /target temp input/i });
-			expect(input).toBeTruthy();
-		});
-
-		it('temperature input has numeric keyboard attributes for mobile', () => {
-			render(SettingsPanel);
-			const input = screen.getByRole('spinbutton', { name: /target temp input/i }) as HTMLInputElement;
-			expect(input.inputMode).toBe('decimal');
-		});
-
-		it('saves target temperature when input value changes', async () => {
-			render(SettingsPanel);
-			const input = screen.getByRole('spinbutton', { name: /target temp input/i });
-			await fireEvent.change(input, { target: { value: '102.5' } });
-			await fireEvent.blur(input);
-
-			expect(settings.setTargetTempF).toHaveBeenCalledWith(102.5);
-		});
-
-		it('syncs input field with slider changes', async () => {
-			render(SettingsPanel);
-			const slider = screen.getByLabelText(/target temp$/i);
-			const input = screen.getByRole('spinbutton', { name: /target temp input/i }) as HTMLInputElement;
-
-			await fireEvent.input(slider, { target: { value: '105.25' } });
-
-			expect(input.value).toBe('105.25');
+			await waitFor(() => {
+				const input = screen.getByRole('spinbutton', {
+					name: /target temp input/i
+				}) as HTMLInputElement;
+				expect(input.inputMode).toBe('decimal');
+			});
 		});
 	});
 
-	describe('admin heat-target status section', () => {
+	describe('admin heat-target job status section', () => {
 		beforeEach(() => {
 			vi.mocked(api.getTargetTempStatus).mockReset();
 			vi.mocked(api.cancelTargetTemp).mockReset();
@@ -247,14 +231,14 @@ describe('SettingsPanel', () => {
 			vi.mocked(api.getTargetTempStatus).mockResolvedValue({ active: false, target_temp_f: null });
 			render(SettingsPanel, { props: { isAdmin: false } });
 
-			expect(screen.queryByText(/server heat-target status/i)).toBeNull();
+			expect(screen.queryByText(/active heat-target job/i)).toBeNull();
 		});
 
 		it('does not show admin section by default (isAdmin not passed)', () => {
 			vi.mocked(api.getTargetTempStatus).mockResolvedValue({ active: false, target_temp_f: null });
 			render(SettingsPanel);
 
-			expect(screen.queryByText(/server heat-target status/i)).toBeNull();
+			expect(screen.queryByText(/active heat-target job/i)).toBeNull();
 		});
 
 		it('shows admin section when isAdmin is true', async () => {
@@ -262,7 +246,7 @@ describe('SettingsPanel', () => {
 			render(SettingsPanel, { props: { isAdmin: true } });
 
 			await waitFor(() => {
-				expect(screen.getByText(/server heat-target status/i)).toBeTruthy();
+				expect(screen.getByText(/active heat-target job/i)).toBeTruthy();
 			});
 		});
 
@@ -306,7 +290,7 @@ describe('SettingsPanel', () => {
 			render(SettingsPanel, { props: { isAdmin: true } });
 
 			await waitFor(() => {
-				expect(screen.getByRole('button', { name: /cancel all heat-target jobs/i })).toBeTruthy();
+				expect(screen.getByRole('button', { name: /cancel heat-target job/i })).toBeTruthy();
 			});
 		});
 
@@ -315,15 +299,15 @@ describe('SettingsPanel', () => {
 				active: true,
 				target_temp_f: 103.5
 			});
-			vi.mocked(api.cancelTargetTemp).mockResolvedValue({ success: true, message: 'Cancelled' });
+			vi.mocked(api.cancelTargetTemp).mockResolvedValue({ success: true });
 
 			render(SettingsPanel, { props: { isAdmin: true } });
 
 			await waitFor(() => {
-				expect(screen.getByRole('button', { name: /cancel all heat-target jobs/i })).toBeTruthy();
+				expect(screen.getByRole('button', { name: /cancel heat-target job/i })).toBeTruthy();
 			});
 
-			const cancelButton = screen.getByRole('button', { name: /cancel all heat-target jobs/i });
+			const cancelButton = screen.getByRole('button', { name: /cancel heat-target job/i });
 			await fireEvent.click(cancelButton);
 
 			await waitFor(() => {
@@ -336,15 +320,15 @@ describe('SettingsPanel', () => {
 				active: true,
 				target_temp_f: 103.5
 			});
-			vi.mocked(api.cancelTargetTemp).mockResolvedValue({ success: true, message: 'Cancelled' });
+			vi.mocked(api.cancelTargetTemp).mockResolvedValue({ success: true });
 
 			render(SettingsPanel, { props: { isAdmin: true } });
 
 			await waitFor(() => {
-				expect(screen.getByRole('button', { name: /cancel all heat-target jobs/i })).toBeTruthy();
+				expect(screen.getByRole('button', { name: /cancel heat-target job/i })).toBeTruthy();
 			});
 
-			const cancelButton = screen.getByRole('button', { name: /cancel all heat-target jobs/i });
+			const cancelButton = screen.getByRole('button', { name: /cancel heat-target job/i });
 			await fireEvent.click(cancelButton);
 
 			await waitFor(() => {

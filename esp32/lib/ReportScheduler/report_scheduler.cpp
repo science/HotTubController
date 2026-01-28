@@ -71,7 +71,26 @@ bool ReportScheduler::shouldSend() {
 void ReportScheduler::recordSend() {
     uint32_t now = timeProvider->getCurrentTime();
     lastSendTime = now;
-    intervalStartTime = now;
+
+    // When alignment is enabled, anchor interval to the alignment second
+    // This prevents drift caused by API/processing latency
+    if (!shouldSkipAlignment()) {
+        int currentSecond = timeProvider->getSecondOfMinute();
+
+        // Only anchor if we're actually in the alignment window
+        // (i.e., we sent because alignment triggered, not because of boot or timeout)
+        if (currentSecond >= alignToSecond && currentSecond <= SCHED_ALIGNMENT_WINDOW_END) {
+            int secondsPastAlign = currentSecond - alignToSecond;
+            intervalStartTime = now - secondsPastAlign;
+        } else {
+            // Not in alignment window (boot, timeout, etc.) - use actual time
+            intervalStartTime = now;
+        }
+    } else {
+        // Alignment disabled (short interval or NTP not synced) - use actual time
+        intervalStartTime = now;
+    }
+
     transitionTo(STATE_INTERVAL_WAIT);
 }
 

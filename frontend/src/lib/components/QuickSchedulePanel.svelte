@@ -6,7 +6,10 @@
 		getAutoHeatOffMinutes,
 		calculateHeatOffTime
 	} from '$lib/autoHeatOff';
-	import { getTargetTempEnabled, getTargetTempF } from '$lib/settings';
+	import {
+		getEnabled as getTargetTempEnabled,
+		getTargetTempF
+	} from '$lib/stores/heatTargetSettings.svelte';
 
 	interface Props {
 		onScheduled?: (result: { success: boolean; message: string }) => void;

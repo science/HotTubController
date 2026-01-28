@@ -64,8 +64,9 @@ class ServeScriptTest extends TestCase
         $serveContent = file_get_contents($servePath);
 
         // Replace the php server line with an exit to just get the banner
+        // Note: Must match the actual command in bin/serve (cd public && php -S localhost:8080 router.php)
         $testScript = str_replace(
-            'php -S localhost:8080 -t public',
+            'php -S localhost:8080 router.php',
             'exit 0',
             $serveContent
         );

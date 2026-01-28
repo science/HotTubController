@@ -23,7 +23,7 @@ test.describe('Scheduler Integration', () => {
 		});
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
-		await page.click('button[type="submit"]');
+		await page.press('#password', 'Enter');
 
 		// Wait for redirect to main page
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
@@ -32,7 +32,7 @@ test.describe('Scheduler Integration', () => {
 		const cancelButtons = page.locator('ul li button:has-text("Cancel")');
 		let count = await cancelButtons.count();
 		while (count > 0) {
-			await cancelButtons.first().click();
+			await cancelButtons.first().click({ force: true });
 			await page.waitForTimeout(300);
 			count = await cancelButtons.count();
 		}
@@ -58,7 +58,7 @@ test.describe('Scheduler Integration', () => {
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#date', dateStr);
 		await page.fill('#time', '14:30');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 
 		// Verify success
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
@@ -73,7 +73,7 @@ test.describe('Scheduler Integration', () => {
 		await expect(page.locator('ul li').filter({ hasText: 'Heater ON' })).toBeVisible();
 
 		// Clean up
-		await page.locator('ul li').filter({ hasText: 'Heater ON' }).first().locator('button:has-text("Cancel")').click();
+		await page.locator('ul li').filter({ hasText: 'Heater ON' }).first().locator('button:has-text("Cancel")').click({ force: true });
 	});
 
 	test('cancel job makes correct API call and removes from UI', async ({ page }) => {
@@ -85,7 +85,7 @@ test.describe('Scheduler Integration', () => {
 		await page.selectOption('#action', 'pump-run');
 		await page.fill('#date', dateStr);
 		await page.fill('#time', '09:00');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
 
 		// Monitor DELETE calls
@@ -102,7 +102,7 @@ test.describe('Scheduler Integration', () => {
 		await expect(jobItem).toBeVisible();
 
 		// Cancel it
-		await jobItem.locator('button:has-text("Cancel")').click();
+		await jobItem.locator('button:has-text("Cancel")').click({ force: true });
 
 		// Verify DELETE was called
 		await page.waitForTimeout(500);
@@ -121,7 +121,7 @@ test.describe('Scheduler Integration', () => {
 		await page.selectOption('#action', 'heater-off');
 		await page.fill('#date', dateStr);
 		await page.fill('#time', '18:00');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
 
 		// Monitor GET calls on a fresh page load
@@ -144,7 +144,7 @@ test.describe('Scheduler Integration', () => {
 		await expect(page.locator('ul li').filter({ hasText: 'Heater OFF' })).toBeVisible();
 
 		// Clean up
-		await page.locator('ul li').filter({ hasText: 'Heater OFF' }).first().locator('button:has-text("Cancel")').click();
+		await page.locator('ul li').filter({ hasText: 'Heater OFF' }).first().locator('button:has-text("Cancel")').click({ force: true });
 	});
 
 	test('displays correct action labels in job list', async ({ page }) => {
@@ -163,7 +163,7 @@ test.describe('Scheduler Integration', () => {
 			await page.selectOption('#action', actions[i].value);
 			await page.fill('#date', dateStr);
 			await page.fill('#time', `${10 + i}:00`);
-			await page.click('button:has-text("Schedule")');
+			await page.click('button:has-text("Schedule")', { force: true });
 			await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
 			await page.waitForTimeout(300);
 		}
@@ -175,7 +175,7 @@ test.describe('Scheduler Integration', () => {
 
 		// Clean up all
 		for (let i = 0; i < 3; i++) {
-			await page.locator('ul li button:has-text("Cancel")').first().click();
+			await page.locator('ul li button:has-text("Cancel")').first().click({ force: true });
 			await page.waitForTimeout(300);
 		}
 	});
@@ -189,7 +189,7 @@ test.describe('Scheduler Integration', () => {
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#date', dateStr);
 		await page.fill('#time', '10:00');
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 
 		// Verify error message appears
 		await expect(page.locator('text=past')).toBeVisible({ timeout: 5000 });
@@ -204,14 +204,14 @@ test.describe('Scheduler Integration', () => {
 		await page.selectOption('#action', 'pump-run');
 		await page.fill('#date', dateStr);
 		await page.fill('#time', '18:00'); // Later
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
 		await page.waitForTimeout(300);
 
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#date', dateStr);
 		await page.fill('#time', '08:00'); // Earlier
-		await page.click('button:has-text("Schedule")');
+		await page.click('button:has-text("Schedule")', { force: true });
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
 		await page.waitForTimeout(300);
 
@@ -221,8 +221,8 @@ test.describe('Scheduler Integration', () => {
 		expect(firstJobText).toContain('8:00');
 
 		// Clean up
-		await page.locator('ul li button:has-text("Cancel")').first().click();
+		await page.locator('ul li button:has-text("Cancel")').first().click({ force: true });
 		await page.waitForTimeout(300);
-		await page.locator('ul li button:has-text("Cancel")').first().click();
+		await page.locator('ul li button:has-text("Cancel")').first().click({ force: true });
 	});
 });

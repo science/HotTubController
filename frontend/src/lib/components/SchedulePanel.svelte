@@ -6,7 +6,10 @@
 		getAutoHeatOffMinutes,
 		calculateHeatOffTime
 	} from '$lib/autoHeatOff';
-	import { getTargetTempEnabled, getTargetTempF } from '$lib/settings';
+	import {
+		getEnabled as getTargetTempEnabled,
+		getTargetTempF
+	} from '$lib/stores/heatTargetSettings.svelte';
 	import { onDestroy } from 'svelte';
 	import { RefreshCw } from 'lucide-svelte';
 
