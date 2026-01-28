@@ -221,6 +221,139 @@ describe('SettingsPanel', () => {
 		});
 	});
 
+	describe('target temperature slider sync', () => {
+		it('slider value matches the store value on render', async () => {
+			vi.mocked(heatTargetStore.getTargetTempF).mockReturnValue(103);
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				const slider = screen.getByLabelText(/target temp$/i) as HTMLInputElement;
+				expect(slider.value).toBe('103');
+			});
+		});
+
+		it('slider updates when number input changes', async () => {
+			vi.mocked(heatTargetStore.getTargetTempF).mockReturnValue(103);
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByLabelText(/target temp$/i)).toBeTruthy();
+			});
+
+			const numberInput = screen.getByRole('spinbutton', {
+				name: /target temp input/i
+			}) as HTMLInputElement;
+			// bind:value listens to input events
+			await fireEvent.input(numberInput, { target: { value: '102.75' } });
+
+			const slider = screen.getByLabelText(/target temp$/i) as HTMLInputElement;
+			expect(slider.value).toBe('102.75');
+		});
+	});
+
+	describe('temperature increment/decrement buttons', () => {
+		it('renders a decrease button before the slider', async () => {
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /decrease temperature/i })).toBeTruthy();
+			});
+		});
+
+		it('renders an increase button after the slider', async () => {
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /increase temperature/i })).toBeTruthy();
+			});
+		});
+
+		it('decrease button lowers temperature by 0.25', async () => {
+			vi.mocked(heatTargetStore.getTargetTempF).mockReturnValue(103);
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /decrease temperature/i })).toBeTruthy();
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: /decrease temperature/i }));
+
+			const numberInput = screen.getByRole('spinbutton', {
+				name: /target temp input/i
+			}) as HTMLInputElement;
+			expect(numberInput.value).toBe('102.75');
+		});
+
+		it('increase button raises temperature by 0.25', async () => {
+			vi.mocked(heatTargetStore.getTargetTempF).mockReturnValue(103);
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /increase temperature/i })).toBeTruthy();
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: /increase temperature/i }));
+
+			const numberInput = screen.getByRole('spinbutton', {
+				name: /target temp input/i
+			}) as HTMLInputElement;
+			expect(numberInput.value).toBe('103.25');
+		});
+
+		it('decrease button does not go below minimum', async () => {
+			vi.mocked(heatTargetStore.getTargetTempF).mockReturnValue(80);
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /decrease temperature/i })).toBeTruthy();
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: /decrease temperature/i }));
+
+			const numberInput = screen.getByRole('spinbutton', {
+				name: /target temp input/i
+			}) as HTMLInputElement;
+			expect(numberInput.value).toBe('80');
+		});
+
+		it('increase button does not go above maximum', async () => {
+			vi.mocked(heatTargetStore.getTargetTempF).mockReturnValue(110);
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /increase temperature/i })).toBeTruthy();
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: /increase temperature/i }));
+
+			const numberInput = screen.getByRole('spinbutton', {
+				name: /target temp input/i
+			}) as HTMLInputElement;
+			expect(numberInput.value).toBe('110');
+		});
+
+		it('clicking increment buttons marks settings as dirty', async () => {
+			vi.mocked(heatTargetStore.getTargetTempF).mockReturnValue(103);
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /increase temperature/i })).toBeTruthy();
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: /increase temperature/i }));
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /save settings/i })).toBeTruthy();
+			});
+		});
+
+		it('does not render increment buttons for non-admin', () => {
+			render(SettingsPanel, { props: { isAdmin: false } });
+			expect(screen.queryByRole('button', { name: /decrease temperature/i })).toBeNull();
+			expect(screen.queryByRole('button', { name: /increase temperature/i })).toBeNull();
+		});
+	});
+
 	describe('admin heat-target job status section', () => {
 		beforeEach(() => {
 			vi.mocked(api.getTargetTempStatus).mockReset();
