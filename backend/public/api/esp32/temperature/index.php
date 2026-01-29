@@ -74,6 +74,55 @@ $postData = json_decode(file_get_contents('php://input'), true) ?? [];
 // Handle request
 $result = $handler->handle($postData, $apiKey, $method);
 
+// Append to daily temperature history log (for heating analysis)
+if ($result['status'] === 200 && !empty($postData['sensors'])) {
+    $sensorConfigFile = $backendRoot . '/storage/state/esp32-sensor-config.json';
+    $sensorConfig = [];
+    if (file_exists($sensorConfigFile)) {
+        $sensorConfigData = json_decode(file_get_contents($sensorConfigFile), true);
+        $sensorConfig = $sensorConfigData['sensors'] ?? [];
+    }
+
+    $waterTempF = null;
+    $waterTempC = null;
+    $ambientTempF = null;
+    $ambientTempC = null;
+
+    foreach ($postData['sensors'] as $sensor) {
+        $address = $sensor['address'] ?? '';
+        $role = $sensorConfig[$address]['role'] ?? 'unassigned';
+        $tempC = (float)($sensor['temp_c'] ?? 0);
+        $tempF = isset($sensor['temp_f']) ? (float)$sensor['temp_f'] : $tempC * 9.0 / 5.0 + 32.0;
+
+        if ($role === 'water') {
+            $waterTempC = $tempC;
+            $waterTempF = $tempF;
+        } elseif ($role === 'ambient') {
+            $ambientTempC = $tempC;
+            $ambientTempF = $tempF;
+        }
+    }
+
+    // Check heater state
+    $heaterOn = false;
+    if (file_exists($equipmentStatusFile)) {
+        $eqStatus = json_decode(file_get_contents($equipmentStatusFile), true);
+        $heaterOn = $eqStatus['heater']['on'] ?? false;
+    }
+
+    $tempLogEntry = json_encode([
+        'timestamp' => date('c'),
+        'water_temp_f' => $waterTempF,
+        'water_temp_c' => $waterTempC,
+        'ambient_temp_f' => $ambientTempF,
+        'ambient_temp_c' => $ambientTempC,
+        'heater_on' => $heaterOn,
+    ]) . "\n";
+
+    $tempLogFile = $backendRoot . '/storage/logs/temperature-' . date('Y-m-d') . '.log';
+    @file_put_contents($tempLogFile, $tempLogEntry, FILE_APPEND | LOCK_EX);
+}
+
 // Minimal logging for diagnostics (append to separate log)
 $esp32LogFile = $backendRoot . '/storage/logs/esp32.log';
 $logEntry = sprintf(

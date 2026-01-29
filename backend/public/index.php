@@ -94,7 +94,10 @@ $factory = new IftttClientFactory($config, $logFile);
 $iftttClient = $factory->create();
 
 // Create equipment status service for tracking heater/pump state
+// Note: Created initially without event logging, then used by temperature service.
+// Event logging depends on temperature service for current water temp at time of heater events.
 $equipmentStatusFile = __DIR__ . '/../storage/state/equipment-status.json';
+$equipmentEventLogFile = __DIR__ . '/../storage/logs/equipment-events.log';
 $equipmentStatusService = new EquipmentStatusService($equipmentStatusFile);
 
 // Note: EquipmentController is created AFTER TargetTemperatureService (see below)
@@ -107,8 +110,12 @@ $blindsController = new BlindsController($logFile, $iftttClient, $config);
 // Note: Temperature data is received via api/esp32/temperature/index.php (thin handler)
 $esp32TemperatureFile = __DIR__ . '/../storage/state/esp32-temperature.json';
 $esp32ConfigFile = __DIR__ . '/../storage/state/esp32-sensor-config.json';
+$temperatureLogDir = __DIR__ . '/../storage/logs';
 $esp32TemperatureService = new Esp32TemperatureService($esp32TemperatureFile, $equipmentStatusService);
 $esp32SensorConfigService = new Esp32SensorConfigService($esp32ConfigFile);
+
+// Enable equipment event logging now that temperature service exists
+$equipmentStatusService->enableEventLogging($equipmentEventLogFile, $esp32TemperatureService);
 $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TemperatureService, $esp32SensorConfigService);
 $esp32SensorConfigController = new Esp32SensorConfigController($esp32SensorConfigService, $esp32TemperatureService);
 

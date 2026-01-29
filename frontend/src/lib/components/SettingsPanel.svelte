@@ -138,6 +138,26 @@
 			userHasEditedTargetTemp = true;
 		}
 	}
+
+	function handleTargetTempSliderInput() {
+		userHasEditedTargetTemp = true;
+	}
+
+	function decreaseTargetTemp() {
+		const newVal = localTargetTempF - 0.25;
+		if (newVal >= getMinTempF()) {
+			localTargetTempF = newVal;
+			userHasEditedTargetTemp = true;
+		}
+	}
+
+	function increaseTargetTemp() {
+		const newVal = localTargetTempF + 0.25;
+		if (newVal <= getMaxTempF()) {
+			localTargetTempF = newVal;
+			userHasEditedTargetTemp = true;
+		}
+	}
 </script>
 
 <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
@@ -214,8 +234,8 @@
 							type="number"
 							id="targetTempInput"
 							aria-label="Target temp input"
-							value={localTargetTempF}
-							onchange={handleTargetTempChange}
+							bind:value={localTargetTempF}
+							onchange={() => { userHasEditedTargetTemp = true; }}
 							min={getMinTempF()}
 							max={getMaxTempF()}
 							step="0.25"
@@ -224,18 +244,34 @@
 							class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-orange-400 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
 						/><span class="text-orange-400 font-medium">°F</span>
 					</div>
-					<input
-						type="range"
-						id="targetTempSlider"
-						aria-label="Target temp"
-						value={localTargetTempF}
-						oninput={handleTargetTempChange}
-						min={getMinTempF()}
-						max={getMaxTempF()}
-						step="0.25"
-						disabled={savingTargetTemp}
-						class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500 disabled:opacity-50"
-					/>
+					<div class="flex items-center gap-2">
+						<button
+							type="button"
+							aria-label="Decrease temperature"
+							onclick={decreaseTargetTemp}
+							disabled={savingTargetTemp || localTargetTempF <= getMinTempF()}
+							class="w-16 sm:w-8 h-10 sm:h-8 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-2xl sm:text-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+						>&minus;</button>
+						<input
+							type="range"
+							id="targetTempSlider"
+							aria-label="Target temp"
+							bind:value={localTargetTempF}
+							oninput={handleTargetTempSliderInput}
+							min={getMinTempF()}
+							max={getMaxTempF()}
+							step="0.25"
+							disabled={savingTargetTemp}
+							class="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500 disabled:opacity-50"
+						/>
+						<button
+							type="button"
+							aria-label="Increase temperature"
+							onclick={increaseTargetTemp}
+							disabled={savingTargetTemp || localTargetTempF >= getMaxTempF()}
+							class="w-16 sm:w-8 h-10 sm:h-8 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-2xl sm:text-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+						>&plus;</button>
+					</div>
 					<div class="flex justify-between text-xs text-slate-500">
 						<span>{getMinTempF()}°F</span>
 						<span>{getMaxTempF()}°F</span>
