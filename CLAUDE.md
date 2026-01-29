@@ -19,7 +19,7 @@ scripts/           # Test and build automation scripts
 
 ### Unified Test Script (REQUIRED)
 
-**Always use the unified test script to run tests.** It handles environment setup, port cleanup, and configuration automatically.
+**Always use the unified test script to run tests.** It handles environment setup, port cleanup, and configuration automatically. **Claude Code must always use `./scripts/test.sh` (not manual commands like `npm run test:e2e` or `php vendor/bin/phpunit`) to run tests, especially E2E tests which require backend setup.**
 
 ```bash
 ./scripts/test.sh              # Run ALL tests (setup + backend + frontend + esp32 + e2e)

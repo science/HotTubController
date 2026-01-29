@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTub\Tests\Services;
 
 use HotTub\Services\EquipmentStatusService;
+use HotTub\Services\Esp32TemperatureService;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -260,6 +261,106 @@ class EquipmentStatusServiceTest extends TestCase
 
         $this->assertFalse($status['heater']['on']);
         $this->assertTrue($status['pump']['on']); // Pump still on
+    }
+
+    // ========== Equipment Event Logging Tests ==========
+
+    /**
+     * @test
+     * setHeaterOn should append an event log entry with current water temperature.
+     */
+    public function setHeaterOnAppendsEventLog(): void
+    {
+        $eventLogFile = $this->testStorageDir . '/equipment-events.log';
+        $tempFile = $this->testStorageDir . '/esp32-temperature.json';
+
+        // Write a temperature reading
+        file_put_contents($tempFile, json_encode([
+            'device_id' => 'TEST',
+            'sensors' => [
+                ['address' => '28:AA', 'temp_c' => 38.5, 'temp_f' => 101.3],
+            ],
+            'timestamp' => date('c'),
+            'received_at' => time(),
+            'temp_f' => 101.3,
+        ]));
+        $tempService = new Esp32TemperatureService($tempFile);
+
+        $service = new EquipmentStatusService($this->testStatusFile, $eventLogFile, $tempService);
+        $service->setHeaterOn();
+
+        $this->assertFileExists($eventLogFile);
+        $lines = array_filter(explode("\n", file_get_contents($eventLogFile)));
+        $this->assertCount(1, $lines);
+
+        $entry = json_decode($lines[0], true);
+        $this->assertEquals('heater', $entry['equipment']);
+        $this->assertEquals('on', $entry['action']);
+        $this->assertEqualsWithDelta(101.3, $entry['water_temp_f'], 0.1);
+        $this->assertArrayHasKey('timestamp', $entry);
+    }
+
+    /**
+     * @test
+     * setHeaterOff should append an event log entry.
+     */
+    public function setHeaterOffAppendsEventLog(): void
+    {
+        $eventLogFile = $this->testStorageDir . '/equipment-events.log';
+        $tempFile = $this->testStorageDir . '/esp32-temperature.json';
+
+        file_put_contents($tempFile, json_encode([
+            'device_id' => 'TEST',
+            'sensors' => [
+                ['address' => '28:AA', 'temp_c' => 40.0, 'temp_f' => 104.0],
+            ],
+            'timestamp' => date('c'),
+            'received_at' => time(),
+            'temp_f' => 104.0,
+        ]));
+        $tempService = new Esp32TemperatureService($tempFile);
+
+        $service = new EquipmentStatusService($this->testStatusFile, $eventLogFile, $tempService);
+        $service->setHeaterOn();
+        $service->setHeaterOff();
+
+        $lines = array_filter(explode("\n", file_get_contents($eventLogFile)));
+        $this->assertCount(2, $lines);
+
+        $entry = json_decode($lines[1], true);
+        $this->assertEquals('heater', $entry['equipment']);
+        $this->assertEquals('off', $entry['action']);
+        $this->assertEqualsWithDelta(104.0, $entry['water_temp_f'], 0.1);
+    }
+
+    /**
+     * @test
+     * Event logging should work with null water temp when no temperature data available.
+     */
+    public function eventLogWorksWithNoTemperatureData(): void
+    {
+        $eventLogFile = $this->testStorageDir . '/equipment-events.log';
+        $tempFile = $this->testStorageDir . '/esp32-temperature-missing.json';
+        $tempService = new Esp32TemperatureService($tempFile);
+
+        $service = new EquipmentStatusService($this->testStatusFile, $eventLogFile, $tempService);
+        $service->setHeaterOn();
+
+        $lines = array_filter(explode("\n", file_get_contents($eventLogFile)));
+        $entry = json_decode($lines[0], true);
+        $this->assertNull($entry['water_temp_f']);
+    }
+
+    /**
+     * @test
+     * Equipment status service works without event logging (backward compat).
+     */
+    public function worksWithoutEventLogging(): void
+    {
+        $service = new EquipmentStatusService($this->testStatusFile);
+        $service->setHeaterOn();
+        $status = $service->getStatus();
+        $this->assertTrue($status['heater']['on']);
     }
 
     // ========== Helper Methods ==========
