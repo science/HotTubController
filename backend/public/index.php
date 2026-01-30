@@ -14,6 +14,8 @@ use HotTub\Controllers\MaintenanceController;
 use HotTub\Controllers\Esp32SensorConfigController;
 use HotTub\Controllers\TargetTemperatureController;
 use HotTub\Controllers\HeatTargetSettingsController;
+use HotTub\Controllers\HeatingCharacteristicsController;
+use HotTub\Services\HeatingCharacteristicsService;
 use HotTub\Services\Esp32TemperatureService;
 use HotTub\Services\Esp32SensorConfigService;
 use HotTub\Services\Esp32CalibratedTemperatureService;
@@ -275,6 +277,20 @@ $router->get('/api/users', fn() => $userController->list(), $requireAdmin);
 $router->post('/api/users', fn() => handleUserCreate($userController), $requireAdmin);
 $router->delete('/api/users/{username}', fn($params) => $userController->delete($params['username']), $requireAdmin);
 $router->put('/api/users/{username}/password', fn($params) => handleUserPasswordUpdate($userController, $params['username']), $requireAdmin);
+
+// Heating characteristics analysis (admin only)
+$heatingCharacteristicsService = new HeatingCharacteristicsService();
+$heatingCharacteristicsResultsFile = __DIR__ . '/../storage/state/heating-characteristics.json';
+$heatingCharacteristicsController = new HeatingCharacteristicsController(
+    $heatingCharacteristicsService,
+    $heatingCharacteristicsResultsFile,
+    $logsDir,
+    $equipmentEventLogFile
+);
+
+// Admin-only heating characteristics analysis
+$router->get('/api/admin/heating-characteristics', fn() => $heatingCharacteristicsController->get(), $requireAdmin);
+$router->post('/api/admin/heating-characteristics/generate', fn() => $heatingCharacteristicsController->generate(), $requireAdmin);
 
 // Admin-only system diagnostics
 $router->get('/api/admin/crontab', fn() => [
