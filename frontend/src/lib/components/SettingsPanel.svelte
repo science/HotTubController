@@ -16,7 +16,7 @@
 		getIsLoading as getTargetTempLoading,
 		getError as getTargetTempError
 	} from '$lib/stores/heatTargetSettings.svelte';
-	import { api, type TargetTemperatureState } from '$lib/api';
+	import { api, type TargetTemperatureState, type HeatingCharacteristics } from '$lib/api';
 	import { onMount } from 'svelte';
 
 	// Props
@@ -86,6 +86,7 @@
 	onMount(() => {
 		if (isAdmin) {
 			loadServerHeatTargetState();
+			loadHeatingCharacteristics();
 		}
 	});
 
@@ -97,6 +98,39 @@
 			localTargetTempF = getTargetTempF();
 		}
 	});
+
+	// Heating characteristics state (admin only)
+	let heatingChars = $state<HeatingCharacteristics | null>(null);
+	let loadingHeatingChars = $state(false);
+	let generatingHeatingChars = $state(false);
+	let heatingCharsError = $state<string | null>(null);
+
+	async function loadHeatingCharacteristics() {
+		if (!isAdmin) return;
+		loadingHeatingChars = true;
+		heatingCharsError = null;
+		try {
+			const response = await api.getHeatingCharacteristics();
+			heatingChars = response.results;
+		} catch (e) {
+			heatingCharsError = e instanceof Error ? e.message : 'Failed to load';
+		} finally {
+			loadingHeatingChars = false;
+		}
+	}
+
+	async function generateHeatingCharacteristics() {
+		generatingHeatingChars = true;
+		heatingCharsError = null;
+		try {
+			const response = await api.generateHeatingCharacteristics();
+			heatingChars = response.results;
+		} catch (e) {
+			heatingCharsError = e instanceof Error ? e.message : 'Failed to generate';
+		} finally {
+			generatingHeatingChars = false;
+		}
+	}
 
 	// Refresh temp on heater-off state
 	let refreshTempOnHeaterOff = $state(getRefreshTempOnHeaterOff());
@@ -347,6 +381,48 @@
 					Refresh status
 				</button>
 			{/if}
+		</div>
+	{/if}
+
+	<!-- Admin: Heating Characteristics Analysis -->
+	{#if isAdmin}
+		<div class="border-t border-slate-700 pt-4 mt-4">
+			<h3 class="text-sm font-medium text-slate-300 mb-3">Heating Characteristics</h3>
+
+			{#if loadingHeatingChars}
+				<p class="text-slate-400 text-sm">Loading...</p>
+			{:else if heatingCharsError}
+				<p class="text-red-400 text-sm">{heatingCharsError}</p>
+			{:else if heatingChars}
+				<div class="space-y-2 mb-3">
+					<div class="grid grid-cols-2 gap-2 text-sm">
+						<span class="text-slate-400">Heating rate</span>
+						<span class="text-slate-200">{heatingChars.heating_velocity_f_per_min}°F/min</span>
+						<span class="text-slate-400">Startup lag</span>
+						<span class="text-slate-200">{heatingChars.startup_lag_minutes} min</span>
+						<span class="text-slate-400">Overshoot</span>
+						<span class="text-slate-200">{heatingChars.overshoot_degrees_f}°F</span>
+						<span class="text-slate-400">Sessions analyzed</span>
+						<span class="text-slate-200">{heatingChars.sessions_analyzed}</span>
+					</div>
+					<p class="text-slate-500 text-xs">
+						Generated: {new Date(heatingChars.generated_at).toLocaleString()}
+					</p>
+				</div>
+			{:else}
+				<p class="text-slate-400 text-sm mb-3">No analysis generated yet.</p>
+			{/if}
+
+			<button
+				onclick={generateHeatingCharacteristics}
+				disabled={generatingHeatingChars}
+				class="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white text-sm font-medium py-1.5 px-4 rounded transition-colors"
+			>
+				{generatingHeatingChars ? 'Analyzing...' : heatingChars ? 'Regenerate' : 'Generate Analysis'}
+			</button>
+			<p class="text-slate-500 text-xs mt-2">
+				Analyzes temperature and equipment logs to measure heating rate, startup lag, and overshoot.
+			</p>
 		</div>
 	{/if}
 </div>

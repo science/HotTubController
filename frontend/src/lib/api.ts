@@ -112,6 +112,31 @@ export interface TargetTemperatureState {
 	error?: string;
 }
 
+export interface HeatingSession {
+	heater_on_at: string;
+	heater_off_at: string;
+	start_temp_f: number;
+	end_temp_f: number;
+	heating_velocity_f_per_min: number;
+	startup_lag_minutes: number;
+	overshoot_degrees_f: number;
+	duration_minutes: number;
+}
+
+export interface HeatingCharacteristics {
+	heating_velocity_f_per_min: number | null;
+	startup_lag_minutes: number | null;
+	overshoot_degrees_f: number | null;
+	sessions_analyzed: number;
+	sessions: HeatingSession[];
+	generated_at: string;
+}
+
+export interface HeatingCharacteristicsResponse {
+	results: HeatingCharacteristics | null;
+	message?: string;
+}
+
 export interface UserListResponse {
 	users: User[];
 }
@@ -268,5 +293,11 @@ export const api = {
 		put<HeatTargetSettings & { message: string }>('/api/settings/heat-target', {
 			enabled,
 			target_temp_f
-		})
+		}),
+
+	// Heating characteristics analysis (admin only)
+	getHeatingCharacteristics: () =>
+		get<HeatingCharacteristicsResponse>('/api/admin/heating-characteristics'),
+	generateHeatingCharacteristics: () =>
+		post<HeatingCharacteristicsResponse>('/api/admin/heating-characteristics/generate')
 };
