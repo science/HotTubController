@@ -1,5 +1,6 @@
 import { FullConfig } from '@playwright/test';
 import { rmSync, readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { execSync } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -143,6 +144,26 @@ function cleanupJobFiles(jobsDir: string): number {
 }
 
 /**
+ * Removes orphaned HOTTUB cron entries left by previous test runs.
+ * Job files get cleaned up by cleanupJobFiles(), but the corresponding
+ * crontab entries can survive if tests exit before proper cleanup.
+ */
+function cleanupCronEntries(): number {
+	try {
+		const crontab = execSync('crontab -l 2>/dev/null', { encoding: 'utf-8' });
+		const lines = crontab.split('\n');
+		const hottubLines = lines.filter(l => l.includes('HOTTUB:'));
+		if (hottubLines.length === 0) return 0;
+
+		const cleanedLines = lines.filter(l => !l.includes('HOTTUB:'));
+		execSync('crontab -', { input: cleanedLines.join('\n') + '\n', encoding: 'utf-8' });
+		return hottubLines.length;
+	} catch {
+		return 0;
+	}
+}
+
+/**
  * Global setup for E2E tests.
  * Cleans up artifacts from previous test runs to ensure test isolation:
  * - Scheduled job files
@@ -158,9 +179,14 @@ async function globalSetup(config: FullConfig) {
 	const usersFile = join(backendDir, 'storage/users/users.json');
 	const stateDir = join(backendDir, 'storage/state');
 
-	// Clean up job files
+	// Clean up job files and orphaned cron entries
 	const jobsCount = cleanupJobFiles(jobsDir);
 	console.log(`[E2E Setup] Cleaned up ${jobsCount} job files`);
+
+	const cronCount = cleanupCronEntries();
+	if (cronCount > 0) {
+		console.log(`[E2E Setup] Removed ${cronCount} orphaned HOTTUB cron entry/entries`);
+	}
 
 	// Clean up test users from previous runs
 	const usersCount = cleanupTestUsers(usersFile);

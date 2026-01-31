@@ -1,5 +1,6 @@
 import { FullConfig } from '@playwright/test';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { execSync } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -79,6 +80,20 @@ async function globalTeardown(config: FullConfig) {
 	const usersCount = cleanupTestUsers(usersFile);
 	if (usersCount > 0) {
 		console.log(`[E2E Teardown] Cleaned up ${usersCount} leftover test user(s)`);
+	}
+
+	// Clean up any HOTTUB cron entries created during tests
+	try {
+		const crontab = execSync('crontab -l 2>/dev/null', { encoding: 'utf-8' });
+		const lines = crontab.split('\n');
+		const hottubLines = lines.filter(l => l.includes('HOTTUB:'));
+		if (hottubLines.length > 0) {
+			const cleanedLines = lines.filter(l => !l.includes('HOTTUB:'));
+			execSync('crontab -', { input: cleanedLines.join('\n') + '\n', encoding: 'utf-8' });
+			console.log(`[E2E Teardown] Removed ${hottubLines.length} HOTTUB cron entry/entries`);
+		}
+	} catch {
+		// Cron cleanup is best-effort
 	}
 }
 
