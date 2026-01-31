@@ -23,7 +23,7 @@ class HeatingCharacteristicsService
      * @param string[] $tempLogFiles Array of temperature log file paths
      * @param string $eventLogFile Equipment events log file path
      */
-    public function generate(array $tempLogFiles, string $eventLogFile): array
+    public function generate(array $tempLogFiles, string $eventLogFile, ?string $startDate = null, ?string $endDate = null): array
     {
         $allTemps = [];
         foreach ($tempLogFiles as $file) {
@@ -33,11 +33,26 @@ class HeatingCharacteristicsService
 
         $events = $this->parseJsonlFile($eventLogFile);
 
+        // Filter events by date range if specified
+        if ($startDate !== null || $endDate !== null) {
+            $startTs = $startDate ? strtotime($startDate . 'T00:00:00+00:00') : 0;
+            $endTs = $endDate ? strtotime($endDate . 'T23:59:59+00:00') : PHP_INT_MAX;
+            $events = array_values(array_filter($events, function ($e) use ($startTs, $endTs) {
+                $ts = strtotime($e['timestamp']);
+                return $ts >= $startTs && $ts <= $endTs;
+            }));
+        }
+
         if (empty($events) || empty($allTemps)) {
             return $this->emptyResults();
         }
 
         $sessions = $this->buildSessions($allTemps, $events);
+
+        // Filter garbage sessions: heater was "on" but no actual heating occurred
+        $sessions = array_values(array_filter($sessions, function ($s) {
+            return $s['heating_velocity_f_per_min'] > 0;
+        }));
 
         if (empty($sessions)) {
             return $this->emptyResults();

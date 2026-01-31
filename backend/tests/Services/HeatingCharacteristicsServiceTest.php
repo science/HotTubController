@@ -129,6 +129,71 @@ class HeatingCharacteristicsServiceTest extends TestCase
         $this->assertGreaterThan(0, $results['overshoot_degrees_f']);
     }
 
+    // ========== Garbage Session Filtering Tests ==========
+
+    public function testGenerateExcludesGarbageSessionsFromAggregates(): void
+    {
+        $service = new HeatingCharacteristicsService();
+
+        // This fixture has a garbage session (Jan 29: 8+ hrs, temp dropped 89.9→84.6)
+        // plus a valid session (Jan 30: 52 min, 79.9→101.75)
+        $results = $service->generate(
+            [$this->fixtureDir . '/garbage-session-temperature.log'],
+            $this->fixtureDir . '/garbage-session-events.log'
+        );
+
+        // Only the valid session should be counted in aggregates
+        $this->assertEquals(1, $results['sessions_analyzed']);
+        $this->assertGreaterThan(0.3, $results['heating_velocity_f_per_min']);
+    }
+
+    public function testProdFixturesProduceValidStats(): void
+    {
+        $service = new HeatingCharacteristicsService();
+
+        $results = $service->generate(
+            [$this->fixtureDir . '/prod-2026-01-30-temperature.log'],
+            $this->fixtureDir . '/prod-2026-01-30-events.log'
+        );
+
+        // Two valid sessions: cold start (~0.5°F/min) and warm restart (~0.48°F/min)
+        $this->assertEquals(2, $results['sessions_analyzed']);
+        $this->assertEqualsWithDelta(0.49, $results['heating_velocity_f_per_min'], 0.05);
+    }
+
+    // ========== Date Range Filtering Tests ==========
+
+    public function testGenerateFiltersEventsByDateRange(): void
+    {
+        $service = new HeatingCharacteristicsService();
+
+        // Use garbage fixture which has events on Jan 29 and Jan 30
+        // Filter to only Jan 30 — should exclude the garbage Jan 29 session
+        $results = $service->generate(
+            [$this->fixtureDir . '/garbage-session-temperature.log'],
+            $this->fixtureDir . '/garbage-session-events.log',
+            '2026-01-30',
+            '2026-01-30'
+        );
+
+        $this->assertEquals(1, $results['sessions_analyzed']);
+        $this->assertGreaterThan(0.3, $results['heating_velocity_f_per_min']);
+    }
+
+    public function testGenerateWithStartDateOnlyFiltersOlderEvents(): void
+    {
+        $service = new HeatingCharacteristicsService();
+
+        $results = $service->generate(
+            [$this->fixtureDir . '/garbage-session-temperature.log'],
+            $this->fixtureDir . '/garbage-session-events.log',
+            '2026-01-30'
+        );
+
+        // Only Jan 30 session should remain
+        $this->assertEquals(1, $results['sessions_analyzed']);
+    }
+
     // ========== Edge Cases ==========
 
     public function testHandlesEmptyLogs(): void

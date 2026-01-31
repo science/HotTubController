@@ -290,7 +290,7 @@ $heatingCharacteristicsController = new HeatingCharacteristicsController(
 
 // Admin-only heating characteristics analysis
 $router->get('/api/admin/heating-characteristics', fn() => $heatingCharacteristicsController->get(), $requireAdmin);
-$router->post('/api/admin/heating-characteristics/generate', fn() => $heatingCharacteristicsController->generate(), $requireAdmin);
+$router->post('/api/admin/heating-characteristics/generate', fn() => $heatingCharacteristicsController->generate($_GET), $requireAdmin);
 
 // Admin-only system diagnostics
 $router->get('/api/admin/crontab', fn() => [

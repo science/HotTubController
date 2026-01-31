@@ -134,12 +134,27 @@ do_restore_env() {
     fi
 }
 
+# Remove HOTTUB cron entries left by tests
+clean_test_cron_entries() {
+    local before after removed
+    before=$(crontab -l 2>/dev/null | grep -c "HOTTUB:" || true)
+    if [[ "$before" -gt 0 ]]; then
+        crontab -l 2>/dev/null | grep -v "HOTTUB:" | crontab - 2>/dev/null || true
+        after=$(crontab -l 2>/dev/null | grep -c "HOTTUB:" || true)
+        removed=$((before - after))
+        if [[ "$removed" -gt 0 ]]; then
+            info "Removed $removed orphaned HOTTUB cron entry/entries"
+        fi
+    fi
+}
+
 # Cleanup test processes
 do_cleanup() {
     info "Cleaning up test processes..."
 
     kill_port $BACKEND_PORT
     kill_port $FRONTEND_PORT
+    clean_test_cron_entries
 
     # Wait for ports to be released
     sleep 1
