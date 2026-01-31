@@ -104,6 +104,7 @@
 	let loadingHeatingChars = $state(false);
 	let generatingHeatingChars = $state(false);
 	let heatingCharsError = $state<string | null>(null);
+	let lookbackDays = $state(5);
 
 	async function loadHeatingCharacteristics() {
 		if (!isAdmin) return;
@@ -123,7 +124,7 @@
 		generatingHeatingChars = true;
 		heatingCharsError = null;
 		try {
-			const response = await api.generateHeatingCharacteristics();
+			const response = await api.generateHeatingCharacteristics(lookbackDays);
 			heatingChars = response.results;
 		} catch (e) {
 			heatingCharsError = e instanceof Error ? e.message : 'Failed to generate';
@@ -412,6 +413,19 @@
 			{:else}
 				<p class="text-slate-400 text-sm mb-3">No analysis generated yet.</p>
 			{/if}
+
+			<div class="flex items-center gap-2 mb-3">
+				<label for="lookbackDays" class="text-slate-400 text-sm">Analyze last</label>
+				<input
+					type="number"
+					id="lookbackDays"
+					bind:value={lookbackDays}
+					min="1"
+					max="90"
+					class="w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+				/>
+				<span class="text-slate-400 text-sm">days</span>
+			</div>
 
 			<button
 				onclick={generateHeatingCharacteristics}

@@ -40,12 +40,33 @@ class HeatingCharacteristicsController
         ];
     }
 
-    public function generate(): array
+    public function generate(array $params = []): array
     {
-        // Find all temperature log files
-        $tempLogFiles = glob($this->logsDir . '/temperature-*.log') ?: [];
+        $lookbackDays = isset($params['lookback_days']) ? (int) $params['lookback_days'] : null;
 
-        $results = $this->service->generate($tempLogFiles, $this->eventLogFile);
+        // Compute date range from lookback_days
+        $startDate = null;
+        $endDate = null;
+        if ($lookbackDays !== null && $lookbackDays > 0) {
+            $startDate = date('Y-m-d', strtotime("-{$lookbackDays} days"));
+            $endDate = date('Y-m-d');
+        }
+
+        // Find temperature log files, filtered by date in filename
+        $tempLogFiles = glob($this->logsDir . '/temperature-*.log') ?: [];
+        if ($startDate !== null) {
+            $tempLogFiles = array_values(array_filter($tempLogFiles, function ($f) use ($startDate, $endDate) {
+                if (preg_match('/temperature-(\d{4}-\d{2}-\d{2})\.log/', basename($f), $m)) {
+                    $date = $m[1];
+                    if ($startDate && $date < $startDate) return false;
+                    if ($endDate && $date > $endDate) return false;
+                    return true;
+                }
+                return false;
+            }));
+        }
+
+        $results = $this->service->generate($tempLogFiles, $this->eventLogFile, $startDate, $endDate);
 
         // Store results
         $dir = dirname($this->resultsFile);

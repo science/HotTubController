@@ -1,0 +1,4 @@
+{"timestamp":"2026-01-29T14:00:07+00:00","equipment":"heater","action":"on","water_temp_f":89.9375}
+{"timestamp":"2026-01-29T22:45:15+00:00","equipment":"heater","action":"off","water_temp_f":84.65}
+{"timestamp":"2026-01-30T14:22:02+00:00","equipment":"heater","action":"on","water_temp_f":79.925}
+{"timestamp":"2026-01-30T15:14:02+00:00","equipment":"heater","action":"off","water_temp_f":101.75}

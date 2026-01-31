@@ -298,6 +298,8 @@ export const api = {
 	// Heating characteristics analysis (admin only)
 	getHeatingCharacteristics: () =>
 		get<HeatingCharacteristicsResponse>('/api/admin/heating-characteristics'),
-	generateHeatingCharacteristics: () =>
-		post<HeatingCharacteristicsResponse>('/api/admin/heating-characteristics/generate')
+	generateHeatingCharacteristics: (lookbackDays?: number) => {
+		const params = lookbackDays ? `?lookback_days=${lookbackDays}` : '';
+		return post<HeatingCharacteristicsResponse>(`/api/admin/heating-characteristics/generate${params}`);
+	}
 };
