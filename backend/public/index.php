@@ -229,6 +229,7 @@ $router->get('/api/health', function() use ($equipmentController, $blindsControl
     $response['body']['heatTargetSettings'] = [
         'enabled' => $heatTargetSettingsService->isEnabled(),
         'target_temp_f' => $heatTargetSettingsService->getTargetTempF(),
+        'timezone' => $heatTargetSettingsService->getTimezone(),
     ];
     return $response;
 });
@@ -279,7 +280,9 @@ $router->delete('/api/users/{username}', fn($params) => $userController->delete(
 $router->put('/api/users/{username}/password', fn($params) => handleUserPasswordUpdate($userController, $params['username']), $requireAdmin);
 
 // Heating characteristics analysis (admin only)
-$heatingCharacteristicsService = new HeatingCharacteristicsService();
+$heatingCharacteristicsService = new HeatingCharacteristicsService(
+    timezone: $heatTargetSettingsService->getTimezone()
+);
 $heatingCharacteristicsResultsFile = __DIR__ . '/../storage/state/heating-characteristics.json';
 $heatingCharacteristicsController = new HeatingCharacteristicsController(
     $heatingCharacteristicsService,

@@ -33,6 +33,7 @@ class HeatTargetSettingsController
             'body' => [
                 'enabled' => $settings['enabled'],
                 'target_temp_f' => $settings['target_temp_f'],
+                'timezone' => $settings['timezone'],
             ],
         ];
     }
@@ -74,6 +75,10 @@ class HeatTargetSettingsController
 
         try {
             $this->settingsService->updateSettings($enabled, $targetTempF);
+
+            if (isset($data['timezone']) && is_string($data['timezone'])) {
+                $this->settingsService->updateTimezone($data['timezone']);
+            }
         } catch (\InvalidArgumentException $e) {
             return [
                 'status' => 400,
@@ -88,6 +93,7 @@ class HeatTargetSettingsController
             'body' => [
                 'enabled' => $settings['enabled'],
                 'target_temp_f' => $settings['target_temp_f'],
+                'timezone' => $settings['timezone'],
                 'message' => 'Settings updated',
             ],
         ];

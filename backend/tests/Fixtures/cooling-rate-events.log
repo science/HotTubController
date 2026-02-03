@@ -1,0 +1,2 @@
+{"timestamp": "2026-02-10T01:00:00+00:00", "equipment": "heater", "action": "on", "water_temp_f": 90.0}
+{"timestamp": "2026-02-10T02:00:00+00:00", "equipment": "heater", "action": "off", "water_temp_f": 102.0}

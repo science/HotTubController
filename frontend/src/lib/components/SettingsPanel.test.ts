@@ -18,6 +18,7 @@ vi.mock('$lib/api', () => ({
 vi.mock('$lib/stores/heatTargetSettings.svelte', () => ({
 	getEnabled: vi.fn(() => false),
 	getTargetTempF: vi.fn(() => 103),
+	getTimezone: vi.fn(() => 'America/Los_Angeles'),
 	getMinTempF: vi.fn(() => 80),
 	getMaxTempF: vi.fn(() => 110),
 	updateSettings: vi.fn(),

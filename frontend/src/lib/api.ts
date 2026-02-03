@@ -90,6 +90,7 @@ export interface EquipmentStatus {
 export interface HeatTargetSettings {
 	enabled: boolean;
 	target_temp_f: number;
+	timezone: string;
 }
 
 export interface HealthResponse {
@@ -127,6 +128,10 @@ export interface HeatingCharacteristics {
 	heating_velocity_f_per_min: number | null;
 	startup_lag_minutes: number | null;
 	overshoot_degrees_f: number | null;
+	cooling_rate_day_f_per_min: number | null;
+	cooling_rate_night_f_per_min: number | null;
+	cooling_segments_day: number;
+	cooling_segments_night: number;
 	sessions_analyzed: number;
 	sessions: HeatingSession[];
 	generated_at: string;
@@ -289,10 +294,11 @@ export const api = {
 
 	// Heat-target settings endpoints (shared backend settings)
 	getHeatTargetSettings: () => get<HeatTargetSettings>('/api/settings/heat-target'),
-	updateHeatTargetSettings: (enabled: boolean, target_temp_f: number) =>
+	updateHeatTargetSettings: (enabled: boolean, target_temp_f: number, timezone?: string) =>
 		put<HeatTargetSettings & { message: string }>('/api/settings/heat-target', {
 			enabled,
-			target_temp_f
+			target_temp_f,
+			...(timezone !== undefined && { timezone })
 		}),
 
 	// Heating characteristics analysis (admin only)

@@ -45,7 +45,8 @@ describe('heatTargetSettings store', () => {
 					pump: { on: false, lastChangedAt: null }
 				},
 				heatTargetSettings: {
-					enabled: true,
+					timezone: 'America/Los_Angeles',
+	enabled: true,
 					target_temp_f: 105.5
 				}
 			};
@@ -83,7 +84,8 @@ describe('heatTargetSettings store', () => {
 					pump: { on: false, lastChangedAt: null }
 				},
 				heatTargetSettings: {
-					enabled: false,
+					timezone: 'America/Los_Angeles',
+	enabled: false,
 					target_temp_f: 103
 				}
 			});
@@ -100,7 +102,8 @@ describe('heatTargetSettings store', () => {
 					pump: { on: false, lastChangedAt: null }
 				},
 				heatTargetSettings: {
-					enabled: true,
+					timezone: 'America/Los_Angeles',
+	enabled: true,
 					target_temp_f: 105
 				}
 			});
@@ -117,7 +120,8 @@ describe('heatTargetSettings store', () => {
 					pump: { on: false, lastChangedAt: null }
 				},
 				heatTargetSettings: {
-					enabled: true,
+					timezone: 'America/Los_Angeles',
+	enabled: true,
 					target_temp_f: 103.25
 				}
 			});
@@ -134,7 +138,8 @@ describe('heatTargetSettings store', () => {
 					pump: { on: false, lastChangedAt: null }
 				},
 				heatTargetSettings: {
-					enabled: true,
+					timezone: 'America/Los_Angeles',
+	enabled: true,
 					target_temp_f: 103.5
 				}
 			});
@@ -153,7 +158,8 @@ describe('heatTargetSettings store', () => {
 					pump: { on: false, lastChangedAt: null }
 				},
 				heatTargetSettings: {
-					enabled: false,
+					timezone: 'America/Los_Angeles',
+	enabled: false,
 					target_temp_f: 103
 				}
 			});
@@ -170,7 +176,8 @@ describe('heatTargetSettings store', () => {
 					pump: { on: false, lastChangedAt: null }
 				},
 				heatTargetSettings: {
-					enabled: true,
+					timezone: 'America/Los_Angeles',
+	enabled: true,
 					target_temp_f: 105
 				}
 			});
@@ -183,16 +190,16 @@ describe('heatTargetSettings store', () => {
 
 	describe('updateSettings', () => {
 		it('calls API with correct parameters', async () => {
-			const mockResponse = { enabled: true, target_temp_f: 106, message: 'Settings updated' };
+			const mockResponse = { enabled: true, target_temp_f: 106, timezone: 'America/Los_Angeles', message: 'Settings updated' };
 			vi.mocked(api.updateHeatTargetSettings).mockResolvedValue(mockResponse);
 
 			await updateSettings(true, 106);
 
-			expect(api.updateHeatTargetSettings).toHaveBeenCalledWith(true, 106);
+			expect(api.updateHeatTargetSettings).toHaveBeenCalledWith(true, 106, undefined);
 		});
 
 		it('updates local state on success', async () => {
-			const mockResponse = { enabled: true, target_temp_f: 107, message: 'Settings updated' };
+			const mockResponse = { enabled: true, target_temp_f: 107, timezone: 'America/Los_Angeles', message: 'Settings updated' };
 			vi.mocked(api.updateHeatTargetSettings).mockResolvedValue(mockResponse);
 
 			await updateSettings(true, 107);

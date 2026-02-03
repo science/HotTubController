@@ -8,13 +8,19 @@ class HeatingCharacteristicsService
 {
     private float $startupLagThresholdF;
     private int $cooldownThresholdMinutes;
+    private string $timezone;
+    private int $coolingSettleMinutes;
 
     public function __construct(
         float $startupLagThresholdF = 0.2,
-        int $cooldownThresholdMinutes = 30
+        int $cooldownThresholdMinutes = 30,
+        string $timezone = 'America/Los_Angeles',
+        int $coolingSettleMinutes = 15
     ) {
         $this->startupLagThresholdF = $startupLagThresholdF;
         $this->cooldownThresholdMinutes = $cooldownThresholdMinutes;
+        $this->timezone = $timezone;
+        $this->coolingSettleMinutes = $coolingSettleMinutes;
     }
 
     /**
@@ -62,10 +68,17 @@ class HeatingCharacteristicsService
         $lags = array_column($sessions, 'startup_lag_minutes');
         $overshoots = array_column($sessions, 'overshoot_degrees_f');
 
+        // Cooling rate analysis
+        $coolingResults = $this->analyzeCoolingRates($allTemps, $events);
+
         return [
             'heating_velocity_f_per_min' => round($this->mean($velocities), 3),
             'startup_lag_minutes' => round($this->mean($lags), 1),
             'overshoot_degrees_f' => round($this->mean($overshoots), 2),
+            'cooling_rate_day_f_per_min' => $coolingResults['cooling_rate_day_f_per_min'],
+            'cooling_rate_night_f_per_min' => $coolingResults['cooling_rate_night_f_per_min'],
+            'cooling_segments_day' => $coolingResults['cooling_segments_day'],
+            'cooling_segments_night' => $coolingResults['cooling_segments_night'],
             'sessions_analyzed' => count($sessions),
             'sessions' => $sessions,
             'generated_at' => date('c'),
@@ -290,12 +303,151 @@ class HeatingCharacteristicsService
         return array_sum($values) / count($values);
     }
 
+    /**
+     * Analyze cooling rates from temperature data, split into day/night segments.
+     *
+     * Day = 9am-9pm local, Night = 9pm-9am local (in configured timezone).
+     * Only considers periods where heater has been off for at least coolingSettleMinutes.
+     */
+    private function analyzeCoolingRates(array $temps, array $events): array
+    {
+        $emptyResult = [
+            'cooling_rate_day_f_per_min' => null,
+            'cooling_rate_night_f_per_min' => null,
+            'cooling_segments_day' => 0,
+            'cooling_segments_night' => 0,
+        ];
+
+        if (empty($temps) || empty($events)) {
+            return $emptyResult;
+        }
+
+        // Build list of heater off→on windows
+        $offEvents = [];
+        $onEvents = [];
+        foreach ($events as $event) {
+            if (($event['equipment'] ?? '') !== 'heater') continue;
+            if ($event['action'] === 'off') {
+                $offEvents[] = strtotime($event['timestamp']);
+            } elseif ($event['action'] === 'on') {
+                $onEvents[] = strtotime($event['timestamp']);
+            }
+        }
+
+        if (empty($offEvents)) {
+            return $emptyResult;
+        }
+
+        $settleSeconds = $this->coolingSettleMinutes * 60;
+        $tz = new \DateTimeZone($this->timezone);
+
+        $dayRates = [];
+        $nightRates = [];
+
+        foreach ($offEvents as $offTime) {
+            $coolStart = $offTime + $settleSeconds;
+
+            // Find next heater-on event after this off event
+            $coolEnd = PHP_INT_MAX;
+            foreach ($onEvents as $onTime) {
+                if ($onTime > $offTime) {
+                    $coolEnd = $onTime;
+                    break;
+                }
+            }
+
+            // Collect readings in the cooling window
+            $coolReadings = [];
+            foreach ($temps as $t) {
+                $ts = strtotime($t['timestamp']);
+                if ($ts >= $coolStart && $ts < $coolEnd) {
+                    $coolReadings[] = $t;
+                }
+            }
+
+            if (count($coolReadings) < 2) {
+                continue;
+            }
+
+            // Split readings at 9am/9pm local boundaries
+            $segments = $this->splitByDayNight($coolReadings, $tz);
+
+            foreach ($segments as $seg) {
+                if (count($seg['readings']) < 2) continue;
+
+                $points = [];
+                $firstTs = strtotime($seg['readings'][0]['timestamp']);
+                foreach ($seg['readings'] as $r) {
+                    $points[] = [
+                        'minutes' => (strtotime($r['timestamp']) - $firstTs) / 60.0,
+                        'temp_f' => $r['water_temp_f'],
+                    ];
+                }
+
+                $rate = $this->linearRegressionSlope($points);
+
+                if ($seg['period'] === 'day') {
+                    $dayRates[] = $rate;
+                } else {
+                    $nightRates[] = $rate;
+                }
+            }
+        }
+
+        return [
+            'cooling_rate_day_f_per_min' => !empty($dayRates) ? round($this->mean($dayRates), 4) : null,
+            'cooling_rate_night_f_per_min' => !empty($nightRates) ? round($this->mean($nightRates), 4) : null,
+            'cooling_segments_day' => count($dayRates),
+            'cooling_segments_night' => count($nightRates),
+        ];
+    }
+
+    /**
+     * Split temperature readings into day/night segments at 9am and 9pm local boundaries.
+     *
+     * @return array Array of ['period' => 'day'|'night', 'readings' => [...]]
+     */
+    private function splitByDayNight(array $readings, \DateTimeZone $tz): array
+    {
+        if (empty($readings)) return [];
+
+        $segments = [];
+        $currentSegment = [];
+        $currentPeriod = null;
+
+        foreach ($readings as $r) {
+            $dt = new \DateTime($r['timestamp']);
+            $dt->setTimezone($tz);
+            $hour = (int) $dt->format('G');
+            $period = ($hour >= 9 && $hour < 21) ? 'day' : 'night';
+
+            if ($currentPeriod !== null && $period !== $currentPeriod) {
+                // Boundary crossed — close current segment
+                $segments[] = ['period' => $currentPeriod, 'readings' => $currentSegment];
+                $currentSegment = [];
+            }
+
+            $currentPeriod = $period;
+            $currentSegment[] = $r;
+        }
+
+        if (!empty($currentSegment)) {
+            $segments[] = ['period' => $currentPeriod, 'readings' => $currentSegment];
+        }
+
+        return $segments;
+    }
+
     private function emptyResults(): array
     {
         return [
             'heating_velocity_f_per_min' => null,
             'startup_lag_minutes' => null,
             'overshoot_degrees_f' => null,
+            'cooling_rate_day_f_per_min' => null,
+            'cooling_rate_night_f_per_min' => null,
+            'cooling_segments_day' => 0,
+            'cooling_segments_night' => 0,
             'sessions_analyzed' => 0,
             'sessions' => [],
             'generated_at' => date('c'),

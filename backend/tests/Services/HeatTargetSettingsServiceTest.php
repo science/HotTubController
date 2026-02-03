@@ -201,4 +201,66 @@ class HeatTargetSettingsServiceTest extends TestCase
         $this->assertTrue($settings['enabled']);
         $this->assertEquals(105.0, $settings['target_temp_f']);
     }
+
+    // ==================== Timezone Tests ====================
+
+    /**
+     * @test
+     */
+    public function getTimezoneReturnsDefaultUsPacific(): void
+    {
+        $this->assertEquals('America/Los_Angeles', $this->service->getTimezone());
+    }
+
+    /**
+     * @test
+     */
+    public function getSettingsIncludesTimezone(): void
+    {
+        $settings = $this->service->getSettings();
+        $this->assertArrayHasKey('timezone', $settings);
+        $this->assertEquals('America/Los_Angeles', $settings['timezone']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateTimezoneStoresValidTimezone(): void
+    {
+        $this->service->updateTimezone('America/New_York');
+        $this->assertEquals('America/New_York', $this->service->getTimezone());
+    }
+
+    /**
+     * @test
+     */
+    public function updateTimezoneRejectsInvalidTimezone(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid timezone');
+
+        $this->service->updateTimezone('Fake/Timezone');
+    }
+
+    /**
+     * @test
+     */
+    public function timezonePersistsAcrossInstances(): void
+    {
+        $this->service->updateTimezone('America/Chicago');
+
+        $newService = new HeatTargetSettingsService($this->settingsFile);
+        $this->assertEquals('America/Chicago', $newService->getTimezone());
+    }
+
+    /**
+     * @test
+     */
+    public function updateSettingsPreservesTimezone(): void
+    {
+        $this->service->updateTimezone('America/Denver');
+        $this->service->updateSettings(true, 105.0);
+
+        $this->assertEquals('America/Denver', $this->service->getTimezone());
+    }
 }
