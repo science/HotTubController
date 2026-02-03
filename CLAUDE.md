@@ -308,6 +308,8 @@ FTP credentials in `backend/config/env.production` provide access to the product
 - NEVER use FTP, curl, or any other method to upload/modify files on production
 - Even for urgent hotfixes, use the PR workflow (it only takes a minute)
 
+**LiteSpeed/ModSecurity quirk:** The shared hosting blocks empty POST requests with 403 Forbidden. Any curl POST must include a body (use `-d '{}'` for endpoints that don't require parameters).
+
 ## Development Methodology: TDD Red/Green
 
 **All new functionality MUST follow Test-Driven Development:**

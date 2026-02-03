@@ -60,10 +60,12 @@ FULL_URL="${API_BASE_URL}/api/maintenance/logs/rotate"
 log "Calling API: POST $FULL_URL"
 
 HTTP_RESPONSE=$(mktemp)
+# Note: -d '{}' is required - LiteSpeed/ModSecurity blocks empty POST requests
 HTTP_CODE=$(curl -s -w "%{http_code}" -o "$HTTP_RESPONSE" \
     -X POST "$FULL_URL" \
     -H "Authorization: Bearer $CRON_JWT" \
     -H "Content-Type: application/json" \
+    -d '{}' \
     --max-time 60 \
     2>&1) || HTTP_CODE="000"
 
