@@ -237,4 +237,70 @@ class HeatTargetSettingsControllerTest extends TestCase
         $this->assertEquals(200, $response['status']);
         $this->assertEquals(103.25, $response['body']['target_temp_f']);
     }
+
+    // ==================== Timezone Tests ====================
+
+    /**
+     * @test
+     */
+    public function getReturnsTimezone(): void
+    {
+        $response = $this->controller->get();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertArrayHasKey('timezone', $response['body']);
+        $this->assertEquals('America/Los_Angeles', $response['body']['timezone']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateAcceptsTimezone(): void
+    {
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'timezone' => 'America/New_York',
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals('America/New_York', $response['body']['timezone']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateReturns400ForInvalidTimezone(): void
+    {
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'timezone' => 'Fake/Zone',
+        ]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertStringContainsString('Invalid timezone', $response['body']['error']);
+    }
+
+    /**
+     * @test
+     */
+    public function updatePreservesTimezoneWhenNotProvided(): void
+    {
+        // Set timezone first
+        $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'timezone' => 'America/Chicago',
+        ]);
+
+        // Update without timezone
+        $response = $this->controller->update([
+            'enabled' => false,
+            'target_temp_f' => 104.0,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals('America/Chicago', $response['body']['timezone']);
+    }
 }

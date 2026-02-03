@@ -14,12 +14,14 @@ import { api, type HeatTargetSettings, type HealthResponse } from '$lib/api';
 // Default values matching backend HeatTargetSettingsService
 const DEFAULT_ENABLED = false;
 const DEFAULT_TARGET_TEMP_F = 103.0;
+const DEFAULT_TIMEZONE = 'America/Los_Angeles';
 const MIN_TEMP_F = 80.0;
 const MAX_TEMP_F = 110.0;
 
 // Reactive state using Svelte 5 runes
 let enabled = $state(DEFAULT_ENABLED);
 let targetTempF = $state(DEFAULT_TARGET_TEMP_F);
+let timezone = $state(DEFAULT_TIMEZONE);
 let isLoading = $state(false);
 let error = $state<string | null>(null);
 let initialized = $state(false);
@@ -32,10 +34,12 @@ export function initFromHealthResponse(response: HealthResponse): void {
 	if (response.heatTargetSettings) {
 		enabled = response.heatTargetSettings.enabled;
 		targetTempF = response.heatTargetSettings.target_temp_f;
+		timezone = response.heatTargetSettings.timezone ?? DEFAULT_TIMEZONE;
 	} else {
 		// Reset to defaults when backend doesn't provide settings
 		enabled = DEFAULT_ENABLED;
 		targetTempF = DEFAULT_TARGET_TEMP_F;
+		timezone = DEFAULT_TIMEZONE;
 	}
 	initialized = true;
 }
@@ -49,15 +53,17 @@ export function initFromHealthResponse(response: HealthResponse): void {
  */
 export async function updateSettings(
 	newEnabled: boolean,
-	newTargetTempF: number
+	newTargetTempF: number,
+	newTimezone?: string
 ): Promise<void> {
 	isLoading = true;
 	error = null;
 
 	try {
-		const response = await api.updateHeatTargetSettings(newEnabled, newTargetTempF);
+		const response = await api.updateHeatTargetSettings(newEnabled, newTargetTempF, newTimezone);
 		enabled = response.enabled;
 		targetTempF = response.target_temp_f;
+		timezone = response.timezone ?? timezone;
 	} catch (e) {
 		error = e instanceof Error ? e.message : 'Failed to update settings';
 		throw e;
@@ -78,6 +84,13 @@ export function getEnabled(): boolean {
  */
 export function getTargetTempF(): number {
 	return targetTempF;
+}
+
+/**
+ * Get the configured timezone.
+ */
+export function getTimezone(): string {
+	return timezone;
 }
 
 /**

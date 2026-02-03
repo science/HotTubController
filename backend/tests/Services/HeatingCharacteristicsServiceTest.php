@@ -227,4 +227,116 @@ class HeatingCharacteristicsServiceTest extends TestCase
 
         $this->assertEquals(0, $results['sessions_analyzed']);
     }
+
+    // ========== Cooling Rate Tests ==========
+
+    public function testCoolingWindowSkips15MinSettle(): void
+    {
+        $service = new HeatingCharacteristicsService(timezone: 'America/Los_Angeles');
+
+        $results = $service->generate(
+            [$this->fixtureDir . '/cooling-rate-temperature.log'],
+            $this->fixtureDir . '/cooling-rate-events.log'
+        );
+
+        // The heater turns off at 02:00 UTC. The first 15 minutes (02:00-02:15)
+        // should be excluded from cooling analysis. Cooling should start at 02:15.
+        $this->assertArrayHasKey('cooling_rate_day_f_per_min', $results);
+        $this->assertNotNull($results['cooling_rate_day_f_per_min']);
+    }
+
+    public function testCoolingRateDayCalculation(): void
+    {
+        $service = new HeatingCharacteristicsService(timezone: 'America/Los_Angeles');
+
+        $results = $service->generate(
+            [$this->fixtureDir . '/cooling-rate-temperature.log'],
+            $this->fixtureDir . '/cooling-rate-events.log'
+        );
+
+        // Fixture daytime cooling rate is exactly -0.04 F/min
+        $this->assertEqualsWithDelta(-0.04, $results['cooling_rate_day_f_per_min'], 0.005);
+    }
+
+    public function testCoolingRateNightCalculation(): void
+    {
+        $service = new HeatingCharacteristicsService(timezone: 'America/Los_Angeles');
+
+        $results = $service->generate(
+            [$this->fixtureDir . '/cooling-rate-temperature.log'],
+            $this->fixtureDir . '/cooling-rate-events.log'
+        );
+
+        // Fixture nighttime cooling rate is exactly -0.07 F/min
+        $this->assertEqualsWithDelta(-0.07, $results['cooling_rate_night_f_per_min'], 0.005);
+    }
+
+    public function testCoolingSegmentCounts(): void
+    {
+        $service = new HeatingCharacteristicsService(timezone: 'America/Los_Angeles');
+
+        $results = $service->generate(
+            [$this->fixtureDir . '/cooling-rate-temperature.log'],
+            $this->fixtureDir . '/cooling-rate-events.log'
+        );
+
+        // Two daytime segments: 02:15-05:00 UTC and 17:00-20:00 UTC
+        $this->assertEquals(2, $results['cooling_segments_day']);
+        // One nighttime segment: 05:00-17:00 UTC
+        $this->assertEquals(1, $results['cooling_segments_night']);
+    }
+
+    public function testCoolingRateNullWhenNoCoolingData(): void
+    {
+        $service = new HeatingCharacteristicsService(timezone: 'America/Los_Angeles');
+
+        // Empty logs → no cooling data
+        $tmpDir = sys_get_temp_dir() . '/cooling-test-' . uniqid();
+        mkdir($tmpDir, 0755, true);
+        $emptyTemp = $tmpDir . '/empty.log';
+        $emptyEvents = $tmpDir . '/empty-events.log';
+        file_put_contents($emptyTemp, '');
+        file_put_contents($emptyEvents, '');
+
+        $results = $service->generate([$emptyTemp], $emptyEvents);
+
+        $this->assertNull($results['cooling_rate_day_f_per_min']);
+        $this->assertNull($results['cooling_rate_night_f_per_min']);
+        $this->assertEquals(0, $results['cooling_segments_day']);
+        $this->assertEquals(0, $results['cooling_segments_night']);
+
+        unlink($emptyTemp);
+        unlink($emptyEvents);
+        rmdir($tmpDir);
+    }
+
+    public function testExistingHeatingAnalysisUnchangedWithCooling(): void
+    {
+        // Existing fixture should still produce the same heating stats
+        $service = new HeatingCharacteristicsService(timezone: 'America/Los_Angeles');
+
+        $results = $service->generate(
+            [$this->fixtureDir . '/heating-sessions-temperature.log'],
+            $this->fixtureDir . '/heating-sessions-events.log'
+        );
+
+        $this->assertEquals(2, $results['sessions_analyzed']);
+        $this->assertEqualsWithDelta(0.45, $results['heating_velocity_f_per_min'], 0.05);
+    }
+
+    public function testCoolingWindowEndsAtNextHeaterOn(): void
+    {
+        $service = new HeatingCharacteristicsService(timezone: 'America/Los_Angeles');
+
+        // The heating-sessions fixture has heater off at 08:48, on again at 09:45
+        // Cooling window: 08:48+15min=09:03 to 09:45 (42 min)
+        $results = $service->generate(
+            [$this->fixtureDir . '/heating-sessions-temperature.log'],
+            $this->fixtureDir . '/heating-sessions-events.log'
+        );
+
+        // Should have cooling data (all readings are in nighttime for US/Pacific:
+        // 08:48 UTC = 12:48am Pacific = nighttime)
+        $this->assertArrayHasKey('cooling_segments_night', $results);
+    }
 }

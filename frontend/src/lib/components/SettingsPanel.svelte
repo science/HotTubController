@@ -10,6 +10,7 @@
 	import {
 		getEnabled as getTargetTempEnabled,
 		getTargetTempF,
+		getTimezone,
 		getMinTempF,
 		getMaxTempF,
 		updateSettings as updateTargetTempSettings,
@@ -35,13 +36,26 @@
 	// Local state for target temp form (synced from store)
 	let localTargetTempEnabled = $state(getTargetTempEnabled());
 	let localTargetTempF = $state(getTargetTempF());
+	let localTimezone = $state(getTimezone());
 	let savingTargetTemp = $state(false);
 	let targetTempSaveError = $state<string | null>(null);
 	let userHasEditedTargetTemp = $state(false); // Track if user made changes
 
+	// Common US timezones for the dropdown
+	const TIMEZONE_OPTIONS = [
+		'America/Los_Angeles',
+		'America/Denver',
+		'America/Chicago',
+		'America/New_York',
+		'America/Anchorage',
+		'Pacific/Honolulu',
+	];
+
 	// Track if local values differ from store (dirty state)
 	let targetTempDirty = $derived(
-		localTargetTempEnabled !== getTargetTempEnabled() || localTargetTempF !== getTargetTempF()
+		localTargetTempEnabled !== getTargetTempEnabled() ||
+			localTargetTempF !== getTargetTempF() ||
+			localTimezone !== getTimezone()
 	);
 
 	async function loadServerHeatTargetState() {
@@ -74,7 +88,7 @@
 		savingTargetTemp = true;
 		targetTempSaveError = null;
 		try {
-			await updateTargetTempSettings(localTargetTempEnabled, localTargetTempF);
+			await updateTargetTempSettings(localTargetTempEnabled, localTargetTempF, localTimezone);
 			userHasEditedTargetTemp = false; // Reset after successful save
 		} catch (e) {
 			targetTempSaveError = e instanceof Error ? e.message : 'Failed to save';
@@ -96,6 +110,7 @@
 		if (!userHasEditedTargetTemp) {
 			localTargetTempEnabled = getTargetTempEnabled();
 			localTargetTempF = getTargetTempF();
+			localTimezone = getTimezone();
 		}
 	});
 
@@ -318,6 +333,24 @@
 					affects all users.
 				</p>
 
+				<div class="ml-6 mt-3">
+					<label for="timezoneSelect" class="text-slate-400 text-sm block mb-1">System timezone</label>
+					<select
+						id="timezoneSelect"
+						bind:value={localTimezone}
+						onchange={() => { userHasEditedTargetTemp = true; }}
+						disabled={savingTargetTemp}
+						class="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+					>
+						{#each TIMEZONE_OPTIONS as tz}
+							<option value={tz}>{tz.replace('_', ' ')}</option>
+						{/each}
+					</select>
+					<p class="text-slate-500 text-xs mt-1">
+						Used for day/night cooling rate analysis boundaries (9am/9pm local).
+					</p>
+				</div>
+
 				{#if targetTempDirty}
 					<div class="ml-6 flex items-center gap-2">
 						<button
@@ -403,6 +436,14 @@
 						<span class="text-slate-200">{heatingChars.startup_lag_minutes} min</span>
 						<span class="text-slate-400">Overshoot</span>
 						<span class="text-slate-200">{heatingChars.overshoot_degrees_f}°F</span>
+						{#if heatingChars.cooling_rate_day_f_per_min !== null}
+							<span class="text-slate-400">Daytime cooling</span>
+							<span class="text-slate-200">{Math.abs(heatingChars.cooling_rate_day_f_per_min).toFixed(3)}°F/min ({heatingChars.cooling_segments_day} seg)</span>
+						{/if}
+						{#if heatingChars.cooling_rate_night_f_per_min !== null}
+							<span class="text-slate-400">Nighttime cooling</span>
+							<span class="text-slate-200">{Math.abs(heatingChars.cooling_rate_night_f_per_min).toFixed(3)}°F/min ({heatingChars.cooling_segments_night} seg)</span>
+						{/if}
 						<span class="text-slate-400">Sessions analyzed</span>
 						<span class="text-slate-200">{heatingChars.sessions_analyzed}</span>
 					</div>

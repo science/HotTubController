@@ -21,6 +21,7 @@ class HeatTargetSettingsService
     public const MIN_TEMP_F = 80.0;
     public const MAX_TEMP_F = 110.0;
     public const DEFAULT_TEMP_F = 103.0;
+    public const DEFAULT_TIMEZONE = 'America/Los_Angeles';
 
     public function __construct(string $settingsFile)
     {
@@ -38,6 +39,7 @@ class HeatTargetSettingsService
         return [
             'enabled' => $this->settings['enabled'] ?? false,
             'target_temp_f' => $this->settings['target_temp_f'] ?? self::DEFAULT_TEMP_F,
+            'timezone' => $this->settings['timezone'] ?? self::DEFAULT_TIMEZONE,
             'updated_at' => $this->settings['updated_at'] ?? null,
         ];
     }
@@ -56,6 +58,29 @@ class HeatTargetSettingsService
     public function getTargetTempF(): float
     {
         return $this->settings['target_temp_f'] ?? self::DEFAULT_TEMP_F;
+    }
+
+    /**
+     * Get the configured timezone.
+     */
+    public function getTimezone(): string
+    {
+        return $this->settings['timezone'] ?? self::DEFAULT_TIMEZONE;
+    }
+
+    /**
+     * Update the timezone setting.
+     *
+     * @throws \InvalidArgumentException if timezone is not a valid IANA identifier
+     */
+    public function updateTimezone(string $timezone): void
+    {
+        if (!in_array($timezone, \DateTimeZone::listIdentifiers(), true)) {
+            throw new \InvalidArgumentException("Invalid timezone: {$timezone}");
+        }
+
+        $this->settings['timezone'] = $timezone;
+        $this->saveSettings();
     }
 
     /**
@@ -91,6 +116,7 @@ class HeatTargetSettingsService
             return [
                 'enabled' => false,
                 'target_temp_f' => self::DEFAULT_TEMP_F,
+                'timezone' => self::DEFAULT_TIMEZONE,
                 'updated_at' => null,
             ];
         }
@@ -100,6 +126,7 @@ class HeatTargetSettingsService
             return [
                 'enabled' => false,
                 'target_temp_f' => self::DEFAULT_TEMP_F,
+                'timezone' => self::DEFAULT_TIMEZONE,
                 'updated_at' => null,
             ];
         }
