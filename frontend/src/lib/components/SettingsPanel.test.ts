@@ -10,7 +10,9 @@ vi.mock('$lib/api', () => ({
 	api: {
 		getTargetTempStatus: vi.fn(),
 		cancelTargetTemp: vi.fn(),
-		updateHeatTargetSettings: vi.fn()
+		updateHeatTargetSettings: vi.fn(),
+		getHeatingCharacteristics: vi.fn(),
+		getTemperature: vi.fn()
 	}
 }));
 
@@ -61,6 +63,15 @@ describe('SettingsPanel', () => {
 		vi.mocked(heatTargetStore.getEnabled).mockReturnValue(false);
 		vi.mocked(heatTargetStore.getTargetTempF).mockReturnValue(103);
 		vi.mocked(api.getTargetTempStatus).mockResolvedValue({ active: false, target_temp_f: null });
+		vi.mocked(api.getHeatingCharacteristics).mockResolvedValue({ results: null });
+		vi.mocked(api.getTemperature).mockResolvedValue({
+			water_temp_f: null,
+			water_temp_c: null,
+			ambient_temp_f: null,
+			ambient_temp_c: null,
+			device_name: 'test',
+			timestamp: new Date().toISOString()
+		});
 	});
 
 	afterEach(() => {

@@ -8,18 +8,15 @@ class HeatingCharacteristicsService
 {
     private float $startupLagThresholdF;
     private int $cooldownThresholdMinutes;
-    private string $timezone;
     private int $coolingSettleMinutes;
 
     public function __construct(
         float $startupLagThresholdF = 0.2,
         int $cooldownThresholdMinutes = 30,
-        string $timezone = 'America/Los_Angeles',
         int $coolingSettleMinutes = 15
     ) {
         $this->startupLagThresholdF = $startupLagThresholdF;
         $this->cooldownThresholdMinutes = $cooldownThresholdMinutes;
-        $this->timezone = $timezone;
         $this->coolingSettleMinutes = $coolingSettleMinutes;
     }
 
@@ -68,17 +65,16 @@ class HeatingCharacteristicsService
         $lags = array_column($sessions, 'startup_lag_minutes');
         $overshoots = array_column($sessions, 'overshoot_degrees_f');
 
-        // Cooling rate analysis
-        $coolingResults = $this->analyzeCoolingRates($allTemps, $events);
+        // Newton's Law cooling coefficient analysis
+        $coolingResults = $this->fitNewtonCoolingCoefficient($allTemps, $events);
 
         return [
             'heating_velocity_f_per_min' => round($this->mean($velocities), 3),
             'startup_lag_minutes' => round($this->mean($lags), 1),
             'overshoot_degrees_f' => round($this->mean($overshoots), 2),
-            'cooling_rate_day_f_per_min' => $coolingResults['cooling_rate_day_f_per_min'],
-            'cooling_rate_night_f_per_min' => $coolingResults['cooling_rate_night_f_per_min'],
-            'cooling_segments_day' => $coolingResults['cooling_segments_day'],
-            'cooling_segments_night' => $coolingResults['cooling_segments_night'],
+            'cooling_coefficient_k' => $coolingResults['cooling_coefficient_k'],
+            'cooling_data_points' => $coolingResults['cooling_data_points'],
+            'cooling_r_squared' => $coolingResults['cooling_r_squared'],
             'sessions_analyzed' => count($sessions),
             'sessions' => $sessions,
             'generated_at' => date('c'),
@@ -304,18 +300,18 @@ class HeatingCharacteristicsService
     }
 
     /**
-     * Analyze cooling rates from temperature data, split into day/night segments.
+     * Fit Newton's Law cooling coefficient from temperature data.
      *
-     * Day = 9am-9pm local, Night = 9pm-9am local (in configured timezone).
-     * Only considers periods where heater has been off for at least coolingSettleMinutes.
+     * Newton's Law: dT/dt = -k × (T_water - T_ambient)
+     * Fits k via regression through origin: k = Σ(x·y) / Σ(x²)
+     * where x = ΔT (water - ambient), y = cooling_rate (positive when cooling)
      */
-    private function analyzeCoolingRates(array $temps, array $events): array
+    private function fitNewtonCoolingCoefficient(array $temps, array $events): array
     {
         $emptyResult = [
-            'cooling_rate_day_f_per_min' => null,
-            'cooling_rate_night_f_per_min' => null,
-            'cooling_segments_day' => 0,
-            'cooling_segments_night' => 0,
+            'cooling_coefficient_k' => null,
+            'cooling_data_points' => 0,
+            'cooling_r_squared' => null,
         ];
 
         if (empty($temps) || empty($events)) {
@@ -326,7 +322,9 @@ class HeatingCharacteristicsService
         $offEvents = [];
         $onEvents = [];
         foreach ($events as $event) {
-            if (($event['equipment'] ?? '') !== 'heater') continue;
+            if (($event['equipment'] ?? '') !== 'heater') {
+                continue;
+            }
             if ($event['action'] === 'off') {
                 $offEvents[] = strtotime($event['timestamp']);
             } elseif ($event['action'] === 'on') {
@@ -339,10 +337,9 @@ class HeatingCharacteristicsService
         }
 
         $settleSeconds = $this->coolingSettleMinutes * 60;
-        $tz = new \DateTimeZone($this->timezone);
 
-        $dayRates = [];
-        $nightRates = [];
+        // Collect (delta_temp, cooling_rate) data points from all cooling windows
+        $dataPoints = []; // [{x: delta_temp, y: cooling_rate}, ...]
 
         foreach ($offEvents as $offTime) {
             $coolStart = $offTime + $settleSeconds;
@@ -369,73 +366,74 @@ class HeatingCharacteristicsService
                 continue;
             }
 
-            // Split readings at 9am/9pm local boundaries
-            $segments = $this->splitByDayNight($coolReadings, $tz);
+            // Generate data points from consecutive pairs
+            for ($i = 0; $i < count($coolReadings) - 1; $i++) {
+                $t1 = $coolReadings[$i];
+                $t2 = $coolReadings[$i + 1];
 
-            foreach ($segments as $seg) {
-                if (count($seg['readings']) < 2) continue;
+                $ts1 = strtotime($t1['timestamp']);
+                $ts2 = strtotime($t2['timestamp']);
+                $dt = ($ts2 - $ts1) / 60.0; // minutes
 
-                $points = [];
-                $firstTs = strtotime($seg['readings'][0]['timestamp']);
-                foreach ($seg['readings'] as $r) {
-                    $points[] = [
-                        'minutes' => (strtotime($r['timestamp']) - $firstTs) / 60.0,
-                        'temp_f' => $r['water_temp_f'],
-                    ];
+                // Skip invalid time gaps
+                if ($dt <= 0 || $dt > 15) {
+                    continue;
                 }
 
-                $rate = $this->linearRegressionSlope($points);
+                $deltaTemp = $t1['water_temp_f'] - $t1['ambient_temp_f'];
 
-                if ($seg['period'] === 'day') {
-                    $dayRates[] = $rate;
-                } else {
-                    $nightRates[] = $rate;
+                // Skip near-equilibrium noise
+                if (abs($deltaTemp) < 1.0) {
+                    continue;
                 }
+
+                // cooling_rate = -(T2 - T1) / dt (positive when cooling)
+                $coolingRate = -($t2['water_temp_f'] - $t1['water_temp_f']) / $dt;
+
+                $dataPoints[] = ['x' => $deltaTemp, 'y' => $coolingRate];
             }
         }
+
+        if (empty($dataPoints)) {
+            return $emptyResult;
+        }
+
+        // Fit k via regression through origin: k = Σ(x·y) / Σ(x²)
+        $sumXY = 0.0;
+        $sumX2 = 0.0;
+        foreach ($dataPoints as $p) {
+            $sumXY += $p['x'] * $p['y'];
+            $sumX2 += $p['x'] * $p['x'];
+        }
+
+        if ($sumX2 < 1e-10) {
+            return $emptyResult;
+        }
+
+        $k = $sumXY / $sumX2;
+
+        // Compute R²: 1 - SS_res / SS_tot
+        $sumY = 0.0;
+        foreach ($dataPoints as $p) {
+            $sumY += $p['y'];
+        }
+        $meanY = $sumY / count($dataPoints);
+
+        $ssRes = 0.0;
+        $ssTot = 0.0;
+        foreach ($dataPoints as $p) {
+            $predicted = $k * $p['x'];
+            $ssRes += ($p['y'] - $predicted) ** 2;
+            $ssTot += ($p['y'] - $meanY) ** 2;
+        }
+
+        $rSquared = $ssTot > 1e-10 ? 1.0 - ($ssRes / $ssTot) : null;
 
         return [
-            'cooling_rate_day_f_per_min' => !empty($dayRates) ? round($this->mean($dayRates), 4) : null,
-            'cooling_rate_night_f_per_min' => !empty($nightRates) ? round($this->mean($nightRates), 4) : null,
-            'cooling_segments_day' => count($dayRates),
-            'cooling_segments_night' => count($nightRates),
+            'cooling_coefficient_k' => round($k, 6),
+            'cooling_data_points' => count($dataPoints),
+            'cooling_r_squared' => $rSquared !== null ? round($rSquared, 4) : null,
         ];
-    }
-
-    /**
-     * Split temperature readings into day/night segments at 9am and 9pm local boundaries.
-     *
-     * @return array Array of ['period' => 'day'|'night', 'readings' => [...]]
-     */
-    private function splitByDayNight(array $readings, \DateTimeZone $tz): array
-    {
-        if (empty($readings)) return [];
-
-        $segments = [];
-        $currentSegment = [];
-        $currentPeriod = null;
-
-        foreach ($readings as $r) {
-            $dt = new \DateTime($r['timestamp']);
-            $dt->setTimezone($tz);
-            $hour = (int) $dt->format('G');
-            $period = ($hour >= 9 && $hour < 21) ? 'day' : 'night';
-
-            if ($currentPeriod !== null && $period !== $currentPeriod) {
-                // Boundary crossed — close current segment
-                $segments[] = ['period' => $currentPeriod, 'readings' => $currentSegment];
-                $currentSegment = [];
-            }
-
-            $currentPeriod = $period;
-            $currentSegment[] = $r;
-        }
-
-        if (!empty($currentSegment)) {
-            $segments[] = ['period' => $currentPeriod, 'readings' => $currentSegment];
-        }
-
-        return $segments;
     }
 
     private function emptyResults(): array
@@ -444,10 +442,9 @@ class HeatingCharacteristicsService
             'heating_velocity_f_per_min' => null,
             'startup_lag_minutes' => null,
             'overshoot_degrees_f' => null,
-            'cooling_rate_day_f_per_min' => null,
-            'cooling_rate_night_f_per_min' => null,
-            'cooling_segments_day' => 0,
-            'cooling_segments_night' => 0,
+            'cooling_coefficient_k' => null,
+            'cooling_data_points' => 0,
+            'cooling_r_squared' => null,
             'sessions_analyzed' => 0,
             'sessions' => [],
             'generated_at' => date('c'),
