@@ -51,9 +51,46 @@ class TargetTemperatureService
     }
 
     /**
+     * Acquire an exclusive lock with a single random backoff retry.
+     *
+     * @return resource|false File handle on success, false if lock unavailable
+     */
+    private function acquireLock(): mixed
+    {
+        $lockFile = dirname($this->stateFile) . '/target-temperature.lock';
+        $dir = dirname($lockFile);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $fp = @fopen($lockFile, 'c');
+        if ($fp === false) {
+            return false;
+        }
+
+        // First attempt
+        if (flock($fp, LOCK_EX | LOCK_NB)) {
+            return $fp;
+        }
+
+        // Single random backoff, then one retry
+        usleep(random_int(50000, 200000)); // 50-200ms
+        if (flock($fp, LOCK_EX | LOCK_NB)) {
+            return $fp;
+        }
+
+        fclose($fp);
+        return false;
+    }
+
+    /**
      * Start heating to target temperature.
      *
+     * Acquires lock, checks for active session, saves state, releases lock,
+     * then calls checkAndAdjust() (which acquires its own lock).
+     *
      * @return array Result of initial checkAndAdjust (includes heater state, cron scheduled, etc.)
+     * @throws \RuntimeException If a heating session is already active
      */
     public function start(float $targetTempF): array
     {
@@ -63,15 +100,30 @@ class TargetTemperatureService
             );
         }
 
-        $state = [
-            'active' => true,
-            'target_temp_f' => $targetTempF,
-            'started_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c'),
-        ];
+        $lock = $this->acquireLock();
+        if ($lock === false) {
+            throw new \RuntimeException('Heat-to-target is already active (could not acquire lock)');
+        }
 
-        $this->saveState($state);
+        try {
+            $currentState = $this->getState();
+            if ($currentState['active']) {
+                throw new \RuntimeException('Heat-to-target is already active');
+            }
 
-        // Immediately check temperature and turn on heater if needed
+            $state = [
+                'active' => true,
+                'target_temp_f' => $targetTempF,
+                'started_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c'),
+            ];
+
+            $this->saveState($state);
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+
+        // checkAndAdjust acquires its own lock — call after releasing ours
         return $this->checkAndAdjust();
     }
 
@@ -101,6 +153,12 @@ class TargetTemperatureService
 
         // Clean up any orphaned heat-target job files
         $this->cleanupJobFiles();
+
+        // Remove lock file to keep state directory clean
+        $lockFile = dirname($this->stateFile) . '/target-temperature.lock';
+        if (file_exists($lockFile)) {
+            @unlink($lockFile);
+        }
     }
 
     /**
@@ -154,9 +212,30 @@ class TargetTemperatureService
     /**
      * Check current temperature and adjust heater state.
      *
+     * Acquires lock to serialize concurrent cron checks. If lock can't be
+     * acquired after a single backoff retry, returns early with 'skipped' field.
+     *
      * @return array Status of the check operation
      */
     public function checkAndAdjust(): array
+    {
+        $lock = $this->acquireLock();
+        if ($lock === false) {
+            return [
+                'skipped' => true,
+                'reason' => 'Could not acquire lock',
+            ];
+        }
+
+        try {
+            return $this->doCheckAndAdjust();
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    private function doCheckAndAdjust(): array
     {
         $state = $this->getState();
 

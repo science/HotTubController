@@ -37,6 +37,11 @@ class TargetTemperatureController
                 'status' => 400,
                 'body' => ['error' => $e->getMessage()],
             ];
+        } catch (\RuntimeException $e) {
+            return [
+                'status' => 409,
+                'body' => ['error' => $e->getMessage()],
+            ];
         }
 
         // Return the checkAndAdjust result which includes heater state, cron scheduled, etc.

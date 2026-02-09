@@ -41,7 +41,8 @@ class TargetTemperatureServiceTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach ([$this->stateFile, $this->equipmentStatusFile, $this->esp32TempFile, $this->esp32ConfigFile] as $file) {
+        $lockFile = dirname($this->stateFile) . '/target-temperature.lock';
+        foreach ([$this->stateFile, $this->equipmentStatusFile, $this->esp32TempFile, $this->esp32ConfigFile, $lockFile] as $file) {
             if (file_exists($file)) {
                 unlink($file);
             }
@@ -763,5 +764,79 @@ class TargetTemperatureServiceTest extends TestCase
             null, // apiBaseUrl
             $this->esp32Config
         );
+    }
+
+    // ========== Duplicate start prevention tests ==========
+
+    public function testStartRejectsWhenAlreadyActive(): void
+    {
+        $service = $this->createBasicService();
+        $service->start(103.5);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('already active');
+
+        $service->start(103.5);
+    }
+
+    public function testStartAllowsAfterPreviousSessionStopped(): void
+    {
+        $service = $this->createBasicService();
+        $service->start(103.5);
+        $service->stop();
+
+        // Should not throw - previous session was stopped
+        $service->start(100.0);
+
+        $state = $service->getState();
+        $this->assertTrue($state['active']);
+        $this->assertEquals(100.0, $state['target_temp_f']);
+    }
+
+    public function testStartRejectsWithDifferentTargetTemp(): void
+    {
+        $service = $this->createBasicService();
+        $service->start(103.5);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('already active');
+
+        $service->start(100.0);
+    }
+
+    public function testCheckAndAdjustSkipsWhenLockHeld(): void
+    {
+        $service = $this->createBasicService();
+        $service->start(103.5);
+
+        // Hold the lock externally
+        $lockFile = dirname($this->stateFile) . '/target-temperature.lock';
+        $fp = fopen($lockFile, 'c');
+        flock($fp, LOCK_EX);
+
+        $result = $service->checkAndAdjust();
+
+        flock($fp, LOCK_UN);
+        fclose($fp);
+
+        $this->assertArrayHasKey('skipped', $result);
+        $this->assertTrue($result['skipped']);
+    }
+
+    public function testCheckAndAdjustReleasesLockAfterCompletion(): void
+    {
+        $service = $this->createBasicService();
+        // Don't start - checkAndAdjust on inactive state should still acquire/release lock
+
+        $service->checkAndAdjust();
+
+        // Lock should be released - we should be able to acquire it
+        $lockFile = dirname($this->stateFile) . '/target-temperature.lock';
+        $fp = fopen($lockFile, 'c');
+        $locked = flock($fp, LOCK_EX | LOCK_NB);
+        flock($fp, LOCK_UN);
+        fclose($fp);
+
+        $this->assertTrue($locked, 'Lock should be released after checkAndAdjust completes');
     }
 }

@@ -19,13 +19,6 @@ class TargetTemperatureControllerTest extends TestCase
         $this->service = new TargetTemperatureService($this->stateFile);
     }
 
-    protected function tearDown(): void
-    {
-        if (file_exists($this->stateFile)) {
-            unlink($this->stateFile);
-        }
-    }
-
     public function testStartReturns200AndStartsHeatingToTarget(): void
     {
         $controller = new TargetTemperatureController($this->service);
@@ -101,5 +94,31 @@ class TargetTemperatureControllerTest extends TestCase
 
         $this->assertEquals(200, $response['status']);
         $this->assertArrayHasKey('active', $response['body']);
+    }
+
+    public function testStartReturns409WhenAlreadyActive(): void
+    {
+        $controller = new TargetTemperatureController($this->service);
+
+        // First start succeeds
+        $response1 = $controller->start(['target_temp_f' => 103.5]);
+        $this->assertEquals(200, $response1['status']);
+
+        // Second start returns 409
+        $response2 = $controller->start(['target_temp_f' => 103.5]);
+        $this->assertEquals(409, $response2['status']);
+        $this->assertStringContainsString('already active', $response2['body']['error']);
+    }
+
+    protected function tearDown(): void
+    {
+        // Clean up lock file too
+        $lockFile = dirname($this->stateFile) . '/target-temperature.lock';
+        if (file_exists($lockFile)) {
+            unlink($lockFile);
+        }
+        if (file_exists($this->stateFile)) {
+            unlink($this->stateFile);
+        }
     }
 }
