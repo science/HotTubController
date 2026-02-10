@@ -391,7 +391,86 @@ class HeatingCharacteristicsServiceTest extends TestCase
         $this->assertArrayHasKey('cooling_r_squared', $results);
     }
 
-    // ========== Production Data Validation (Phase 0) ==========
+    // ========== Cooling Outlier & Quantization Tests ==========
+
+    public function testCoolingHandlesQuantizedSensorData(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/cooling-quantized-' . uniqid();
+        mkdir($tmpDir, 0755, true);
+
+        $tempFile = $tmpDir . '/temp.log';
+        $eventFile = $tmpDir . '/events.log';
+
+        $events = [
+            json_encode(['timestamp' => '2026-02-01T10:00:00+00:00', 'equipment' => 'heater', 'action' => 'on', 'water_temp_f' => 85.0]),
+            json_encode(['timestamp' => '2026-02-01T11:00:00+00:00', 'equipment' => 'heater', 'action' => 'off', 'water_temp_f' => 102.0]),
+        ];
+        file_put_contents($eventFile, implode("\n", $events) . "\n");
+
+        // Simulate DS18B20 quantization: 0.0625°C (0.1125°F) resolution
+        // True k=0.00015/min with ΔT≈40°F → 0.006°F/min → 0.03°F per 5min
+        // Sensor ticks every ~4 readings, so most 5-min pairs show zero change
+        $lines = [];
+        $ambientC = 13.0; // ~55.4°F
+        $ambientF = round($ambientC * 9.0 / 5.0 + 32, 4);
+        $sensorResC = 0.0625;
+        $trueK = 0.00015;
+
+        // Heating phase (for valid session)
+        for ($m = 0; $m <= 60; $m++) {
+            $tf = 85.0 + (102.0 - 85.0) * ($m / 60.0);
+            $tc = ($tf - 32) * 5.0 / 9.0;
+            $ts = sprintf('2026-02-01T%02d:%02d:00+00:00', 10 + intdiv($m, 60), $m % 60);
+            $lines[] = json_encode([
+                'timestamp' => $ts,
+                'water_temp_f' => round($tf, 4),
+                'water_temp_c' => round($tc, 4),
+                'ambient_temp_f' => $ambientF,
+                'ambient_temp_c' => $ambientC,
+                'heater_on' => true,
+            ]);
+        }
+
+        // Cooling phase: 200 readings at 5-min intervals, quantized
+        $trueTempC = (102.0 - 32) * 5.0 / 9.0; // Start at 102°F
+        for ($i = 0; $i < 200; $i++) {
+            $minutesSinceOff = 20 + $i * 5;
+
+            // True Newton cooling per step
+            $trueTempC = $ambientC + ($trueTempC - $ambientC) * exp(-$trueK * 5.0);
+
+            // Quantize to DS18B20 resolution
+            $quantizedC = round($trueTempC / $sensorResC) * $sensorResC;
+            $quantizedF = round($quantizedC * 9.0 / 5.0 + 32, 4);
+
+            $totalMin = 11 * 60 + $minutesSinceOff;
+            $ts = sprintf('2026-02-01T%02d:%02d:00+00:00', intdiv($totalMin, 60), $totalMin % 60);
+            $lines[] = json_encode([
+                'timestamp' => $ts,
+                'water_temp_f' => $quantizedF,
+                'water_temp_c' => round($quantizedC, 4),
+                'ambient_temp_f' => $ambientF,
+                'ambient_temp_c' => $ambientC,
+                'heater_on' => false,
+            ]);
+        }
+
+        file_put_contents($tempFile, implode("\n", $lines) . "\n");
+
+        $service = new HeatingCharacteristicsService();
+        $results = $service->generate([$tempFile], $eventFile);
+
+        // k should be close to true value (within 50%)
+        $this->assertNotNull($results['cooling_coefficient_k']);
+        $this->assertEqualsWithDelta($trueK, $results['cooling_coefficient_k'], $trueK * 0.5);
+
+        // R² MUST be positive (negative means model is worse than the mean)
+        $this->assertNotNull($results['cooling_r_squared']);
+        $this->assertGreaterThan(0.0, $results['cooling_r_squared']);
+
+        array_map('unlink', glob($tmpDir . '/*'));
+        rmdir($tmpDir);
+    }
 
     public function testCoolingPrunesHighKOutliers(): void
     {
@@ -463,8 +542,9 @@ class HeatingCharacteristicsServiceTest extends TestCase
         $this->assertNotNull($results['cooling_coefficient_k']);
         $this->assertEqualsWithDelta(0.001, $results['cooling_coefficient_k'], 0.0003);
 
-        // R² should be high after outlier removal
-        $this->assertGreaterThan(0.90, $results['cooling_r_squared']);
+        // R² should be positive after outlier removal.
+        // Stride=6 smears pump boundary pairs, so R² is moderate (not >0.9).
+        $this->assertGreaterThan(0.4, $results['cooling_r_squared']);
 
         // Cleanup
         array_map('unlink', glob($tmpDir . '/*'));

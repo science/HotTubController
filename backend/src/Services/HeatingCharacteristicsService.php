@@ -9,15 +9,18 @@ class HeatingCharacteristicsService
     private float $startupLagThresholdF;
     private int $cooldownThresholdMinutes;
     private int $coolingSettleMinutes;
+    private int $coolingStride;
 
     public function __construct(
         float $startupLagThresholdF = 0.2,
         int $cooldownThresholdMinutes = 30,
-        int $coolingSettleMinutes = 15
+        int $coolingSettleMinutes = 15,
+        int $coolingStride = 6
     ) {
         $this->startupLagThresholdF = $startupLagThresholdF;
         $this->cooldownThresholdMinutes = $cooldownThresholdMinutes;
         $this->coolingSettleMinutes = $coolingSettleMinutes;
+        $this->coolingStride = $coolingStride;
     }
 
     /**
@@ -362,21 +365,25 @@ class HeatingCharacteristicsService
                 }
             }
 
-            if (count($coolReadings) < 2) {
+            if (count($coolReadings) < $this->coolingStride + 1) {
                 continue;
             }
 
-            // Generate data points from consecutive pairs
-            for ($i = 0; $i < count($coolReadings) - 1; $i++) {
+            // Generate data points using stride to average over sensor quantization.
+            // DS18B20 at 12-bit has 0.0625°C (0.1125°F) resolution. At typical
+            // cooling rates, consecutive 5-min pairs often show zero change.
+            // Stride=6 gives ~30-min pairs, enough for 1-2 sensor ticks.
+            $maxDtMinutes = $this->coolingStride * 10;
+            for ($i = 0; $i < count($coolReadings) - $this->coolingStride; $i++) {
                 $t1 = $coolReadings[$i];
-                $t2 = $coolReadings[$i + 1];
+                $t2 = $coolReadings[$i + $this->coolingStride];
 
                 $ts1 = strtotime($t1['timestamp']);
                 $ts2 = strtotime($t2['timestamp']);
                 $dt = ($ts2 - $ts1) / 60.0; // minutes
 
-                // Skip invalid time gaps
-                if ($dt <= 0 || $dt > 15) {
+                // Skip invalid time gaps (missing data within the stride window)
+                if ($dt <= 0 || $dt > $maxDtMinutes) {
                     continue;
                 }
 
@@ -478,14 +485,16 @@ class HeatingCharacteristicsService
             ? ($sorted[$mid - 1] + $sorted[$mid]) / 2.0
             : $sorted[$mid];
 
-        // Keep points where k > 0 and k <= threshold * median
+        // Keep points where k >= 0 and k <= threshold * median.
+        // Zero-k points are legitimate (sensor quantization), not outliers.
+        // Only discard negative k (warming) and high k (pump/cover/human).
         $filtered = [];
         foreach ($dataPoints as $i => $p) {
             if (!isset($perPointK[$i])) {
                 continue;
             }
             $ki = $perPointK[$i];
-            if ($ki > 0 && $ki <= $threshold * $medianK) {
+            if ($ki >= 0 && $ki <= $threshold * $medianK) {
                 $filtered[] = $p;
             }
         }
