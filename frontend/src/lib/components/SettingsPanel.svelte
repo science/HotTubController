@@ -17,7 +17,12 @@
 		getIsLoading as getTargetTempLoading,
 		getError as getTargetTempError
 	} from '$lib/stores/heatTargetSettings.svelte';
-	import { api, type TargetTemperatureState, type HeatingCharacteristics } from '$lib/api';
+	import {
+		api,
+		type TargetTemperatureState,
+		type HeatingCharacteristics,
+		type TemperatureData
+	} from '$lib/api';
 	import { onMount } from 'svelte';
 
 	// Props
@@ -101,6 +106,7 @@
 		if (isAdmin) {
 			loadServerHeatTargetState();
 			loadHeatingCharacteristics();
+			api.getTemperature().then((t) => (currentTemp = t)).catch(() => {});
 		}
 	});
 
@@ -120,6 +126,7 @@
 	let generatingHeatingChars = $state(false);
 	let heatingCharsError = $state<string | null>(null);
 	let lookbackDays = $state(5);
+	let currentTemp = $state<TemperatureData | null>(null);
 
 	async function loadHeatingCharacteristics() {
 		if (!isAdmin) return;
@@ -347,7 +354,7 @@
 						{/each}
 					</select>
 					<p class="text-slate-500 text-xs mt-1">
-						Used for day/night cooling rate analysis boundaries (9am/9pm local).
+						Used for scheduling and display purposes.
 					</p>
 				</div>
 
@@ -436,13 +443,23 @@
 						<span class="text-slate-200">{heatingChars.startup_lag_minutes} min</span>
 						<span class="text-slate-400">Overshoot</span>
 						<span class="text-slate-200">{heatingChars.overshoot_degrees_f}°F</span>
-						{#if heatingChars.cooling_rate_day_f_per_min !== null}
-							<span class="text-slate-400">Daytime cooling</span>
-							<span class="text-slate-200">{Math.abs(heatingChars.cooling_rate_day_f_per_min).toFixed(3)}°F/min ({heatingChars.cooling_segments_day} seg)</span>
+						<span class="text-slate-400">Cooling coefficient (k)</span>
+						{#if heatingChars.cooling_coefficient_k != null}
+							<span class="text-slate-200">{heatingChars.cooling_coefficient_k.toFixed(6)}/min <span class="text-slate-500">({heatingChars.cooling_data_points} pts)</span></span>
+						{:else}
+							<span class="text-slate-500">Insufficient data</span>
 						{/if}
-						{#if heatingChars.cooling_rate_night_f_per_min !== null}
-							<span class="text-slate-400">Nighttime cooling</span>
-							<span class="text-slate-200">{Math.abs(heatingChars.cooling_rate_night_f_per_min).toFixed(3)}°F/min ({heatingChars.cooling_segments_night} seg)</span>
+						<span class="text-slate-400">Model fit (R²)</span>
+						{#if heatingChars.cooling_r_squared != null}
+							<span class="text-slate-200">{heatingChars.cooling_r_squared.toFixed(3)}</span>
+						{:else}
+							<span class="text-slate-500">Insufficient data</span>
+						{/if}
+						{#if heatingChars.cooling_coefficient_k != null && currentTemp?.water_temp_f != null && currentTemp?.ambient_temp_f != null}
+							{@const deltaT = currentTemp.water_temp_f - currentTemp.ambient_temp_f}
+							{@const coolingPerHour = heatingChars.cooling_coefficient_k * deltaT * 60}
+							<span class="text-slate-400">Current cooling rate</span>
+							<span class="text-slate-200">{coolingPerHour.toFixed(1)}°F/hr <span class="text-slate-500">(ΔT={deltaT.toFixed(0)}°F)</span></span>
 						{/if}
 						<span class="text-slate-400">Sessions analyzed</span>
 						<span class="text-slate-200">{heatingChars.sessions_analyzed}</span>

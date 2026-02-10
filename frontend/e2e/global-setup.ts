@@ -144,6 +144,27 @@ function cleanupJobFiles(jobsDir: string): number {
 }
 
 /**
+ * Wipes all files in the state directory except .gitkeep.
+ * This prevents stale state files with outdated schemas from breaking tests.
+ * Test data is written back explicitly by setupEsp32TestData() and resetHeatTargetSettings().
+ */
+function cleanStateDirectory(stateDir: string): number {
+	if (!existsSync(stateDir)) {
+		mkdirSync(stateDir, { recursive: true });
+		return 0;
+	}
+
+	const files = readdirSync(stateDir);
+	let count = 0;
+	for (const file of files) {
+		if (file === '.gitkeep') continue;
+		rmSync(join(stateDir, file));
+		count++;
+	}
+	return count;
+}
+
+/**
  * Removes orphaned HOTTUB cron entries left by previous test runs.
  * Job files get cleaned up by cleanupJobFiles(), but the corresponding
  * crontab entries can survive if tests exit before proper cleanup.
@@ -194,11 +215,14 @@ async function globalSetup(config: FullConfig) {
 		console.log(`[E2E Setup] Cleaned up ${usersCount} stale test user(s)`);
 	}
 
-	// Set up ESP32 test data so temperature tests can verify both sources
+	// Wipe all state files to prevent stale cached data from breaking tests
+	const stateCount = cleanStateDirectory(stateDir);
+	console.log(`[E2E Setup] Cleaned ${stateCount} state file(s)`);
+
+	// Write back only the state files tests need
 	setupEsp32TestData(stateDir);
 	console.log(`[E2E Setup] Set up ESP32 test data`);
 
-	// Reset heat-target settings to defaults
 	resetHeatTargetSettings(stateDir);
 	console.log(`[E2E Setup] Reset heat-target settings to defaults`);
 }
