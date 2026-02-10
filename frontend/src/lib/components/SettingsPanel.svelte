@@ -455,11 +455,22 @@
 						{:else}
 							<span class="text-slate-500">Insufficient data</span>
 						{/if}
+						<span class="text-slate-400">Max cooling (k)</span>
+						{#if heatingChars.max_cooling_k != null}
+							<span class="text-slate-200">{heatingChars.max_cooling_k.toFixed(6)}/min</span>
+						{:else}
+							<span class="text-slate-500">Insufficient data</span>
+						{/if}
 						{#if heatingChars.cooling_coefficient_k != null && currentTemp?.water_temp_f != null && currentTemp?.ambient_temp_f != null}
 							{@const deltaT = currentTemp.water_temp_f - currentTemp.ambient_temp_f}
 							{@const coolingPerHour = heatingChars.cooling_coefficient_k * deltaT * 60}
 							<span class="text-slate-400">Current cooling rate</span>
 							<span class="text-slate-200">{coolingPerHour.toFixed(1)}°F/hr <span class="text-slate-500">(ΔT={deltaT.toFixed(0)}°F)</span></span>
+							{#if heatingChars.max_cooling_k != null}
+								{@const worstCasePerHour = heatingChars.max_cooling_k * deltaT * 60}
+								<span class="text-slate-400">Worst-case cooling</span>
+								<span class="text-slate-200">{worstCasePerHour.toFixed(1)}°F/hr</span>
+							{/if}
 						{/if}
 						<span class="text-slate-400">Sessions analyzed</span>
 						<span class="text-slate-200">{heatingChars.sessions_analyzed}</span>

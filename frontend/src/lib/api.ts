@@ -131,6 +131,7 @@ export interface HeatingCharacteristics {
 	cooling_coefficient_k: number | null;
 	cooling_data_points: number;
 	cooling_r_squared: number | null;
+	max_cooling_k: number | null;
 	sessions_analyzed: number;
 	sessions: HeatingSession[];
 	generated_at: string;

@@ -124,6 +124,7 @@ class HeatingCharacteristicsServiceTest extends TestCase
         $this->assertArrayHasKey('cooling_coefficient_k', $results);
         $this->assertArrayHasKey('cooling_data_points', $results);
         $this->assertArrayHasKey('cooling_r_squared', $results);
+        $this->assertArrayHasKey('max_cooling_k', $results);
         $this->assertArrayHasKey('sessions_analyzed', $results);
         $this->assertArrayHasKey('generated_at', $results);
 
@@ -386,6 +387,7 @@ class HeatingCharacteristicsServiceTest extends TestCase
         $this->assertArrayHasKey('cooling_coefficient_k', $results);
         $this->assertArrayHasKey('cooling_data_points', $results);
         $this->assertArrayHasKey('cooling_r_squared', $results);
+        $this->assertArrayHasKey('max_cooling_k', $results);
     }
 
     // ========== Cooling Outlier & Quantization Tests ==========
@@ -545,6 +547,148 @@ class HeatingCharacteristicsServiceTest extends TestCase
 
         // Cleanup
         array_map('unlink', glob($tmpDir . '/*'));
+        rmdir($tmpDir);
+    }
+
+    // ========== Max Cooling K Tests ==========
+
+    public function testMaxCoolingKPresentInResults(): void
+    {
+        $service = new HeatingCharacteristicsService();
+
+        $results = $service->generate(
+            [$this->fixtureDir . '/heating-sessions-temperature.log'],
+            $this->fixtureDir . '/heating-sessions-events.log'
+        );
+
+        $this->assertArrayHasKey('max_cooling_k', $results);
+    }
+
+    public function testMaxCoolingKWithCleanData(): void
+    {
+        $service = new HeatingCharacteristicsService();
+
+        $results = $service->generate(
+            [$this->fixtureDir . '/newton-cooling-temperature.log'],
+            $this->fixtureDir . '/newton-cooling-events.log'
+        );
+
+        // Clean Newton data with uniform k ≈ 0.001: max_k should be close to fitted k
+        $this->assertNotNull($results['max_cooling_k']);
+        $this->assertNotNull($results['cooling_coefficient_k']);
+        $this->assertGreaterThanOrEqual($results['cooling_coefficient_k'], $results['max_cooling_k']);
+        $this->assertEqualsWithDelta(0.001, $results['max_cooling_k'], 0.0005);
+    }
+
+    public function testMaxCoolingKCapturesOutliers(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/max-k-outlier-' . uniqid();
+        mkdir($tmpDir, 0755, true);
+
+        $tempFile = $tmpDir . '/temp.log';
+        $eventFile = $tmpDir . '/events.log';
+
+        $events = [
+            json_encode(['timestamp' => '2026-02-01T01:00:00+00:00', 'equipment' => 'heater', 'action' => 'on', 'water_temp_f' => 85.0]),
+            json_encode(['timestamp' => '2026-02-01T02:00:00+00:00', 'equipment' => 'heater', 'action' => 'off', 'water_temp_f' => 102.0]),
+        ];
+        file_put_contents($eventFile, implode("\n", $events) . "\n");
+
+        $ambient = 40.0;
+        $temp = 102.0;
+        $kClean = 0.001;
+        $kPump = 0.005;
+        $lines = [];
+
+        // Heating phase (for valid session)
+        for ($m = 0; $m <= 60; $m++) {
+            $t = 85.0 + (102.0 - 85.0) * ($m / 60.0);
+            $ts = sprintf('2026-02-01T01:%02d:00+00:00', $m);
+            $lines[] = json_encode([
+                'timestamp' => $ts,
+                'water_temp_f' => round($t, 4),
+                'water_temp_c' => round(($t - 32) * 5 / 9, 4),
+                'ambient_temp_f' => $ambient,
+                'ambient_temp_c' => round(($ambient - 32) * 5 / 9, 4),
+                'heater_on' => true,
+            ]);
+        }
+
+        // Cooling phase: 84 intervals of 5 min = 7 hours
+        // First 36 clean, then 12 pump (fills exactly one window), then 36 clean
+        for ($i = 0; $i < 84; $i++) {
+            $minutesSinceOff = 20 + $i * 5;
+            $isPump = ($i >= 36 && $i < 48); // 12 pump intervals = 1 full window
+            $k = $isPump ? $kPump : $kClean;
+
+            $deltaT = $temp - $ambient;
+            $tempDrop = $k * $deltaT * 5.0;
+            $temp -= $tempDrop;
+
+            $totalMinutes = 120 + $minutesSinceOff;
+            $hour = intdiv($totalMinutes, 60);
+            $min = $totalMinutes % 60;
+            $ts = sprintf('2026-02-01T%02d:%02d:00+00:00', $hour, $min);
+            $lines[] = json_encode([
+                'timestamp' => $ts,
+                'water_temp_f' => round($temp, 4),
+                'water_temp_c' => round(($temp - 32) * 5 / 9, 4),
+                'ambient_temp_f' => $ambient,
+                'ambient_temp_c' => round(($ambient - 32) * 5 / 9, 4),
+                'heater_on' => false,
+            ]);
+        }
+
+        file_put_contents($tempFile, implode("\n", $lines) . "\n");
+
+        $service = new HeatingCharacteristicsService();
+        $results = $service->generate([$tempFile], $eventFile);
+
+        // Pruned k should be ≈ 0.001 (pump outliers removed)
+        $this->assertNotNull($results['cooling_coefficient_k']);
+        $this->assertEqualsWithDelta(0.001, $results['cooling_coefficient_k'], 0.0003);
+
+        // max_cooling_k should capture pump outlier ≈ 0.005
+        $this->assertNotNull($results['max_cooling_k']);
+        $this->assertGreaterThan($results['cooling_coefficient_k'] * 2, $results['max_cooling_k']);
+        $this->assertEqualsWithDelta(0.005, $results['max_cooling_k'], 0.001);
+
+        array_map('unlink', glob($tmpDir . '/*'));
+        rmdir($tmpDir);
+    }
+
+    public function testMaxCoolingKExcludesNegativeK(): void
+    {
+        $service = new HeatingCharacteristicsService();
+
+        $results = $service->generate(
+            [$this->fixtureDir . '/newton-cooling-temperature.log'],
+            $this->fixtureDir . '/newton-cooling-events.log'
+        );
+
+        // Newton fixture has only cooling (positive k). max_cooling_k should be positive.
+        $this->assertNotNull($results['max_cooling_k']);
+        $this->assertGreaterThan(0, $results['max_cooling_k']);
+    }
+
+    public function testMaxCoolingKNullWhenNoData(): void
+    {
+        $service = new HeatingCharacteristicsService();
+
+        $tmpDir = sys_get_temp_dir() . '/max-k-empty-' . uniqid();
+        mkdir($tmpDir, 0755, true);
+        $emptyTemp = $tmpDir . '/empty.log';
+        $emptyEvents = $tmpDir . '/empty-events.log';
+        file_put_contents($emptyTemp, '');
+        file_put_contents($emptyEvents, '');
+
+        $results = $service->generate([$emptyTemp], $emptyEvents);
+
+        $this->assertArrayHasKey('max_cooling_k', $results);
+        $this->assertNull($results['max_cooling_k']);
+
+        unlink($emptyTemp);
+        unlink($emptyEvents);
         rmdir($tmpDir);
     }
 
