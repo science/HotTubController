@@ -443,13 +443,17 @@
 						<span class="text-slate-200">{heatingChars.startup_lag_minutes} min</span>
 						<span class="text-slate-400">Overshoot</span>
 						<span class="text-slate-200">{heatingChars.overshoot_degrees_f}°F</span>
+						<span class="text-slate-400">Cooling coefficient (k)</span>
 						{#if heatingChars.cooling_coefficient_k != null}
-							<span class="text-slate-400">Cooling coefficient (k)</span>
 							<span class="text-slate-200">{heatingChars.cooling_coefficient_k.toFixed(6)}/min <span class="text-slate-500">({heatingChars.cooling_data_points} pts)</span></span>
+						{:else}
+							<span class="text-slate-500">Insufficient data</span>
 						{/if}
+						<span class="text-slate-400">Model fit (R²)</span>
 						{#if heatingChars.cooling_r_squared != null}
-							<span class="text-slate-400">Model fit (R²)</span>
 							<span class="text-slate-200">{heatingChars.cooling_r_squared.toFixed(3)}</span>
+						{:else}
+							<span class="text-slate-500">Insufficient data</span>
 						{/if}
 						{#if heatingChars.cooling_coefficient_k != null && currentTemp?.water_temp_f != null && currentTemp?.ambient_temp_f != null}
 							{@const deltaT = currentTemp.water_temp_f - currentTemp.ambient_temp_f}

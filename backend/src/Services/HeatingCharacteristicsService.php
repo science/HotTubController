@@ -398,6 +398,14 @@ class HeatingCharacteristicsService
             return $emptyResult;
         }
 
+        // Prune outliers: remove points with anomalously high k (pump, cover off, etc.)
+        // Cooling can only be artificially fast, never artificially slow.
+        $dataPoints = $this->pruneHighKOutliers($dataPoints);
+
+        if (empty($dataPoints)) {
+            return $emptyResult;
+        }
+
         // Fit k via regression through origin: k = Σ(x·y) / Σ(x²)
         $sumXY = 0.0;
         $sumX2 = 0.0;
@@ -434,6 +442,55 @@ class HeatingCharacteristicsService
             'cooling_data_points' => count($dataPoints),
             'cooling_r_squared' => $rSquared !== null ? round($rSquared, 4) : null,
         ];
+    }
+
+    /**
+     * Remove data points with anomalously high per-point k values.
+     *
+     * Cooling can only be artificially fast (pump running, cover off, person in tub),
+     * never artificially slow. So we keep the low-k points and discard high-k outliers.
+     *
+     * @param array $dataPoints [{x: delta_temp, y: cooling_rate}, ...]
+     * @return array Filtered data points
+     */
+    private function pruneHighKOutliers(array $dataPoints, float $threshold = 2.0): array
+    {
+        // Compute per-point k = cooling_rate / delta_temp
+        $perPointK = [];
+        foreach ($dataPoints as $i => $p) {
+            if (abs($p['x']) > 1e-10) {
+                $perPointK[$i] = $p['y'] / $p['x'];
+            }
+        }
+
+        // Keep only positive k values for median calculation
+        $positiveK = array_filter($perPointK, fn($k) => $k > 0);
+
+        if (count($positiveK) < 3) {
+            return $dataPoints; // Not enough data to detect outliers
+        }
+
+        // Find median k
+        $sorted = array_values($positiveK);
+        sort($sorted);
+        $mid = intdiv(count($sorted), 2);
+        $medianK = count($sorted) % 2 === 0
+            ? ($sorted[$mid - 1] + $sorted[$mid]) / 2.0
+            : $sorted[$mid];
+
+        // Keep points where k > 0 and k <= threshold * median
+        $filtered = [];
+        foreach ($dataPoints as $i => $p) {
+            if (!isset($perPointK[$i])) {
+                continue;
+            }
+            $ki = $perPointK[$i];
+            if ($ki > 0 && $ki <= $threshold * $medianK) {
+                $filtered[] = $p;
+            }
+        }
+
+        return $filtered;
     }
 
     private function emptyResults(): array

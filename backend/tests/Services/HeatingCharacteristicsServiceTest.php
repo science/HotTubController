@@ -393,6 +393,86 @@ class HeatingCharacteristicsServiceTest extends TestCase
 
     // ========== Production Data Validation (Phase 0) ==========
 
+    public function testCoolingPrunesHighKOutliers(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/cooling-outlier-' . uniqid();
+        mkdir($tmpDir, 0755, true);
+
+        $tempFile = $tmpDir . '/temp.log';
+        $eventFile = $tmpDir . '/events.log';
+
+        $events = [
+            json_encode(['timestamp' => '2026-02-01T01:00:00+00:00', 'equipment' => 'heater', 'action' => 'on', 'water_temp_f' => 85.0]),
+            json_encode(['timestamp' => '2026-02-01T02:00:00+00:00', 'equipment' => 'heater', 'action' => 'off', 'water_temp_f' => 102.0]),
+        ];
+        file_put_contents($eventFile, implode("\n", $events) . "\n");
+
+        // Generate cooling data: 60 five-minute intervals after settle
+        // Readings 0-24: clean k=0.001, readings 25-30: pump k=0.005, readings 31-59: clean k=0.001
+        $ambient = 40.0;
+        $temp = 102.0;
+        $kClean = 0.001;
+        $kPump = 0.005;
+        $lines = [];
+
+        // Heating phase (for valid session)
+        for ($m = 0; $m <= 60; $m++) {
+            $t = 85.0 + (102.0 - 85.0) * ($m / 60.0);
+            $ts = sprintf('2026-02-01T01:%02d:00+00:00', $m);
+            $lines[] = json_encode([
+                'timestamp' => $ts,
+                'water_temp_f' => round($t, 4),
+                'water_temp_c' => round(($t - 32) * 5 / 9, 4),
+                'ambient_temp_f' => $ambient,
+                'ambient_temp_c' => round(($ambient - 32) * 5 / 9, 4),
+                'heater_on' => true,
+            ]);
+        }
+
+        // Cooling phase: start 20 min after off (past 15-min settle)
+        // 60 intervals of 5 min = 5 hours of cooling
+        for ($i = 0; $i < 60; $i++) {
+            $minutesSinceOff = 20 + $i * 5;
+            $isPump = ($i >= 25 && $i < 31); // 6 pump intervals
+            $k = $isPump ? $kPump : $kClean;
+
+            $deltaT = $temp - $ambient;
+            $tempDrop = $k * $deltaT * 5.0;
+            $temp -= $tempDrop;
+
+            $totalMinutes = 120 + $minutesSinceOff; // minutes from midnight
+            $hour = intdiv($totalMinutes, 60);
+            $min = $totalMinutes % 60;
+            $ts = sprintf('2026-02-01T%02d:%02d:00+00:00', $hour, $min);
+            $lines[] = json_encode([
+                'timestamp' => $ts,
+                'water_temp_f' => round($temp, 4),
+                'water_temp_c' => round(($temp - 32) * 5 / 9, 4),
+                'ambient_temp_f' => $ambient,
+                'ambient_temp_c' => round(($ambient - 32) * 5 / 9, 4),
+                'heater_on' => false,
+            ]);
+        }
+
+        file_put_contents($tempFile, implode("\n", $lines) . "\n");
+
+        $service = new HeatingCharacteristicsService();
+        $results = $service->generate([$tempFile], $eventFile);
+
+        // With pruning, k should be ≈ 0.001 (pump outliers removed)
+        $this->assertNotNull($results['cooling_coefficient_k']);
+        $this->assertEqualsWithDelta(0.001, $results['cooling_coefficient_k'], 0.0003);
+
+        // R² should be high after outlier removal
+        $this->assertGreaterThan(0.90, $results['cooling_r_squared']);
+
+        // Cleanup
+        array_map('unlink', glob($tmpDir . '/*'));
+        rmdir($tmpDir);
+    }
+
+    // ========== Production Data Validation (Phase 0) ==========
+
     public function testNewtonModelAgainstProductionData(): void
     {
         $logDir = __DIR__ . '/../../storage/logs';
