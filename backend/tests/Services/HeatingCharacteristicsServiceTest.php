@@ -270,13 +270,10 @@ class HeatingCharacteristicsServiceTest extends TestCase
             $this->fixtureDir . '/newton-cooling-events.log'
         );
 
-        // 3 cooling regimes with 5-min intervals over ~17.75 hours after settle
-        // Regime 1: 02:20-08:00 = 68 intervals, Regime 2: 08:05-14:00 = 71, Regime 3: 14:05-20:00 = 71
-        // Each pair of consecutive readings gives one data point, so count = readings - 1
-        // Total cooling readings after settle (02:15+): 69+72+72 = 213, pairs = 212
-        // But the pair at each ambient transition (08:00→08:05, 14:00→14:05) spans the boundary
-        // and has a valid 5-min dt, so it should be included
-        $this->assertGreaterThan(200, $results['cooling_data_points']);
+        // 3 cooling regimes with 5-min intervals, ~69-72 readings each.
+        // Non-overlapping windows of 12: each regime yields ~5-6 windows.
+        // Total ≈ 15-18 data points before pruning.
+        $this->assertGreaterThan(10, $results['cooling_data_points']);
     }
 
     public function testCoolingNullWhenNoData(): void
@@ -460,13 +457,13 @@ class HeatingCharacteristicsServiceTest extends TestCase
         $service = new HeatingCharacteristicsService();
         $results = $service->generate([$tempFile], $eventFile);
 
-        // k should be close to true value (within 50%)
+        // k should be close to true value (within 30%)
         $this->assertNotNull($results['cooling_coefficient_k']);
-        $this->assertEqualsWithDelta($trueK, $results['cooling_coefficient_k'], $trueK * 0.5);
+        $this->assertEqualsWithDelta($trueK, $results['cooling_coefficient_k'], $trueK * 0.3);
 
-        // R² MUST be positive (negative means model is worse than the mean)
+        // R² should be high — windowed regression averages out sensor quantization
         $this->assertNotNull($results['cooling_r_squared']);
-        $this->assertGreaterThan(0.0, $results['cooling_r_squared']);
+        $this->assertGreaterThan(0.8, $results['cooling_r_squared']);
 
         array_map('unlink', glob($tmpDir . '/*'));
         rmdir($tmpDir);

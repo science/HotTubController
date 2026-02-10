@@ -15,7 +15,7 @@ class HeatingCharacteristicsService
         float $startupLagThresholdF = 0.2,
         int $cooldownThresholdMinutes = 30,
         int $coolingSettleMinutes = 15,
-        int $coolingStride = 6
+        int $coolingStride = 12
     ) {
         $this->startupLagThresholdF = $startupLagThresholdF;
         $this->cooldownThresholdMinutes = $cooldownThresholdMinutes;
@@ -365,39 +365,63 @@ class HeatingCharacteristicsService
                 }
             }
 
-            if (count($coolReadings) < $this->coolingStride + 1) {
+            if (count($coolReadings) < $this->coolingStride) {
                 continue;
             }
 
-            // Generate data points using stride to average over sensor quantization.
-            // DS18B20 at 12-bit has 0.0625°C (0.1125°F) resolution. At typical
-            // cooling rates, consecutive 5-min pairs often show zero change.
-            // Stride=6 gives ~30-min pairs, enough for 1-2 sensor ticks.
-            $maxDtMinutes = $this->coolingStride * 10;
-            for ($i = 0; $i < count($coolReadings) - $this->coolingStride; $i++) {
-                $t1 = $coolReadings[$i];
-                $t2 = $coolReadings[$i + $this->coolingStride];
+            // Non-overlapping window regression: fit a line to each window of
+            // readings to get dT/dt. This averages out DS18B20 quantization noise
+            // (0.0625°C / 0.1125°F resolution). Non-overlapping windows produce
+            // independent data points, avoiding correlated noise from overlap.
+            $windowSize = $this->coolingStride;
+            $maxWindowMinutes = $windowSize * 10; // reject if time gaps inflate window
 
-                $ts1 = strtotime($t1['timestamp']);
-                $ts2 = strtotime($t2['timestamp']);
-                $dt = ($ts2 - $ts1) / 60.0; // minutes
+            for ($i = 0; $i <= count($coolReadings) - $windowSize; $i += $windowSize) {
+                $window = array_slice($coolReadings, $i, $windowSize);
 
-                // Skip invalid time gaps (missing data within the stride window)
-                if ($dt <= 0 || $dt > $maxDtMinutes) {
+                $ts0 = strtotime($window[0]['timestamp']);
+                $tsLast = strtotime($window[$windowSize - 1]['timestamp']);
+                $windowSpan = ($tsLast - $ts0) / 60.0;
+
+                // Skip windows with missing data (time gaps)
+                if ($windowSpan <= 0 || $windowSpan > $maxWindowMinutes) {
                     continue;
                 }
 
-                $deltaTemp = $t1['water_temp_f'] - $t1['ambient_temp_f'];
+                // Linear regression: water_temp_f = intercept + slope * time_minutes
+                $n = count($window);
+                $sumT = 0.0;
+                $sumY = 0.0;
+                $sumTY = 0.0;
+                $sumT2 = 0.0;
+                $sumDeltaTemp = 0.0;
+
+                foreach ($window as $r) {
+                    $t = (strtotime($r['timestamp']) - $ts0) / 60.0;
+                    $y = $r['water_temp_f'];
+                    $sumT += $t;
+                    $sumY += $y;
+                    $sumTY += $t * $y;
+                    $sumT2 += $t * $t;
+                    $sumDeltaTemp += $r['water_temp_f'] - $r['ambient_temp_f'];
+                }
+
+                $denom = $n * $sumT2 - $sumT * $sumT;
+                if (abs($denom) < 1e-10) {
+                    continue;
+                }
+
+                $slope = ($n * $sumTY - $sumT * $sumY) / $denom; // °F/min
+                $coolingRate = -$slope; // positive when cooling
+
+                $meanDeltaTemp = $sumDeltaTemp / $n;
 
                 // Skip near-equilibrium noise
-                if (abs($deltaTemp) < 1.0) {
+                if (abs($meanDeltaTemp) < 1.0) {
                     continue;
                 }
 
-                // cooling_rate = -(T2 - T1) / dt (positive when cooling)
-                $coolingRate = -($t2['water_temp_f'] - $t1['water_temp_f']) / $dt;
-
-                $dataPoints[] = ['x' => $deltaTemp, 'y' => $coolingRate];
+                $dataPoints[] = ['x' => $meanDeltaTemp, 'y' => $coolingRate];
             }
         }
 
@@ -427,19 +451,15 @@ class HeatingCharacteristicsService
 
         $k = $sumXY / $sumX2;
 
-        // Compute R²: 1 - SS_res / SS_tot
-        $sumY = 0.0;
-        foreach ($dataPoints as $p) {
-            $sumY += $p['y'];
-        }
-        $meanY = $sumY / count($dataPoints);
-
+        // Compute R² for regression through origin: 1 - SS_res / SS_tot
+        // For through-origin models (y = kx), the null model is y = 0,
+        // so SS_tot = Σ(yi²), not Σ(yi - ȳ)².
         $ssRes = 0.0;
         $ssTot = 0.0;
         foreach ($dataPoints as $p) {
             $predicted = $k * $p['x'];
             $ssRes += ($p['y'] - $predicted) ** 2;
-            $ssTot += ($p['y'] - $meanY) ** 2;
+            $ssTot += $p['y'] ** 2;
         }
 
         $rSquared = $ssTot > 1e-10 ? 1.0 - ($ssRes / $ssTot) : null;
