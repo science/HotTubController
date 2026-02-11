@@ -104,10 +104,10 @@ class DtdtService
 
         // Project cooling to ready_by time
         $minutesRemaining = ($readyByTimestamp - $now) / 60.0;
-        $maxCoolingK = $chars['max_cooling_k'] ?? $chars['cooling_coefficient_k'] ?? 0.0;
+        $coolingK = $chars['cooling_coefficient_k'] ?? $chars['max_cooling_k'] ?? 0.0;
 
-        if ($ambientTempF !== null && $maxCoolingK > 0 && $minutesRemaining > 0) {
-            $projectedTempF = $ambientTempF + ($waterTempF - $ambientTempF) * exp(-$maxCoolingK * $minutesRemaining);
+        if ($ambientTempF !== null && $coolingK > 0 && $minutesRemaining > 0) {
+            $projectedTempF = $ambientTempF + ($waterTempF - $ambientTempF) * exp(-$coolingK * $minutesRemaining);
         } else {
             $projectedTempF = $waterTempF; // No cooling projection possible
         }
