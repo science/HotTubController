@@ -336,17 +336,17 @@ class DtdtServiceTest extends TestCase
     /**
      * @test
      */
-    public function coolingProjectionUsesMaxK(): void
+    public function coolingProjectionPrefersFittedK(): void
     {
-        // Verify Newton's Law calculation against known values
+        // Verify cooling projection uses cooling_coefficient_k (fitted) over max_cooling_k
         // T_projected = T_ambient + (T_current - T_ambient) * e^(-k * t)
-        // T_ambient=50, T_current=100, max_cooling_k=0.001, t=120 min
-        // T_projected = 50 + (100-50) * e^(-0.001*120) = 50 + 50 * e^(-0.12) = 50 + 50*0.8869 = 94.35
+        // T_ambient=50, T_current=100, cooling_coefficient_k=0.0005, t=120 min
+        // T_projected = 50 + (100-50) * e^(-0.0005*120) = 50 + 50 * e^(-0.06) = 50 + 50*0.9418 = 97.09
         $this->writeHeatingChars([
             'heating_velocity_f_per_min' => 0.3,
             'startup_lag_minutes' => 10.0,
-            'cooling_coefficient_k' => 0.0005, // This should NOT be used
-            'max_cooling_k' => 0.001,           // This SHOULD be used (conservative)
+            'cooling_coefficient_k' => 0.0005, // This SHOULD be used (fitted)
+            'max_cooling_k' => 0.001,           // This should NOT be used
         ]);
 
         $mockCalibrated = $this->createMockCalibratedService(100.0, 50.0);
@@ -357,7 +357,43 @@ class DtdtServiceTest extends TestCase
         $twoHoursFromNow = new \DateTime('+120 minutes', new \DateTimeZone('UTC'));
         $readyByTime = $twoHoursFromNow->format('H:i') . '+00:00';
 
-        // Target = 103. Projected = ~94.35.
+        // Target = 103. Projected = ~97.09 (using cooling_coefficient_k=0.0005).
+        // Heat time = (103-97.09)/0.3 + 10 = 19.7 + 10 = 29.7 min
+        // Start time = ready_by - 29.7 min → ~90 min from now → should be precision_scheduled
+        $result = $service->handleWakeUp([
+            'ready_by_time' => $readyByTime,
+            'target_temp_f' => 103.0,
+        ]);
+
+        $this->assertEquals('precision_scheduled', $result['status']);
+        // Projected temp should be around 97.1 (Newton's Law with cooling_coefficient_k)
+        // NOT ~94.3 which would indicate max_cooling_k was used
+        $this->assertEqualsWithDelta(97.1, $result['projected_temp_f'], 0.5);
+    }
+
+    /**
+     * @test
+     */
+    public function coolingProjectionFallsBackToMaxK(): void
+    {
+        // When cooling_coefficient_k is absent, falls back to max_cooling_k
+        // T_ambient=50, T_current=100, max_cooling_k=0.001, t=120 min
+        // T_projected = 50 + (100-50) * e^(-0.001*120) = 50 + 50 * e^(-0.12) = 50 + 50*0.8869 = 94.35
+        $this->writeHeatingChars([
+            'heating_velocity_f_per_min' => 0.3,
+            'startup_lag_minutes' => 10.0,
+            'max_cooling_k' => 0.001, // Fallback when cooling_coefficient_k is absent
+        ]);
+
+        $mockCalibrated = $this->createMockCalibratedService(100.0, 50.0);
+
+        $service = $this->createService(null, $mockCalibrated);
+
+        // Set ready_by 120 minutes from now
+        $twoHoursFromNow = new \DateTime('+120 minutes', new \DateTimeZone('UTC'));
+        $readyByTime = $twoHoursFromNow->format('H:i') . '+00:00';
+
+        // Target = 103. Projected = ~94.35 (using max_cooling_k fallback).
         // Heat time = (103-94.35)/0.3 + 10 = 28.8 + 10 = 38.8 min
         // Start time = ready_by - 38.8 min → ~81 min from now → should be precision_scheduled
         $result = $service->handleWakeUp([
@@ -367,8 +403,7 @@ class DtdtServiceTest extends TestCase
 
         $this->assertEquals('precision_scheduled', $result['status']);
         // Projected temp should be around 94.3 (Newton's Law with max_cooling_k)
-        $this->assertGreaterThan(93.0, $result['projected_temp_f']);
-        $this->assertLessThan(96.0, $result['projected_temp_f']);
+        $this->assertEqualsWithDelta(94.3, $result['projected_temp_f'], 0.5);
     }
 
     /**
@@ -377,12 +412,12 @@ class DtdtServiceTest extends TestCase
     public function projectionFormulaVerification(): void
     {
         // Exact calculation:
-        // T_ambient=60, T_current=95, max_cooling_k=0.002, t=60 min
+        // T_ambient=60, T_current=95, cooling_coefficient_k=0.002, t=60 min
         // T_projected = 60 + (95-60) * e^(-0.002*60) = 60 + 35 * e^(-0.12) = 60 + 35*0.88692 = 91.04
         $this->writeHeatingChars([
             'heating_velocity_f_per_min' => 0.5,
             'startup_lag_minutes' => 5.0,
-            'max_cooling_k' => 0.002,
+            'cooling_coefficient_k' => 0.002,
         ]);
 
         $mockCalibrated = $this->createMockCalibratedService(95.0, 60.0);
