@@ -119,6 +119,62 @@ class ScheduleController
     }
 
     /**
+     * POST /api/schedule/{id}/skip - Skip the next occurrence of a recurring job.
+     *
+     * @param string $jobId The job ID to skip
+     * @return array{status: int, body: array}
+     */
+    public function skip(string $jobId): array
+    {
+        try {
+            $this->scheduler->skipNextOccurrence($jobId);
+
+            return [
+                'status' => 200,
+                'body' => ['success' => true, 'message' => 'Next occurrence skipped'],
+            ];
+        } catch (InvalidArgumentException $e) {
+            return [
+                'status' => 400,
+                'body' => ['error' => $e->getMessage()],
+            ];
+        } catch (\Exception $e) {
+            return [
+                'status' => 500,
+                'body' => ['error' => 'Failed to skip job: ' . $e->getMessage()],
+            ];
+        }
+    }
+
+    /**
+     * DELETE /api/schedule/{id}/skip - Unskip the next occurrence of a recurring job.
+     *
+     * @param string $jobId The job ID to unskip
+     * @return array{status: int, body: array}
+     */
+    public function unskip(string $jobId): array
+    {
+        try {
+            $this->scheduler->unskipNextOccurrence($jobId);
+
+            return [
+                'status' => 200,
+                'body' => ['success' => true, 'message' => 'Skip removed'],
+            ];
+        } catch (InvalidArgumentException $e) {
+            return [
+                'status' => 400,
+                'body' => ['error' => $e->getMessage()],
+            ];
+        } catch (\Exception $e) {
+            return [
+                'status' => 500,
+                'body' => ['error' => 'Failed to unskip job: ' . $e->getMessage()],
+            ];
+        }
+    }
+
+    /**
      * DELETE /api/schedule/{id} - Cancel a scheduled job.
      *
      * @param string $jobId The job ID to cancel

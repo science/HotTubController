@@ -65,6 +65,40 @@ else
 fi
 
 # ============================================================
+# STEP 0.5: CHECK FOR SKIP FILE (recurring jobs only)
+# A skip file is a dated token that the API creates when the
+# user wants to skip the next occurrence. The file is ALWAYS
+# consumed (deleted) to prevent stale files from accumulating.
+# ============================================================
+if [ "$IS_RECURRING" = "true" ]; then
+    SKIP_FILE="$STORAGE_DIR/state/skip-${JOB_ID}.json"
+    if [ -f "$SKIP_FILE" ]; then
+        # Extract skip_date from the file
+        SKIP_DATE=$(grep -o '"skip_date"[[:space:]]*:[[:space:]]*"[^"]*"' "$SKIP_FILE" \
+            | sed 's/.*"\([^"]*\)"/\1/' || echo "")
+        TODAY=$(date '+%Y-%m-%d')
+
+        # ALWAYS consume the skip file (prevents stale files from accumulating)
+        rm -f "$SKIP_FILE"
+
+        if [ "$SKIP_DATE" = "$TODAY" ]; then
+            log "SKIPPED: Skip date ($SKIP_DATE) matches today"
+            # Still ping healthcheck (cron IS firing, skip was intentional)
+            HEALTHCHECK_PING_URL=$(grep -o '"healthcheckPingUrl"[[:space:]]*:[[:space:]]*"[^"]*"' \
+                "$JOB_FILE" 2>/dev/null | sed 's/.*:.*"\([^"]*\)"/\1/' || true)
+            if [ -n "$HEALTHCHECK_PING_URL" ]; then
+                curl -s -o /dev/null "$HEALTHCHECK_PING_URL" --max-time 10 2>/dev/null || true
+            fi
+            log "Execution complete (SKIPPED)"
+            exit 0
+        else
+            log "SKIP EXPIRED: Skip date ($SKIP_DATE) does not match today ($TODAY), executing normally"
+            # Fall through to normal execution
+        fi
+    fi
+fi
+
+# ============================================================
 # STEP 1: REMOVE SELF FROM CRONTAB (one-off jobs only)
 # This MUST happen first to prevent orphaned crons if script crashes later
 #

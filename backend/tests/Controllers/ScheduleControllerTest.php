@@ -13,22 +13,31 @@ use PHPUnit\Framework\TestCase;
 
 class ScheduleControllerTest extends TestCase
 {
+    private string $baseDir;
     private string $jobsDir;
+    private string $stateDir;
     private MockCrontabAdapter $crontabAdapter;
     private SchedulerService $scheduler;
     private ScheduleController $controller;
 
     protected function setUp(): void
     {
-        $this->jobsDir = sys_get_temp_dir() . '/controller-test-' . uniqid();
+        $this->baseDir = sys_get_temp_dir() . '/controller-test-' . uniqid();
+        $this->jobsDir = $this->baseDir . '/scheduled-jobs';
+        $this->stateDir = $this->baseDir . '/state';
         mkdir($this->jobsDir, 0755, true);
+        mkdir($this->stateDir, 0755, true);
 
         $this->crontabAdapter = new MockCrontabAdapter();
         $this->scheduler = new SchedulerService(
             $this->jobsDir,
             '/path/to/cron-runner.sh',
             'https://example.com/api',
-            $this->crontabAdapter
+            $this->crontabAdapter,
+            null,
+            null,
+            null,
+            $this->stateDir
         );
 
         $this->controller = new ScheduleController($this->scheduler);
@@ -36,13 +45,20 @@ class ScheduleControllerTest extends TestCase
 
     protected function tearDown(): void
     {
-        $files = glob($this->jobsDir . '/*');
-        if ($files) {
-            foreach ($files as $file) {
-                unlink($file);
-            }
+        $this->recursiveDelete($this->baseDir);
+    }
+
+    private function recursiveDelete(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
         }
-        rmdir($this->jobsDir);
+        $files = array_diff(scandir($dir), ['.', '..']);
+        foreach ($files as $file) {
+            $path = $dir . '/' . $file;
+            is_dir($path) ? $this->recursiveDelete($path) : unlink($path);
+        }
+        rmdir($dir);
     }
 
     // ========== POST /api/schedule Tests ==========
@@ -226,6 +242,84 @@ class ScheduleControllerTest extends TestCase
         // Verify it's gone
         $listAfter = $this->controller->list();
         $this->assertCount(0, $listAfter['body']['jobs']);
+    }
+
+    // ========== Skip/Unskip Tests ==========
+
+    public function testSkipReturns200ForRecurringJob(): void
+    {
+        $createResponse = $this->controller->create([
+            'action' => 'heater-on',
+            'scheduledTime' => '06:30',
+            'recurring' => true,
+        ]);
+        $jobId = $createResponse['body']['jobId'];
+
+        $response = $this->controller->skip($jobId);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertTrue($response['body']['success']);
+    }
+
+    public function testSkipReturns400ForNonRecurring(): void
+    {
+        $createResponse = $this->controller->create([
+            'action' => 'heater-on',
+            'scheduledTime' => '2030-12-11T06:30:00',
+        ]);
+        $jobId = $createResponse['body']['jobId'];
+
+        $response = $this->controller->skip($jobId);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
+    public function testSkipReturns400WhenAlreadySkipped(): void
+    {
+        $createResponse = $this->controller->create([
+            'action' => 'heater-on',
+            'scheduledTime' => '06:30',
+            'recurring' => true,
+        ]);
+        $jobId = $createResponse['body']['jobId'];
+
+        $this->controller->skip($jobId);
+        $response = $this->controller->skip($jobId);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
+    public function testUnskipReturns200WhenSkipped(): void
+    {
+        $createResponse = $this->controller->create([
+            'action' => 'heater-on',
+            'scheduledTime' => '06:30',
+            'recurring' => true,
+        ]);
+        $jobId = $createResponse['body']['jobId'];
+
+        $this->controller->skip($jobId);
+        $response = $this->controller->unskip($jobId);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertTrue($response['body']['success']);
+    }
+
+    public function testUnskipReturns400WhenNotSkipped(): void
+    {
+        $createResponse = $this->controller->create([
+            'action' => 'heater-on',
+            'scheduledTime' => '06:30',
+            'recurring' => true,
+        ]);
+        $jobId = $createResponse['body']['jobId'];
+
+        $response = $this->controller->unskip($jobId);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
     }
 
     // ========== DTDT Ready-By Integration Tests ==========
