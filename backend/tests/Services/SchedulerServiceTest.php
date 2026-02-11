@@ -1228,6 +1228,393 @@ class SchedulerServiceTest extends TestCase
         $this->assertEquals('14:30:00+00:00', $result['scheduledTime']);
     }
 
+    public function testCronTimeOverrideUsedForHealthcheckSchedule(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        // Display time 06:30 Pacific, wake-up cron at 03:30 Pacific
+        // Healthcheck should use wake-up time (03:30 Pacific = 11:30 UTC), NOT display time
+        $scheduler->scheduleJob(
+            'heat-to-target',
+            '06:30-08:00',          // display time (ready-by)
+            recurring: true,
+            params: ['target_temp_f' => 103],
+            cronTime: '03:30-08:00'  // actual cron time (wake-up)
+        );
+
+        $checks = $healthchecksClient->getCreatedChecks();
+        $this->assertCount(1, $checks);
+        $this->assertStringContainsString('30 11', $checks[0]['schedule'],
+            'Healthcheck schedule should be 11:30 UTC (03:30 Pacific wake-up time), not 14:30 UTC (06:30 display time)');
+    }
+
+    // ========== Skip Next Occurrence Tests ==========
+
+    public function testSkipNextOccurrenceCreatesSkipFile(): void
+    {
+        $baseDir = sys_get_temp_dir() . '/skip-test-' . uniqid();
+        $jobsDir = $baseDir . '/scheduled-jobs';
+        $stateDir = $baseDir . '/state';
+        mkdir($jobsDir, 0755, true);
+        mkdir($stateDir, 0755, true);
+
+        $adapter = new MockCrontabAdapter();
+        $scheduler = new SchedulerService(
+            $jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $adapter,
+            null,
+            null,
+            null,
+            $stateDir
+        );
+
+        // Create a recurring job
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $scheduler->skipNextOccurrence($result['jobId']);
+
+        $skipFile = $stateDir . '/skip-' . $result['jobId'] . '.json';
+        $this->assertFileExists($skipFile);
+
+        $data = json_decode(file_get_contents($skipFile), true);
+        $this->assertArrayHasKey('skip_date', $data);
+        $this->assertArrayHasKey('created_at', $data);
+        // skip_date should be a YYYY-MM-DD string
+        $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}$/', $data['skip_date']);
+
+        // Cleanup
+        $this->recursiveDeleteDir($baseDir);
+    }
+
+    public function testSkipNextOccurrenceRejectsNonRecurring(): void
+    {
+        $baseDir = sys_get_temp_dir() . '/skip-test-' . uniqid();
+        $jobsDir = $baseDir . '/scheduled-jobs';
+        $stateDir = $baseDir . '/state';
+        mkdir($jobsDir, 0755, true);
+        mkdir($stateDir, 0755, true);
+
+        $adapter = new MockCrontabAdapter();
+        $scheduler = new SchedulerService(
+            $jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $adapter,
+            null,
+            null,
+            null,
+            $stateDir
+        );
+
+        // Create a one-off job
+        $result = $scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('recurring');
+
+        $scheduler->skipNextOccurrence($result['jobId']);
+
+        // Cleanup
+        $this->recursiveDeleteDir($baseDir);
+    }
+
+    public function testSkipNextOccurrenceRejectsAlreadySkipped(): void
+    {
+        $baseDir = sys_get_temp_dir() . '/skip-test-' . uniqid();
+        $jobsDir = $baseDir . '/scheduled-jobs';
+        $stateDir = $baseDir . '/state';
+        mkdir($jobsDir, 0755, true);
+        mkdir($stateDir, 0755, true);
+
+        $adapter = new MockCrontabAdapter();
+        $scheduler = new SchedulerService(
+            $jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $adapter,
+            null,
+            null,
+            null,
+            $stateDir
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $scheduler->skipNextOccurrence($result['jobId']);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('already skipped');
+
+        $scheduler->skipNextOccurrence($result['jobId']);
+
+        // Cleanup
+        $this->recursiveDeleteDir($baseDir);
+    }
+
+    public function testUnskipDeletesSkipFile(): void
+    {
+        $baseDir = sys_get_temp_dir() . '/skip-test-' . uniqid();
+        $jobsDir = $baseDir . '/scheduled-jobs';
+        $stateDir = $baseDir . '/state';
+        mkdir($jobsDir, 0755, true);
+        mkdir($stateDir, 0755, true);
+
+        $adapter = new MockCrontabAdapter();
+        $scheduler = new SchedulerService(
+            $jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $adapter,
+            null,
+            null,
+            null,
+            $stateDir
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+        $scheduler->skipNextOccurrence($result['jobId']);
+
+        $skipFile = $stateDir . '/skip-' . $result['jobId'] . '.json';
+        $this->assertFileExists($skipFile);
+
+        $scheduler->unskipNextOccurrence($result['jobId']);
+        $this->assertFileDoesNotExist($skipFile);
+
+        // Cleanup
+        $this->recursiveDeleteDir($baseDir);
+    }
+
+    public function testUnskipRejectsNonSkipped(): void
+    {
+        $baseDir = sys_get_temp_dir() . '/skip-test-' . uniqid();
+        $jobsDir = $baseDir . '/scheduled-jobs';
+        $stateDir = $baseDir . '/state';
+        mkdir($jobsDir, 0755, true);
+        mkdir($stateDir, 0755, true);
+
+        $adapter = new MockCrontabAdapter();
+        $scheduler = new SchedulerService(
+            $jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $adapter,
+            null,
+            null,
+            null,
+            $stateDir
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('not skipped');
+
+        $scheduler->unskipNextOccurrence($result['jobId']);
+
+        // Cleanup
+        $this->recursiveDeleteDir($baseDir);
+    }
+
+    public function testIsSkippedReturnsCorrectValues(): void
+    {
+        $baseDir = sys_get_temp_dir() . '/skip-test-' . uniqid();
+        $jobsDir = $baseDir . '/scheduled-jobs';
+        $stateDir = $baseDir . '/state';
+        mkdir($jobsDir, 0755, true);
+        mkdir($stateDir, 0755, true);
+
+        $adapter = new MockCrontabAdapter();
+        $scheduler = new SchedulerService(
+            $jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $adapter,
+            null,
+            null,
+            null,
+            $stateDir
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $this->assertFalse($scheduler->isSkipped($result['jobId']));
+
+        $scheduler->skipNextOccurrence($result['jobId']);
+        $this->assertTrue($scheduler->isSkipped($result['jobId']));
+
+        $scheduler->unskipNextOccurrence($result['jobId']);
+        $this->assertFalse($scheduler->isSkipped($result['jobId']));
+
+        // Cleanup
+        $this->recursiveDeleteDir($baseDir);
+    }
+
+    public function testListJobsIncludesSkipInfoForRecurringJobs(): void
+    {
+        $baseDir = sys_get_temp_dir() . '/skip-test-' . uniqid();
+        $jobsDir = $baseDir . '/scheduled-jobs';
+        $stateDir = $baseDir . '/state';
+        mkdir($jobsDir, 0755, true);
+        mkdir($stateDir, 0755, true);
+
+        $adapter = new MockCrontabAdapter();
+        $scheduler = new SchedulerService(
+            $jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $adapter,
+            null,
+            null,
+            null,
+            $stateDir
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+        $scheduler->skipNextOccurrence($result['jobId']);
+
+        $jobs = $scheduler->listJobs();
+        $this->assertCount(1, $jobs);
+
+        $job = $jobs[0];
+        $this->assertTrue($job['skipped']);
+        $this->assertArrayHasKey('skipDate', $job);
+        $this->assertArrayHasKey('resumeDate', $job);
+        // resumeDate should be one day after skipDate
+        $skipDate = new \DateTime($job['skipDate']);
+        $resumeDate = new \DateTime($job['resumeDate']);
+        $diff = $skipDate->diff($resumeDate);
+        $this->assertEquals(1, $diff->days);
+
+        // Cleanup
+        $this->recursiveDeleteDir($baseDir);
+    }
+
+    public function testListJobsNonSkippedRecurringJobHasSkippedFalse(): void
+    {
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $jobs = $this->scheduler->listJobs();
+        $this->assertCount(1, $jobs);
+
+        $job = $jobs[0];
+        $this->assertFalse($job['skipped']);
+        $this->assertArrayNotHasKey('skipDate', $job);
+        $this->assertArrayNotHasKey('resumeDate', $job);
+    }
+
+    public function testListJobsOneOffJobHasNoSkipField(): void
+    {
+        $this->scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        $jobs = $this->scheduler->listJobs();
+        $this->assertCount(1, $jobs);
+
+        $job = $jobs[0];
+        $this->assertArrayNotHasKey('skipped', $job);
+    }
+
+    public function testCancelJobCleansUpSkipFile(): void
+    {
+        $baseDir = sys_get_temp_dir() . '/skip-test-' . uniqid();
+        $jobsDir = $baseDir . '/scheduled-jobs';
+        $stateDir = $baseDir . '/state';
+        mkdir($jobsDir, 0755, true);
+        mkdir($stateDir, 0755, true);
+
+        $adapter = new MockCrontabAdapter();
+        $scheduler = new SchedulerService(
+            $jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $adapter,
+            null,
+            null,
+            null,
+            $stateDir
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+        $scheduler->skipNextOccurrence($result['jobId']);
+
+        $skipFile = $stateDir . '/skip-' . $result['jobId'] . '.json';
+        $this->assertFileExists($skipFile);
+
+        $scheduler->cancelJob($result['jobId']);
+        $this->assertFileDoesNotExist($skipFile);
+
+        // Cleanup
+        $this->recursiveDeleteDir($baseDir);
+    }
+
+    public function testSkipNextOccurrenceRejectsNonExistentJob(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('not found');
+
+        $this->scheduler->skipNextOccurrence('rec-nonexistent');
+    }
+
+    public function testGetSkipDataReturnsNullWhenNotSkipped(): void
+    {
+        $result = $this->scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+        $this->assertNull($this->scheduler->getSkipData($result['jobId']));
+    }
+
+    public function testGetSkipDataReturnsDataWhenSkipped(): void
+    {
+        $baseDir = sys_get_temp_dir() . '/skip-test-' . uniqid();
+        $jobsDir = $baseDir . '/scheduled-jobs';
+        $stateDir = $baseDir . '/state';
+        mkdir($jobsDir, 0755, true);
+        mkdir($stateDir, 0755, true);
+
+        $adapter = new MockCrontabAdapter();
+        $scheduler = new SchedulerService(
+            $jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $adapter,
+            null,
+            null,
+            null,
+            $stateDir
+        );
+
+        $result = $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+        $scheduler->skipNextOccurrence($result['jobId']);
+
+        $data = $scheduler->getSkipData($result['jobId']);
+        $this->assertNotNull($data);
+        $this->assertArrayHasKey('skip_date', $data);
+        $this->assertArrayHasKey('created_at', $data);
+
+        // Cleanup
+        $this->recursiveDeleteDir($baseDir);
+    }
+
+    private function recursiveDeleteDir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        $files = array_diff(scandir($dir), ['.', '..']);
+        foreach ($files as $file) {
+            $path = $dir . '/' . $file;
+            is_dir($path) ? $this->recursiveDeleteDir($path) : unlink($path);
+        }
+        rmdir($dir);
+    }
+
     // ========== Bug Reproduction Test ==========
 
     /**

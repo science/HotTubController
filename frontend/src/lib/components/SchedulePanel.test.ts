@@ -10,6 +10,8 @@ vi.mock('$lib/api', () => ({
 		listScheduledJobs: vi.fn(),
 		scheduleJob: vi.fn(),
 		cancelScheduledJob: vi.fn(),
+		skipScheduledJob: vi.fn(),
+		unskipScheduledJob: vi.fn(),
 	},
 }));
 
@@ -935,5 +937,164 @@ describe('SchedulePanel action dropdown', () => {
 
 		// Should NOT include heat-to-target
 		expect(optionValues).not.toContain('heat-to-target');
+	});
+});
+
+describe('SchedulePanel skip/unskip', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('shows "Skip next" button for recurring jobs', async () => {
+		const now = new Date();
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'rec-skip1',
+					action: 'heater-on',
+					scheduledTime: '14:30:00+00:00',
+					createdAt: now.toISOString(),
+					recurring: true,
+					skipped: false,
+				},
+			],
+		});
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByText('Skip next')).toBeTruthy();
+		});
+	});
+
+	it('does not show "Skip next" button for one-off jobs', async () => {
+		const now = new Date();
+		const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'job-noskip',
+					action: 'heater-on',
+					scheduledTime: tomorrow.toISOString(),
+					createdAt: now.toISOString(),
+					recurring: false,
+				},
+			],
+		});
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByText('Heater ON')).toBeTruthy();
+		});
+
+		expect(screen.queryByText('Skip next')).toBeNull();
+	});
+
+	it('calls skipScheduledJob API and refreshes when skip is clicked', async () => {
+		const now = new Date();
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'rec-skip2',
+					action: 'heater-on',
+					scheduledTime: '14:30:00+00:00',
+					createdAt: now.toISOString(),
+					recurring: true,
+					skipped: false,
+				},
+			],
+		});
+		vi.mocked(api.skipScheduledJob).mockResolvedValue({ success: true });
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByText('Skip next')).toBeTruthy();
+		});
+
+		vi.mocked(api.listScheduledJobs).mockClear();
+
+		await fireEvent.click(screen.getByText('Skip next'));
+
+		await waitFor(() => {
+			expect(api.skipScheduledJob).toHaveBeenCalledWith('rec-skip2');
+			expect(api.listScheduledJobs).toHaveBeenCalled();
+		});
+	});
+
+	it('shows amber styling and Unskip button for skipped jobs', async () => {
+		const now = new Date();
+		const skipDate = new Date(now);
+		skipDate.setHours(14, 30, 0, 0);
+		const resumeDate = new Date(skipDate);
+		resumeDate.setDate(resumeDate.getDate() + 1);
+
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'rec-skipped1',
+					action: 'heater-on',
+					scheduledTime: '14:30:00+00:00',
+					createdAt: now.toISOString(),
+					recurring: true,
+					skipped: true,
+					skipDate: skipDate.toISOString(),
+					resumeDate: resumeDate.toISOString(),
+				},
+			],
+		});
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByText('Unskip')).toBeTruthy();
+		});
+
+		// Should show Unskip and Cancel, not Skip next
+		expect(screen.queryByText('Skip next')).toBeNull();
+		expect(screen.getByText('Cancel')).toBeTruthy();
+
+		// Should have amber styling (bg-amber-900/20)
+		const listItem = screen.getByText('Unskip').closest('li');
+		expect(listItem?.className).toContain('amber');
+
+		// Should show "Skipped" and "resumes" text
+		expect(screen.getByText(/Skipped/)).toBeTruthy();
+		expect(screen.getByText(/resumes/)).toBeTruthy();
+	});
+
+	it('calls unskipScheduledJob API and refreshes when unskip is clicked', async () => {
+		const now = new Date();
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'rec-unskip1',
+					action: 'heater-on',
+					scheduledTime: '14:30:00+00:00',
+					createdAt: now.toISOString(),
+					recurring: true,
+					skipped: true,
+					skipDate: now.toISOString(),
+					resumeDate: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+				},
+			],
+		});
+		vi.mocked(api.unskipScheduledJob).mockResolvedValue({ success: true });
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByText('Unskip')).toBeTruthy();
+		});
+
+		vi.mocked(api.listScheduledJobs).mockClear();
+
+		await fireEvent.click(screen.getByText('Unskip'));
+
+		await waitFor(() => {
+			expect(api.unskipScheduledJob).toHaveBeenCalledWith('rec-unskip1');
+			expect(api.listScheduledJobs).toHaveBeenCalled();
+		});
 	});
 });

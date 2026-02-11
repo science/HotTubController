@@ -33,6 +33,7 @@ class SchedulerService
     private const HEALTHCHECK_GRACE_SECONDS = 1800;
 
     private string $apiBaseUrl;
+    private string $stateDir;
     private TimeConverter $timeConverter;
     private ?HealthchecksClientInterface $healthchecksClient;
     private CronSchedulingService $cronSchedulingService;
@@ -44,11 +45,13 @@ class SchedulerService
         private CrontabAdapterInterface $crontabAdapter,
         ?TimeConverter $timeConverter = null,
         ?HealthchecksClientInterface $healthchecksClient = null,
-        ?CronSchedulingService $cronSchedulingService = null
+        ?CronSchedulingService $cronSchedulingService = null,
+        ?string $stateDir = null
     ) {
         // Normalize apiBaseUrl by stripping trailing slashes to prevent double-slash URLs
         // when concatenating with endpoints like '/api/equipment/heater/on'
         $this->apiBaseUrl = rtrim($apiBaseUrl, '/');
+        $this->stateDir = $stateDir ?? dirname($jobsDir) . '/state';
         $this->timeConverter = $timeConverter ?? new TimeConverter();
         $this->healthchecksClient = $healthchecksClient;
         $this->cronSchedulingService = $cronSchedulingService ?? new CronSchedulingService($crontabAdapter);
@@ -181,16 +184,21 @@ class SchedulerService
             // New format: time with timezone offset
             // Convert to UTC for storage, server-local for cron
             $storedTime = $this->timeConverter->formatTimeUtc($time);
-            // For health check, we need the UTC time
-            $utcDateTime = $this->timeConverter->parseTimeWithOffset($time, toUtc: true);
-            $healthcheckCronExpression = $this->formatDailyCronExpression($utcDateTime);
         } else {
             // Legacy format: bare HH:MM (assumes server timezone)
-            // We treat bare time as server timezone, so health check should also use that
             $storedTime = $time;
-            // Note: For bare HH:MM format, we assume server timezone which may not be UTC
-            // The health check will use UTC, so we need to document this limitation
-            $healthcheckCronExpression = $this->formatDailyCronFromTime($time);
+        }
+
+        // Health check schedule must match the ACTUAL cron fire time, not the display time.
+        // For DTDT ready_by jobs, $cronTime is the wake-up time (earlier than display time).
+        $healthcheckTime = $cronTime ?? $time;
+        $healthcheckHasOffset = preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $healthcheckTime);
+
+        if ($healthcheckHasOffset) {
+            $utcDateTime = $this->timeConverter->parseTimeWithOffset($healthcheckTime, toUtc: true);
+            $healthcheckCronExpression = $this->formatDailyCronExpression($utcDateTime);
+        } else {
+            $healthcheckCronExpression = $this->formatDailyCronFromTime($healthcheckTime);
         }
 
         // Create health check for recurring job monitoring
@@ -316,6 +324,41 @@ class SchedulerService
                     $job['params'] = $jobData['params'];
                 }
 
+                // Add skip info for recurring jobs
+                if ($job['recurring']) {
+                    $jobId = $job['jobId'];
+                    $isSkipped = $this->isSkipped($jobId);
+                    $job['skipped'] = $isSkipped;
+
+                    if ($isSkipped) {
+                        $skipData = $this->getSkipData($jobId);
+                        if ($skipData !== null) {
+                            $skipDate = new \DateTime($skipData['skip_date']);
+                            $resumeDate = clone $skipDate;
+                            $resumeDate->modify('+1 day');
+
+                            // Include scheduled time in the ISO dates for frontend display
+                            $scheduledTime = $jobData['scheduledTime'] ?? '00:00';
+                            // Parse hour/minute from scheduledTime
+                            if (preg_match('/^(\d{2}):(\d{2})/', $scheduledTime, $matches)) {
+                                $hour = (int) $matches[1];
+                                $minute = (int) $matches[2];
+                                $skipDate->setTime($hour, $minute, 0);
+                                $resumeDate->setTime($hour, $minute, 0);
+                            }
+
+                            // If scheduledTime has UTC offset, keep it as UTC
+                            if (str_contains($scheduledTime, '+') || str_contains($scheduledTime, 'Z')) {
+                                $skipDate->setTimezone(new \DateTimeZone('UTC'));
+                                $resumeDate->setTimezone(new \DateTimeZone('UTC'));
+                            }
+
+                            $job['skipDate'] = $skipDate->format(\DateTime::ATOM);
+                            $job['resumeDate'] = $resumeDate->format(\DateTime::ATOM);
+                        }
+                    }
+                }
+
                 $jobs[] = $job;
             }
         }
@@ -355,6 +398,126 @@ class SchedulerService
     }
 
     /**
+     * Skip the next occurrence of a recurring job.
+     *
+     * Creates a dated skip file that the cron-runner will consume.
+     *
+     * @param string $jobId The recurring job ID
+     * @throws InvalidArgumentException If job not found, not recurring, or already skipped
+     */
+    public function skipNextOccurrence(string $jobId): void
+    {
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+
+        if (!file_exists($jobFile)) {
+            throw new InvalidArgumentException('Job not found: ' . $jobId);
+        }
+
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        if (!($jobData['recurring'] ?? false)) {
+            throw new InvalidArgumentException('Can only skip recurring jobs');
+        }
+
+        if ($this->isSkipped($jobId)) {
+            throw new InvalidArgumentException('Job is already skipped');
+        }
+
+        // Compute skip_date in system timezone
+        $systemTz = TimeConverter::getSystemTimezone();
+        $systemTzObj = new \DateTimeZone($systemTz);
+        $now = new \DateTime('now', $systemTzObj);
+
+        // Parse the job's scheduled time to determine if it has passed today
+        $scheduledTime = $jobData['scheduledTime'] ?? '';
+        $scheduledHour = 0;
+        $scheduledMinute = 0;
+
+        if (preg_match('/^(\d{2}):(\d{2})/', $scheduledTime, $matches)) {
+            // Bare HH:MM or HH:MM:SS+... format - extract hour/minute
+            $scheduledHour = (int) $matches[1];
+            $scheduledMinute = (int) $matches[2];
+
+            // If it has a UTC offset (e.g., "14:30:00+00:00"), convert to system timezone
+            if (str_contains($scheduledTime, '+') || str_contains($scheduledTime, 'Z')) {
+                $refDate = new \DateTime("2030-01-01T{$scheduledTime}", new \DateTimeZone('UTC'));
+                $refDate->setTimezone($systemTzObj);
+                $scheduledHour = (int) $refDate->format('G');
+                $scheduledMinute = (int) $refDate->format('i');
+            }
+        }
+
+        // Build today's fire time in system timezone
+        $todayFire = clone $now;
+        $todayFire->setTime($scheduledHour, $scheduledMinute, 0);
+
+        // If the scheduled time hasn't passed yet today, skip today; otherwise skip tomorrow
+        if ($todayFire > $now) {
+            $skipDate = $now->format('Y-m-d');
+        } else {
+            $tomorrow = clone $now;
+            $tomorrow->modify('+1 day');
+            $skipDate = $tomorrow->format('Y-m-d');
+        }
+
+        $skipData = [
+            'skip_date' => $skipDate,
+            'created_at' => (new \DateTime())->format(\DateTime::ATOM),
+        ];
+
+        $skipFile = $this->stateDir . '/skip-' . $jobId . '.json';
+        file_put_contents($skipFile, json_encode($skipData, JSON_PRETTY_PRINT));
+    }
+
+    /**
+     * Remove skip for the next occurrence of a recurring job.
+     *
+     * @param string $jobId The recurring job ID
+     * @throws InvalidArgumentException If job not found or not skipped
+     */
+    public function unskipNextOccurrence(string $jobId): void
+    {
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+
+        if (!file_exists($jobFile)) {
+            throw new InvalidArgumentException('Job not found: ' . $jobId);
+        }
+
+        if (!$this->isSkipped($jobId)) {
+            throw new InvalidArgumentException('Job is not skipped');
+        }
+
+        $skipFile = $this->stateDir . '/skip-' . $jobId . '.json';
+        unlink($skipFile);
+    }
+
+    /**
+     * Check if a job has its next occurrence skipped.
+     */
+    public function isSkipped(string $jobId): bool
+    {
+        return file_exists($this->stateDir . '/skip-' . $jobId . '.json');
+    }
+
+    /**
+     * Get skip data for a job, or null if not skipped.
+     *
+     * @return array{skip_date: string, created_at: string}|null
+     */
+    public function getSkipData(string $jobId): ?array
+    {
+        $skipFile = $this->stateDir . '/skip-' . $jobId . '.json';
+        if (!file_exists($skipFile)) {
+            return null;
+        }
+        $content = file_get_contents($skipFile);
+        if ($content === false) {
+            return null;
+        }
+        return json_decode($content, true);
+    }
+
+    /**
      * Cancel a scheduled job.
      *
      * @param string $jobId The job ID to cancel
@@ -382,6 +545,12 @@ class SchedulerService
 
         // Delete job file
         unlink($jobFile);
+
+        // Clean up any skip file
+        $skipFile = $this->stateDir . '/skip-' . $jobId . '.json';
+        if (file_exists($skipFile)) {
+            unlink($skipFile);
+        }
     }
 
     /**

@@ -256,6 +256,24 @@
 		}
 	}
 
+	async function handleSkip(jobId: string) {
+		try {
+			await api.skipScheduledJob(jobId);
+			await loadJobs();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to skip job';
+		}
+	}
+
+	async function handleUnskip(jobId: string) {
+		try {
+			await api.unskipScheduledJob(jobId);
+			await loadJobs();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to unskip job';
+		}
+	}
+
 	async function handleRefresh() {
 		if (showRefreshTooltip) return;
 		await loadJobs();
@@ -313,6 +331,15 @@
 		return date.toLocaleTimeString(undefined, {
 			hour: 'numeric',
 			minute: '2-digit'
+		});
+	}
+
+	function formatShortDate(isoString: string): string {
+		const date = new Date(isoString);
+		return date.toLocaleDateString(undefined, {
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric'
 		});
 	}
 
@@ -431,18 +458,49 @@
 			</div>
 			<ul class="space-y-2">
 				{#each recurringJobs as job (job.jobId)}
-					<li class="flex items-center justify-between bg-purple-900/30 border border-purple-700/50 rounded-lg px-3 py-2">
-						<div>
-							<span class="text-slate-200 font-medium">{getJobDisplayLabel(job)}</span>
-							<span class="text-purple-300 text-sm ml-2">Daily at {formatRecurringTime(job.scheduledTime)}</span>
-						</div>
-						<button
-							onclick={() => handleCancel(job.jobId)}
-							class="text-red-400 hover:text-red-300 text-sm font-medium"
-						>
-							Cancel
-						</button>
-					</li>
+					{#if job.skipped}
+						<li class="flex items-center justify-between bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2">
+							<div>
+								<span class="text-amber-300 font-medium line-through">{getJobDisplayLabel(job)}</span>
+								<span class="text-amber-300 text-sm ml-2">Skipped {job.skipDate ? formatShortDate(job.skipDate) : ''} — resumes {job.resumeDate ? formatShortDate(job.resumeDate) : ''}</span>
+							</div>
+							<div class="flex gap-2">
+								<button
+									onclick={() => handleUnskip(job.jobId)}
+									class="text-amber-400 hover:text-amber-300 text-sm font-medium"
+								>
+									Unskip
+								</button>
+								<button
+									onclick={() => handleCancel(job.jobId)}
+									class="text-red-400 hover:text-red-300 text-sm font-medium"
+								>
+									Cancel
+								</button>
+							</div>
+						</li>
+					{:else}
+						<li class="flex items-center justify-between bg-purple-900/30 border border-purple-700/50 rounded-lg px-3 py-2">
+							<div>
+								<span class="text-slate-200 font-medium">{getJobDisplayLabel(job)}</span>
+								<span class="text-purple-300 text-sm ml-2">Daily at {formatRecurringTime(job.scheduledTime)}</span>
+							</div>
+							<div class="flex gap-2">
+								<button
+									onclick={() => handleSkip(job.jobId)}
+									class="text-amber-400 hover:text-amber-300 text-sm font-medium"
+								>
+									Skip next
+								</button>
+								<button
+									onclick={() => handleCancel(job.jobId)}
+									class="text-red-400 hover:text-red-300 text-sm font-medium"
+								>
+									Cancel
+								</button>
+							</div>
+						</li>
+					{/if}
 				{/each}
 			</ul>
 		</div>

@@ -17,6 +17,9 @@ export interface ScheduledJob {
 		target_temp_f?: number;
 		ready_by_time?: string;
 	};
+	skipped?: boolean;
+	skipDate?: string;
+	resumeDate?: string;
 }
 
 export interface ScheduleListResponse {
@@ -274,6 +277,8 @@ export const api = {
 	) => postJson<ScheduledJob>('/api/schedule', { action, scheduledTime, recurring, ...params }),
 	listScheduledJobs: () => get<ScheduleListResponse>('/api/schedule'),
 	cancelScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}`),
+	skipScheduledJob: (jobId: string) => post(`/api/schedule/${jobId}/skip`),
+	unskipScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}/skip`),
 
 	// User management endpoints (admin only)
 	listUsers: () => get<UserListResponse>('/api/users'),

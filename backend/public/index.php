@@ -284,6 +284,8 @@ $router->put('/api/settings/heat-target', fn() => handleHeatTargetSettingsUpdate
 $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireAuth);
 $router->get('/api/schedule', fn() => $scheduleController->list(), $requireAuth);
 $router->delete('/api/schedule/{id}', fn($params) => $scheduleController->cancel($params['id']), $requireAuth);
+$router->post('/api/schedule/{id}/skip', fn($params) => $scheduleController->skip($params['id']), $requireAuth);
+$router->delete('/api/schedule/{id}/skip', fn($params) => $scheduleController->unskip($params['id']), $requireAuth);
 
 // Admin-only user management routes
 $router->get('/api/users', fn() => $userController->list(), $requireAdmin);
