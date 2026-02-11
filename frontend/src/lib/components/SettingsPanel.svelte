@@ -11,6 +11,7 @@
 		getEnabled as getTargetTempEnabled,
 		getTargetTempF,
 		getTimezone,
+		getScheduleMode,
 		getMinTempF,
 		getMaxTempF,
 		updateSettings as updateTargetTempSettings,
@@ -42,6 +43,7 @@
 	let localTargetTempEnabled = $state(getTargetTempEnabled());
 	let localTargetTempF = $state(getTargetTempF());
 	let localTimezone = $state(getTimezone());
+	let localScheduleMode = $state<'start_at' | 'ready_by'>(getScheduleMode());
 	let savingTargetTemp = $state(false);
 	let targetTempSaveError = $state<string | null>(null);
 	let userHasEditedTargetTemp = $state(false); // Track if user made changes
@@ -60,7 +62,8 @@
 	let targetTempDirty = $derived(
 		localTargetTempEnabled !== getTargetTempEnabled() ||
 			localTargetTempF !== getTargetTempF() ||
-			localTimezone !== getTimezone()
+			localTimezone !== getTimezone() ||
+			localScheduleMode !== getScheduleMode()
 	);
 
 	async function loadServerHeatTargetState() {
@@ -93,7 +96,7 @@
 		savingTargetTemp = true;
 		targetTempSaveError = null;
 		try {
-			await updateTargetTempSettings(localTargetTempEnabled, localTargetTempF, localTimezone);
+			await updateTargetTempSettings(localTargetTempEnabled, localTargetTempF, localTimezone, localScheduleMode);
 			userHasEditedTargetTemp = false; // Reset after successful save
 		} catch (e) {
 			targetTempSaveError = e instanceof Error ? e.message : 'Failed to save';
@@ -117,6 +120,7 @@
 			localTargetTempEnabled = getTargetTempEnabled();
 			localTargetTempF = getTargetTempF();
 			localTimezone = getTimezone();
+			localScheduleMode = getScheduleMode();
 		}
 	});
 
@@ -357,6 +361,37 @@
 						Used for scheduling and display purposes.
 					</p>
 				</div>
+
+				<fieldset class="ml-6 mt-3">
+					<legend class="text-slate-400 text-sm mb-2">Schedule mode</legend>
+					<label class="flex items-center gap-2 cursor-pointer">
+						<input
+							type="radio"
+							name="scheduleMode"
+							value="start_at"
+							checked={localScheduleMode === 'start_at'}
+							onchange={() => { localScheduleMode = 'start_at'; userHasEditedTargetTemp = true; }}
+							disabled={savingTargetTemp}
+							class="w-4 h-4 border-slate-500 bg-slate-700 text-orange-500 focus:ring-orange-500"
+						/>
+						<span class="text-slate-300 text-sm">Scheduled time starts heating</span>
+					</label>
+					<label class="flex items-center gap-2 cursor-pointer mt-1">
+						<input
+							type="radio"
+							name="scheduleMode"
+							value="ready_by"
+							checked={localScheduleMode === 'ready_by'}
+							onchange={() => { localScheduleMode = 'ready_by'; userHasEditedTargetTemp = true; }}
+							disabled={savingTargetTemp}
+							class="w-4 h-4 border-slate-500 bg-slate-700 text-orange-500 focus:ring-orange-500"
+						/>
+						<span class="text-slate-300 text-sm">Tub ready by scheduled time</span>
+					</label>
+					<p class="text-slate-500 text-xs mt-1">
+						"Ready by" calculates optimal start time using heating characteristics.
+					</p>
+				</fieldset>
 
 				{#if targetTempDirty}
 					<div class="ml-6 flex items-center gap-2">

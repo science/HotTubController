@@ -30,6 +30,7 @@ use HotTub\Services\IftttClientFactory;
 use HotTub\Services\AuthService;
 use HotTub\Services\UserRepositoryFactory;
 use HotTub\Services\SchedulerService;
+use HotTub\Services\DtdtService;
 use HotTub\Services\CrontabAdapter;
 use HotTub\Services\CrontabBackupService;
 use HotTub\Services\HealthchecksClientFactory;
@@ -176,7 +177,17 @@ $schedulerService = new SchedulerService(
     null, // TimeConverter (use default)
     $healthchecksClient
 );
-$scheduleController = new ScheduleController($schedulerService);
+
+// Create DTDT (Dynamic Time to Desired Temperature) service
+$heatingCharacteristicsResultsFile = __DIR__ . '/../storage/state/heating-characteristics.json';
+$dtdtService = new DtdtService(
+    $schedulerService,
+    $targetTemperatureService,
+    $esp32CalibratedService,
+    $heatingCharacteristicsResultsFile
+);
+
+$scheduleController = new ScheduleController($schedulerService, $dtdtService, $heatTargetSettingsService);
 
 // Create maintenance controller for log rotation and job cleanup
 // Loads ping URL from state file (created by deploy script)
@@ -230,6 +241,7 @@ $router->get('/api/health', function() use ($equipmentController, $blindsControl
         'enabled' => $heatTargetSettingsService->isEnabled(),
         'target_temp_f' => $heatTargetSettingsService->getTargetTempF(),
         'timezone' => $heatTargetSettingsService->getTimezone(),
+        'schedule_mode' => $heatTargetSettingsService->getScheduleMode(),
     ];
     return $response;
 });
@@ -281,7 +293,6 @@ $router->put('/api/users/{username}/password', fn($params) => handleUserPassword
 
 // Heating characteristics analysis (admin only)
 $heatingCharacteristicsService = new HeatingCharacteristicsService();
-$heatingCharacteristicsResultsFile = __DIR__ . '/../storage/state/heating-characteristics.json';
 $heatingCharacteristicsController = new HeatingCharacteristicsController(
     $heatingCharacteristicsService,
     $heatingCharacteristicsResultsFile,
@@ -309,6 +320,7 @@ $router->post('/api/maintenance/logs/rotate', fn() => $maintenanceController->ro
 $router->post('/api/maintenance/jobs/cleanup', fn() => $maintenanceController->cleanupOrphanedJobs(), $requireAuth);
 $router->post('/api/maintenance/all', fn() => $maintenanceController->runAll(), $requireAuth);
 $router->post('/api/maintenance/heat-target-check', fn() => $targetTemperatureController->check(), $requireAuth);
+$router->post('/api/maintenance/dtdt-wakeup', fn() => handleDtdtWakeUp($dtdtService), $requireAuth);
 
 // Dispatch request
 $response = $router->dispatch($method, $uri);
@@ -429,4 +441,12 @@ function handleHeatTargetSettingsUpdate(HeatTargetSettingsController $controller
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->update($input);
+}
+
+function handleDtdtWakeUp(DtdtService $dtdtService): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    $result = $dtdtService->handleWakeUp($input);
+    $status = isset($result['error']) ? 400 : 200;
+    return ['status' => $status, 'body' => $result];
 }

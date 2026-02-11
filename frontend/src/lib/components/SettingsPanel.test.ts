@@ -21,6 +21,7 @@ vi.mock('$lib/stores/heatTargetSettings.svelte', () => ({
 	getEnabled: vi.fn(() => false),
 	getTargetTempF: vi.fn(() => 103),
 	getTimezone: vi.fn(() => 'America/Los_Angeles'),
+	getScheduleMode: vi.fn(() => 'start_at'),
 	getMinTempF: vi.fn(() => 80),
 	getMaxTempF: vi.fn(() => 110),
 	updateSettings: vi.fn(),
@@ -363,6 +364,36 @@ describe('SettingsPanel', () => {
 			render(SettingsPanel, { props: { isAdmin: false } });
 			expect(screen.queryByRole('button', { name: /decrease temperature/i })).toBeNull();
 			expect(screen.queryByRole('button', { name: /increase temperature/i })).toBeNull();
+		});
+	});
+
+	describe('schedule mode toggle (admin only)', () => {
+		it('renders schedule mode radio buttons for admin', async () => {
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByText(/schedule mode/i)).toBeTruthy();
+				expect(screen.getByText(/scheduled time starts heating/i)).toBeTruthy();
+				expect(screen.getByText(/tub ready by scheduled time/i)).toBeTruthy();
+			});
+		});
+
+		it('does not render schedule mode for non-admin', () => {
+			render(SettingsPanel, { props: { isAdmin: false } });
+			expect(screen.queryByText(/schedule mode/i)).toBeNull();
+		});
+
+		it('defaults to start_at mode', async () => {
+			vi.mocked(heatTargetStore.getScheduleMode).mockReturnValue('start_at');
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				const radios = screen.getAllByRole('radio');
+				const startAtRadio = radios.find(
+					(r) => (r as HTMLInputElement).value === 'start_at'
+				) as HTMLInputElement;
+				expect(startAtRadio?.checked).toBe(true);
+			});
 		});
 	});
 

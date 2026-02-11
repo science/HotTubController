@@ -34,6 +34,7 @@ class HeatTargetSettingsController
                 'enabled' => $settings['enabled'],
                 'target_temp_f' => $settings['target_temp_f'],
                 'timezone' => $settings['timezone'],
+                'schedule_mode' => $settings['schedule_mode'],
             ],
         ];
     }
@@ -79,6 +80,10 @@ class HeatTargetSettingsController
             if (isset($data['timezone']) && is_string($data['timezone'])) {
                 $this->settingsService->updateTimezone($data['timezone']);
             }
+
+            if (isset($data['schedule_mode']) && is_string($data['schedule_mode'])) {
+                $this->settingsService->updateScheduleMode($data['schedule_mode']);
+            }
         } catch (\InvalidArgumentException $e) {
             return [
                 'status' => 400,
@@ -94,6 +99,7 @@ class HeatTargetSettingsController
                 'enabled' => $settings['enabled'],
                 'target_temp_f' => $settings['target_temp_f'],
                 'timezone' => $settings['timezone'],
+                'schedule_mode' => $settings['schedule_mode'],
                 'message' => 'Settings updated',
             ],
         ];

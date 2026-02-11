@@ -64,8 +64,14 @@ class SchedulerService
      * @return array{jobId: string, action: string, scheduledTime: string, createdAt: string, recurring: bool}
      * @throws InvalidArgumentException If action is invalid or time is in the past (one-off only)
      */
-    public function scheduleJob(string $action, string $scheduledTime, bool $recurring = false, array $params = []): array
-    {
+    public function scheduleJob(
+        string $action,
+        string $scheduledTime,
+        bool $recurring = false,
+        array $params = [],
+        ?string $endpointOverride = null,
+        ?string $cronTime = null
+    ): array {
         // Validate action
         if (!isset(self::VALID_ACTIONS[$action])) {
             throw new InvalidArgumentException(
@@ -78,7 +84,7 @@ class SchedulerService
 
         if ($recurring) {
             // For recurring jobs, scheduledTime is just HH:MM format
-            return $this->scheduleRecurringJob($action, $scheduledTime, $createdAt, $params);
+            return $this->scheduleRecurringJob($action, $scheduledTime, $createdAt, $params, $endpointOverride, $cronTime);
         }
 
         // Parse and validate scheduled time for one-off jobs
@@ -108,7 +114,7 @@ class SchedulerService
         $jobData = [
             'jobId' => $jobId,
             'action' => $action,
-            'endpoint' => self::VALID_ACTIONS[$action],
+            'endpoint' => $endpointOverride ?? self::VALID_ACTIONS[$action],
             'apiBaseUrl' => rtrim($this->apiBaseUrl, '/'),
             'scheduledTime' => $utcDateTime->format(\DateTime::ATOM),
             'recurring' => false,
@@ -157,8 +163,14 @@ class SchedulerService
      * @param array<string, mixed> $params Optional parameters for the action (e.g., target_temp_f for heat-to-target)
      * @return array{jobId: string, action: string, scheduledTime: string, createdAt: string, recurring: bool}
      */
-    private function scheduleRecurringJob(string $action, string $time, string $createdAt, array $params = []): array
-    {
+    private function scheduleRecurringJob(
+        string $action,
+        string $time,
+        string $createdAt,
+        array $params = [],
+        ?string $endpointOverride = null,
+        ?string $cronTime = null
+    ): array {
         // Generate unique job ID with rec- prefix for recurring
         $jobId = 'rec-' . bin2hex(random_bytes(4));
 
@@ -192,7 +204,7 @@ class SchedulerService
         $jobData = [
             'jobId' => $jobId,
             'action' => $action,
-            'endpoint' => self::VALID_ACTIONS[$action],
+            'endpoint' => $endpointOverride ?? self::VALID_ACTIONS[$action],
             'apiBaseUrl' => rtrim($this->apiBaseUrl, '/'),
             'scheduledTime' => $storedTime,
             'recurring' => true,
@@ -222,12 +234,16 @@ class SchedulerService
         $command = sprintf('%s %s', escapeshellarg($this->cronRunnerPath), escapeshellarg($jobId));
         $comment = sprintf('HOTTUB:%s:%s:DAILY', $jobId, $actionLabel);
 
-        if ($hasTimezoneOffset) {
+        // Use cronTime override if provided, otherwise use display time
+        $actualCronTime = $cronTime ?? $time;
+        $actualHasTimezoneOffset = preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $actualCronTime);
+
+        if ($actualHasTimezoneOffset) {
             // Use CronSchedulingService for correct timezone conversion
-            $this->cronSchedulingService->scheduleDaily($time, $command, $comment);
+            $this->cronSchedulingService->scheduleDaily($actualCronTime, $command, $comment);
         } else {
             // Legacy bare HH:MM format - schedule directly (assumes server timezone)
-            $cronExpression = $this->formatDailyCronFromTime($time);
+            $cronExpression = $this->formatDailyCronFromTime($actualCronTime);
             $this->crontabAdapter->addEntry(sprintf('%s %s # %s', $cronExpression, $command, $comment));
         }
 

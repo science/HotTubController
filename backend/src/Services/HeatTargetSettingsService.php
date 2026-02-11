@@ -22,6 +22,8 @@ class HeatTargetSettingsService
     public const MAX_TEMP_F = 110.0;
     public const DEFAULT_TEMP_F = 103.0;
     public const DEFAULT_TIMEZONE = 'America/Los_Angeles';
+    public const DEFAULT_SCHEDULE_MODE = 'start_at';
+    public const VALID_SCHEDULE_MODES = ['start_at', 'ready_by'];
 
     public function __construct(string $settingsFile)
     {
@@ -40,6 +42,7 @@ class HeatTargetSettingsService
             'enabled' => $this->settings['enabled'] ?? false,
             'target_temp_f' => $this->settings['target_temp_f'] ?? self::DEFAULT_TEMP_F,
             'timezone' => $this->settings['timezone'] ?? self::DEFAULT_TIMEZONE,
+            'schedule_mode' => $this->settings['schedule_mode'] ?? self::DEFAULT_SCHEDULE_MODE,
             'updated_at' => $this->settings['updated_at'] ?? null,
         ];
     }
@@ -66,6 +69,29 @@ class HeatTargetSettingsService
     public function getTimezone(): string
     {
         return $this->settings['timezone'] ?? self::DEFAULT_TIMEZONE;
+    }
+
+    /**
+     * Get the schedule mode ('start_at' or 'ready_by').
+     */
+    public function getScheduleMode(): string
+    {
+        return $this->settings['schedule_mode'] ?? self::DEFAULT_SCHEDULE_MODE;
+    }
+
+    /**
+     * Update the schedule mode.
+     *
+     * @throws \InvalidArgumentException if mode is not valid
+     */
+    public function updateScheduleMode(string $mode): void
+    {
+        if (!in_array($mode, self::VALID_SCHEDULE_MODES, true)) {
+            throw new \InvalidArgumentException("Invalid schedule mode: {$mode}");
+        }
+
+        $this->settings['schedule_mode'] = $mode;
+        $this->saveSettings();
     }
 
     /**

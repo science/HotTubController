@@ -1141,6 +1141,93 @@ class SchedulerServiceTest extends TestCase
         $this->assertEquals(102.5, $recurring['params']['target_temp_f']);
     }
 
+    // ========== Endpoint/CronTime Override Tests ==========
+
+    public function testEndpointOverrideInJobFile(): void
+    {
+        $result = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            '06:30-08:00',
+            recurring: true,
+            params: ['target_temp_f' => 103, 'ready_by_time' => '06:30-08:00'],
+            endpointOverride: '/api/maintenance/dtdt-wakeup'
+        );
+
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        $this->assertEquals('/api/maintenance/dtdt-wakeup', $jobData['endpoint']);
+    }
+
+    public function testCronTimeOverrideForScheduling(): void
+    {
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+
+        // User wants "ready by 06:30 Pacific" but wake-up cron should fire at 03:30 Pacific
+        $result = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            '06:30-08:00',          // display time (ready-by)
+            recurring: true,
+            params: ['target_temp_f' => 103],
+            cronTime: '03:30-08:00'  // actual cron time (wake-up)
+        );
+
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+
+        // Cron expression should use 03:30 Pacific, not 06:30 Pacific
+        $expected = new \DateTime('2030-01-01T03:30:00-08:00');
+        $expected->setTimezone(new \DateTimeZone($systemTz));
+        $expectedCronTime = sprintf(
+            '%d %d * * *',
+            (int) $expected->format('i'),
+            (int) $expected->format('G')
+        );
+
+        $this->assertStringContainsString($expectedCronTime, $entries[0],
+            'Cron should use override time (03:30 Pacific), not display time (06:30 Pacific)');
+    }
+
+    public function testDisplayTimePreservedWithCronTimeOverride(): void
+    {
+        $result = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            '06:30-08:00',           // display time
+            recurring: true,
+            params: ['target_temp_f' => 103],
+            cronTime: '03:30-08:00'  // actual cron time
+        );
+
+        // The returned scheduledTime should be the display time (converted to UTC)
+        $this->assertEquals('14:30:00+00:00', $result['scheduledTime'],
+            'Display time should be 06:30 Pacific = 14:30 UTC');
+
+        // Job file should also store the display time
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+        $this->assertEquals('14:30:00+00:00', $jobData['scheduledTime']);
+    }
+
+    public function testOverridesAreOptionalNoRegression(): void
+    {
+        // Without overrides, standard behavior should work exactly as before
+        $result = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            '06:30-08:00',
+            recurring: true,
+            params: ['target_temp_f' => 103]
+        );
+
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        // Should use standard endpoint
+        $this->assertEquals('/api/equipment/heat-to-target', $jobData['endpoint']);
+
+        // scheduledTime should be UTC
+        $this->assertEquals('14:30:00+00:00', $result['scheduledTime']);
+    }
+
     // ========== Bug Reproduction Test ==========
 
     /**

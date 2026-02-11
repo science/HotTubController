@@ -7,6 +7,8 @@ namespace HotTub\Tests\Controllers;
 use HotTub\Contracts\CrontabAdapterInterface;
 use HotTub\Controllers\ScheduleController;
 use HotTub\Services\SchedulerService;
+use HotTub\Services\DtdtService;
+use HotTub\Services\HeatTargetSettingsService;
 use PHPUnit\Framework\TestCase;
 
 class ScheduleControllerTest extends TestCase
@@ -224,6 +226,93 @@ class ScheduleControllerTest extends TestCase
         // Verify it's gone
         $listAfter = $this->controller->list();
         $this->assertCount(0, $listAfter['body']['jobs']);
+    }
+
+    // ========== DTDT Ready-By Integration Tests ==========
+
+    public function testScheduleControllerUsesReadyByMode(): void
+    {
+        // Set up settings with ready_by mode
+        $settingsFile = sys_get_temp_dir() . '/test_heat_target_' . uniqid() . '.json';
+        $settings = new HeatTargetSettingsService($settingsFile);
+        $settings->updateScheduleMode('ready_by');
+
+        // Set up heating characteristics
+        $charsFile = sys_get_temp_dir() . '/test_heating_chars_' . uniqid() . '.json';
+        file_put_contents($charsFile, json_encode([
+            'heating_velocity_f_per_min' => 0.3,
+            'startup_lag_minutes' => 10.0,
+            'max_cooling_k' => 0.001,
+        ]));
+
+        $dtdtService = new DtdtService(
+            $this->scheduler,
+            null, // TargetTemperatureService
+            null, // Esp32CalibratedTemperatureService
+            $charsFile
+        );
+
+        $controller = new ScheduleController($this->scheduler, $dtdtService, $settings);
+
+        $response = $controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => '06:30-08:00',
+            'recurring' => true,
+            'target_temp_f' => 103,
+        ]);
+
+        $this->assertEquals(201, $response['status']);
+
+        // Job file should use wake-up endpoint
+        $jobFile = $this->jobsDir . '/' . $response['body']['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+        $this->assertEquals('/api/maintenance/dtdt-wakeup', $jobData['endpoint']);
+        $this->assertEquals('06:30-08:00', $jobData['params']['ready_by_time']);
+
+        // Cleanup
+        @unlink($settingsFile);
+        @unlink($charsFile);
+    }
+
+    public function testScheduleControllerNormalInStartAtMode(): void
+    {
+        // Set up settings with start_at mode (default)
+        $settingsFile = sys_get_temp_dir() . '/test_heat_target_' . uniqid() . '.json';
+        $settings = new HeatTargetSettingsService($settingsFile);
+
+        $charsFile = sys_get_temp_dir() . '/test_heating_chars_' . uniqid() . '.json';
+        file_put_contents($charsFile, json_encode([
+            'heating_velocity_f_per_min' => 0.3,
+            'startup_lag_minutes' => 10.0,
+            'max_cooling_k' => 0.001,
+        ]));
+
+        $dtdtService = new DtdtService(
+            $this->scheduler,
+            null,
+            null,
+            $charsFile
+        );
+
+        $controller = new ScheduleController($this->scheduler, $dtdtService, $settings);
+
+        $response = $controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => '06:30-08:00',
+            'recurring' => true,
+            'target_temp_f' => 103,
+        ]);
+
+        $this->assertEquals(201, $response['status']);
+
+        // Job file should use standard endpoint (not wake-up)
+        $jobFile = $this->jobsDir . '/' . $response['body']['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+        $this->assertEquals('/api/equipment/heat-to-target', $jobData['endpoint']);
+
+        // Cleanup
+        @unlink($settingsFile);
+        @unlink($charsFile);
     }
 }
 

@@ -303,4 +303,70 @@ class HeatTargetSettingsControllerTest extends TestCase
         $this->assertEquals(200, $response['status']);
         $this->assertEquals('America/Chicago', $response['body']['timezone']);
     }
+
+    // ==================== Schedule Mode Tests ====================
+
+    /**
+     * @test
+     */
+    public function getReturnsScheduleMode(): void
+    {
+        $response = $this->controller->get();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertArrayHasKey('schedule_mode', $response['body']);
+        $this->assertEquals('start_at', $response['body']['schedule_mode']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateAcceptsScheduleMode(): void
+    {
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'schedule_mode' => 'ready_by',
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals('ready_by', $response['body']['schedule_mode']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateReturns400ForInvalidScheduleMode(): void
+    {
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'schedule_mode' => 'invalid',
+        ]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertStringContainsString('Invalid schedule mode', $response['body']['error']);
+    }
+
+    /**
+     * @test
+     */
+    public function updatePreservesScheduleModeWhenNotProvided(): void
+    {
+        // Set schedule_mode first
+        $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'schedule_mode' => 'ready_by',
+        ]);
+
+        // Update without schedule_mode
+        $response = $this->controller->update([
+            'enabled' => false,
+            'target_temp_f' => 104.0,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals('ready_by', $response['body']['schedule_mode']);
+    }
 }
