@@ -15,6 +15,7 @@ use PHPUnit\Framework\Assert;
 class CronSimulator
 {
     private const HEAT_TARGET_MARKER = 'HOTTUB:heat-target';
+    private const HOTTUB_MARKER = 'HOTTUB:';
 
     /**
      * Get all heat-target cron entries from real crontab.
@@ -258,5 +259,127 @@ class CronSimulator
         $this->removeEntry($entry);
 
         return array_merge($result, ['cronEntry' => $entry]);
+    }
+
+    /**
+     * Get ALL HOTTUB cron entries (scheduler + heat-target-check).
+     *
+     * This includes both SchedulerService entries (HOTTUB:job-xxx, HOTTUB:rec-xxx)
+     * and TargetTemperatureService entries (HOTTUB:heat-target-xxx).
+     *
+     * @return string[] Array of full cron entry lines
+     */
+    public function getAllHottubEntries(): array
+    {
+        $crontab = shell_exec('crontab -l 2>/dev/null') ?? '';
+        if (empty(trim($crontab))) {
+            return [];
+        }
+
+        $lines = explode("\n", $crontab);
+        return array_values(array_filter(
+            $lines,
+            fn($line) => str_contains($line, self::HOTTUB_MARKER)
+        ));
+    }
+
+    /**
+     * Find cron entries for a specific job ID.
+     *
+     * Searches for HOTTUB:{jobId} in crontab comments.
+     *
+     * @param string $jobId Job ID (e.g., "rec-abc123", "job-abc123", "heat-target-abc123")
+     * @return string[] Matching cron entry lines
+     */
+    public function getEntriesByJobId(string $jobId): array
+    {
+        $crontab = shell_exec('crontab -l 2>/dev/null') ?? '';
+        if (empty(trim($crontab))) {
+            return [];
+        }
+
+        $lines = explode("\n", $crontab);
+        return array_values(array_filter(
+            $lines,
+            fn($line) => str_contains($line, 'HOTTUB:' . $jobId)
+        ));
+    }
+
+    /**
+     * Fire a cron by job ID - execute command, then check if entry was self-removed.
+     *
+     * Unlike fireNextHeatTargetCron(), this does NOT remove the entry itself.
+     * Instead, it lets cron-runner.sh handle removal (one-off jobs) or preservation
+     * (recurring jobs), then checks whether the entry was self-removed.
+     *
+     * @param string $jobId Job ID to fire
+     * @return array{exitCode: int, stdout: string, stderr: string, cronEntry: string, selfRemoved: bool}
+     */
+    public function fireByJobId(string $jobId): array
+    {
+        $entries = $this->getEntriesByJobId($jobId);
+
+        if (empty($entries)) {
+            throw new \RuntimeException("No cron entry found for job ID: $jobId");
+        }
+
+        $entry = $entries[0];
+
+        // Extract and execute the actual command
+        $command = $this->extractCommand($entry);
+        $result = $this->executeCommand($command);
+
+        // Check if cron-runner.sh self-removed the entry
+        $entriesAfter = $this->getEntriesByJobId($jobId);
+        $selfRemoved = empty($entriesAfter);
+
+        return array_merge($result, [
+            'cronEntry' => $entry,
+            'selfRemoved' => $selfRemoved,
+        ]);
+    }
+
+    /**
+     * Remove ALL HOTTUB entries from crontab (broader than removeAllHeatTargetEntries).
+     *
+     * Removes scheduler entries (HOTTUB:job-xxx, HOTTUB:rec-xxx) AND
+     * heat-target-check entries (HOTTUB:heat-target-xxx).
+     */
+    public function removeAllHottubEntries(): void
+    {
+        $crontab = shell_exec('crontab -l 2>/dev/null') ?? '';
+        if (empty(trim($crontab))) {
+            return;
+        }
+
+        $lines = explode("\n", $crontab);
+        $filtered = array_filter(
+            $lines,
+            fn($line) => !str_contains($line, self::HOTTUB_MARKER)
+        );
+
+        $newCrontab = implode("\n", $filtered);
+        $tempFile = tempnam(sys_get_temp_dir(), 'crontab_');
+        file_put_contents($tempFile, $newCrontab . "\n");
+        shell_exec("crontab $tempFile 2>/dev/null");
+        unlink($tempFile);
+    }
+
+    /**
+     * Extract job ID from a HOTTUB cron entry comment.
+     *
+     * Handles both formats:
+     * - HOTTUB:rec-abc123:TARGET:DAILY
+     * - HOTTUB:job-abc123:TARGET:ONCE
+     * - HOTTUB:heat-target-abc123:HEAT-TARGET:ONCE
+     *
+     * @return string|null Job ID or null if not found
+     */
+    public function extractJobId(string $cronEntry): ?string
+    {
+        if (preg_match('/HOTTUB:((?:rec|job|heat-target)-[a-f0-9]+)/', $cronEntry, $matches)) {
+            return $matches[1];
+        }
+        return null;
     }
 }

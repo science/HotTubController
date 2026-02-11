@@ -195,7 +195,7 @@ describe('heatTargetSettings store', () => {
 
 			await updateSettings(true, 106);
 
-			expect(api.updateHeatTargetSettings).toHaveBeenCalledWith(true, 106, undefined);
+			expect(api.updateHeatTargetSettings).toHaveBeenCalledWith(true, 106, undefined, undefined);
 		});
 
 		it('updates local state on success', async () => {

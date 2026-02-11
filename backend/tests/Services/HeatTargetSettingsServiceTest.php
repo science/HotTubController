@@ -263,4 +263,66 @@ class HeatTargetSettingsServiceTest extends TestCase
 
         $this->assertEquals('America/Denver', $this->service->getTimezone());
     }
+
+    // ==================== Schedule Mode Tests ====================
+
+    /**
+     * @test
+     */
+    public function scheduleModeDefaultsToStartAt(): void
+    {
+        $this->assertEquals('start_at', $this->service->getScheduleMode());
+    }
+
+    /**
+     * @test
+     */
+    public function scheduleModeCanBeSetToReadyBy(): void
+    {
+        $this->service->updateScheduleMode('ready_by');
+        $this->assertEquals('ready_by', $this->service->getScheduleMode());
+    }
+
+    /**
+     * @test
+     */
+    public function scheduleModeIncludedInGetSettings(): void
+    {
+        $settings = $this->service->getSettings();
+        $this->assertArrayHasKey('schedule_mode', $settings);
+        $this->assertEquals('start_at', $settings['schedule_mode']);
+    }
+
+    /**
+     * @test
+     */
+    public function invalidScheduleModeRejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid schedule mode');
+
+        $this->service->updateScheduleMode('invalid');
+    }
+
+    /**
+     * @test
+     */
+    public function scheduleModePersistsAcrossInstances(): void
+    {
+        $this->service->updateScheduleMode('ready_by');
+
+        $newService = new HeatTargetSettingsService($this->settingsFile);
+        $this->assertEquals('ready_by', $newService->getScheduleMode());
+    }
+
+    /**
+     * @test
+     */
+    public function updateSettingsPreservesScheduleMode(): void
+    {
+        $this->service->updateScheduleMode('ready_by');
+        $this->service->updateSettings(true, 105.0);
+
+        $this->assertEquals('ready_by', $this->service->getScheduleMode());
+    }
 }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace HotTub\Controllers;
 
 use HotTub\Services\SchedulerService;
+use HotTub\Services\DtdtService;
+use HotTub\Services\HeatTargetSettingsService;
 use InvalidArgumentException;
 
 /**
@@ -13,7 +15,9 @@ use InvalidArgumentException;
 class ScheduleController
 {
     public function __construct(
-        private SchedulerService $scheduler
+        private SchedulerService $scheduler,
+        private ?DtdtService $dtdtService = null,
+        private ?HeatTargetSettingsService $settings = null
     ) {
     }
 
@@ -54,6 +58,20 @@ class ScheduleController
 
         try {
             $recurring = isset($data['recurring']) && $data['recurring'] === true;
+
+            // DTDT transformation: ready_by + heat-to-target + recurring
+            if ($data['action'] === 'heat-to-target'
+                && $recurring
+                && $this->dtdtService !== null
+                && $this->settings?->getScheduleMode() === 'ready_by'
+            ) {
+                $result = $this->dtdtService->createReadyBySchedule($data['scheduledTime'], $params);
+                return [
+                    'status' => 201,
+                    'body' => $result,
+                ];
+            }
+
             $result = $this->scheduler->scheduleJob($data['action'], $data['scheduledTime'], $recurring, $params);
 
             return [
@@ -61,6 +79,11 @@ class ScheduleController
                 'body' => $result,
             ];
         } catch (InvalidArgumentException $e) {
+            return [
+                'status' => 400,
+                'body' => ['error' => $e->getMessage()],
+            ];
+        } catch (\RuntimeException $e) {
             return [
                 'status' => 400,
                 'body' => ['error' => $e->getMessage()],

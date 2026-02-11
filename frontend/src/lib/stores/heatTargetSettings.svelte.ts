@@ -15,6 +15,7 @@ import { api, type HeatTargetSettings, type HealthResponse } from '$lib/api';
 const DEFAULT_ENABLED = false;
 const DEFAULT_TARGET_TEMP_F = 103.0;
 const DEFAULT_TIMEZONE = 'America/Los_Angeles';
+const DEFAULT_SCHEDULE_MODE = 'start_at' as const;
 const MIN_TEMP_F = 80.0;
 const MAX_TEMP_F = 110.0;
 
@@ -22,6 +23,7 @@ const MAX_TEMP_F = 110.0;
 let enabled = $state(DEFAULT_ENABLED);
 let targetTempF = $state(DEFAULT_TARGET_TEMP_F);
 let timezone = $state(DEFAULT_TIMEZONE);
+let scheduleMode = $state<'start_at' | 'ready_by'>(DEFAULT_SCHEDULE_MODE);
 let isLoading = $state(false);
 let error = $state<string | null>(null);
 let initialized = $state(false);
@@ -35,11 +37,13 @@ export function initFromHealthResponse(response: HealthResponse): void {
 		enabled = response.heatTargetSettings.enabled;
 		targetTempF = response.heatTargetSettings.target_temp_f;
 		timezone = response.heatTargetSettings.timezone ?? DEFAULT_TIMEZONE;
+		scheduleMode = response.heatTargetSettings.schedule_mode ?? DEFAULT_SCHEDULE_MODE;
 	} else {
 		// Reset to defaults when backend doesn't provide settings
 		enabled = DEFAULT_ENABLED;
 		targetTempF = DEFAULT_TARGET_TEMP_F;
 		timezone = DEFAULT_TIMEZONE;
+		scheduleMode = DEFAULT_SCHEDULE_MODE;
 	}
 	initialized = true;
 }
@@ -54,16 +58,23 @@ export function initFromHealthResponse(response: HealthResponse): void {
 export async function updateSettings(
 	newEnabled: boolean,
 	newTargetTempF: number,
-	newTimezone?: string
+	newTimezone?: string,
+	newScheduleMode?: 'start_at' | 'ready_by'
 ): Promise<void> {
 	isLoading = true;
 	error = null;
 
 	try {
-		const response = await api.updateHeatTargetSettings(newEnabled, newTargetTempF, newTimezone);
+		const response = await api.updateHeatTargetSettings(
+			newEnabled,
+			newTargetTempF,
+			newTimezone,
+			newScheduleMode
+		);
 		enabled = response.enabled;
 		targetTempF = response.target_temp_f;
 		timezone = response.timezone ?? timezone;
+		scheduleMode = response.schedule_mode ?? scheduleMode;
 	} catch (e) {
 		error = e instanceof Error ? e.message : 'Failed to update settings';
 		throw e;
@@ -91,6 +102,13 @@ export function getTargetTempF(): number {
  */
 export function getTimezone(): string {
 	return timezone;
+}
+
+/**
+ * Get the schedule mode ('start_at' or 'ready_by').
+ */
+export function getScheduleMode(): 'start_at' | 'ready_by' {
+	return scheduleMode;
 }
 
 /**

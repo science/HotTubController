@@ -15,6 +15,7 @@ export interface ScheduledJob {
 	recurring: boolean;
 	params?: {
 		target_temp_f?: number;
+		ready_by_time?: string;
 	};
 }
 
@@ -91,6 +92,7 @@ export interface HeatTargetSettings {
 	enabled: boolean;
 	target_temp_f: number;
 	timezone: string;
+	schedule_mode?: 'start_at' | 'ready_by';
 }
 
 export interface HealthResponse {
@@ -131,6 +133,7 @@ export interface HeatingCharacteristics {
 	cooling_coefficient_k: number | null;
 	cooling_data_points: number;
 	cooling_r_squared: number | null;
+	max_cooling_k: number | null;
 	sessions_analyzed: number;
 	sessions: HeatingSession[];
 	generated_at: string;
@@ -293,11 +296,17 @@ export const api = {
 
 	// Heat-target settings endpoints (shared backend settings)
 	getHeatTargetSettings: () => get<HeatTargetSettings>('/api/settings/heat-target'),
-	updateHeatTargetSettings: (enabled: boolean, target_temp_f: number, timezone?: string) =>
+	updateHeatTargetSettings: (
+		enabled: boolean,
+		target_temp_f: number,
+		timezone?: string,
+		schedule_mode?: 'start_at' | 'ready_by'
+	) =>
 		put<HeatTargetSettings & { message: string }>('/api/settings/heat-target', {
 			enabled,
 			target_temp_f,
-			...(timezone !== undefined && { timezone })
+			...(timezone !== undefined && { timezone }),
+			...(schedule_mode !== undefined && { schedule_mode })
 		}),
 
 	// Heating characteristics analysis (admin only)

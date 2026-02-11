@@ -860,6 +860,59 @@ describe('SchedulePanel action dropdown', () => {
 		vi.useRealTimers();
 	});
 
+	it('shows "ready by" label for DTDT jobs', async () => {
+		const now = new Date();
+		const mockJobs = {
+			jobs: [
+				{
+					jobId: 'rec-abc123',
+					action: 'heat-to-target',
+					scheduledTime: '14:30:00+00:00',
+					createdAt: now.toISOString(),
+					recurring: true,
+					params: {
+						target_temp_f: 103,
+						ready_by_time: '06:30-08:00',
+					},
+				},
+			],
+		};
+
+		vi.mocked(api.listScheduledJobs).mockResolvedValue(mockJobs);
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByText(/heat to 103°f \(ready by\)/i)).toBeTruthy();
+		});
+	});
+
+	it('shows standard label for non-DTDT heat-to-target jobs', async () => {
+		const now = new Date();
+		const mockJobs = {
+			jobs: [
+				{
+					jobId: 'rec-def456',
+					action: 'heat-to-target',
+					scheduledTime: '14:30:00+00:00',
+					createdAt: now.toISOString(),
+					recurring: true,
+					params: {
+						target_temp_f: 103,
+					},
+				},
+			],
+		};
+
+		vi.mocked(api.listScheduledJobs).mockResolvedValue(mockJobs);
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			const label = screen.getByText(/heat to 103°f/i);
+			expect(label).toBeTruthy();
+			expect(label.textContent).not.toContain('ready by');
+		});
+	});
+
 	it('does not include heat-to-target as a dropdown option', async () => {
 		// Bug #1: The "Heat to Target" dropdown option is broken because it doesn't
 		// include the required target_temp_f parameter. When target temp is enabled,

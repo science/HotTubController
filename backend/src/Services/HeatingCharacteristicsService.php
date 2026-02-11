@@ -78,6 +78,7 @@ class HeatingCharacteristicsService
             'cooling_coefficient_k' => $coolingResults['cooling_coefficient_k'],
             'cooling_data_points' => $coolingResults['cooling_data_points'],
             'cooling_r_squared' => $coolingResults['cooling_r_squared'],
+            'max_cooling_k' => $coolingResults['max_cooling_k'],
             'sessions_analyzed' => count($sessions),
             'sessions' => $sessions,
             'generated_at' => date('c'),
@@ -315,6 +316,7 @@ class HeatingCharacteristicsService
             'cooling_coefficient_k' => null,
             'cooling_data_points' => 0,
             'cooling_r_squared' => null,
+            'max_cooling_k' => null,
         ];
 
         if (empty($temps) || empty($events)) {
@@ -429,6 +431,18 @@ class HeatingCharacteristicsService
             return $emptyResult;
         }
 
+        // Compute max per-window k BEFORE pruning.
+        // Captures worst-case cooling (pump, cover off) for conservative projections.
+        $maxCoolingK = null;
+        foreach ($dataPoints as $p) {
+            if (abs($p['x']) > 1e-10 && $p['y'] > 0) {
+                $pointK = $p['y'] / $p['x'];
+                if ($maxCoolingK === null || $pointK > $maxCoolingK) {
+                    $maxCoolingK = $pointK;
+                }
+            }
+        }
+
         // Prune outliers: remove points with anomalously high k (pump, cover off, etc.)
         // Cooling can only be artificially fast, never artificially slow.
         $dataPoints = $this->pruneHighKOutliers($dataPoints);
@@ -468,6 +482,7 @@ class HeatingCharacteristicsService
             'cooling_coefficient_k' => round($k, 6),
             'cooling_data_points' => count($dataPoints),
             'cooling_r_squared' => $rSquared !== null ? round($rSquared, 4) : null,
+            'max_cooling_k' => $maxCoolingK !== null ? round($maxCoolingK, 6) : null,
         ];
     }
 
@@ -531,6 +546,7 @@ class HeatingCharacteristicsService
             'cooling_coefficient_k' => null,
             'cooling_data_points' => 0,
             'cooling_r_squared' => null,
+            'max_cooling_k' => null,
             'sessions_analyzed' => 0,
             'sessions' => [],
             'generated_at' => date('c'),

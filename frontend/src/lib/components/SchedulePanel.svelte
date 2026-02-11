@@ -333,11 +333,12 @@
 	}
 
 	function getJobDisplayLabel(job: ScheduledJob): string {
-		const baseLabel = getActionLabel(job.action);
 		if (job.action === 'heat-to-target' && job.params?.target_temp_f) {
-			return `Heat to ${job.params.target_temp_f}°F`;
+			const label = `Heat to ${job.params.target_temp_f}°F`;
+			if (job.params?.ready_by_time) return `${label} (ready by)`;
+			return label;
 		}
-		return baseLabel;
+		return getActionLabel(job.action);
 	}
 
 	// Load jobs on mount and start the sliding window recheck
