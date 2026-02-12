@@ -940,6 +940,162 @@ describe('SchedulePanel action dropdown', () => {
 	});
 });
 
+describe('SchedulePanel cancel pending state', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('shows "Cancelling..." and disables button while cancel is in progress for one-off job', async () => {
+		const now = new Date();
+		const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'job-cancel-pending',
+					action: 'heater-on',
+					scheduledTime: tomorrow.toISOString(),
+					createdAt: now.toISOString(),
+					recurring: false,
+				},
+			],
+		});
+
+		// Make cancelScheduledJob hang (don't resolve yet)
+		let resolveCancelPromise!: (value: { success: boolean }) => void;
+		vi.mocked(api.cancelScheduledJob).mockImplementation(
+			() => new Promise((resolve) => { resolveCancelPromise = resolve; })
+		);
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByText('Cancel')).toBeTruthy();
+		});
+
+		// Click cancel
+		await fireEvent.click(screen.getByText('Cancel'));
+
+		// Should now show "Cancelling..." text
+		await waitFor(() => {
+			expect(screen.getByText('Cancelling...')).toBeTruthy();
+		});
+
+		// The button should be disabled
+		const cancelBtn = screen.getByText('Cancelling...');
+		expect(cancelBtn).toBeInstanceOf(HTMLButtonElement);
+		expect((cancelBtn as HTMLButtonElement).disabled).toBe(true);
+
+		// The job row should have reduced opacity
+		const listItem = cancelBtn.closest('li');
+		expect(listItem?.className).toContain('opacity-50');
+
+		// Resolve the cancel
+		resolveCancelPromise({ success: true });
+
+		// After resolve + reload, the job should be gone
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({ jobs: [] });
+		await waitFor(() => {
+			expect(screen.queryByText('Cancelling...')).toBeNull();
+		});
+	});
+
+	it('shows "Cancelling..." for recurring job cancel', async () => {
+		const now = new Date();
+
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'rec-cancel-pending',
+					action: 'heater-on',
+					scheduledTime: '14:30:00+00:00',
+					createdAt: now.toISOString(),
+					recurring: true,
+					skipped: false,
+				},
+			],
+		});
+
+		let resolveCancelPromise!: (value: { success: boolean }) => void;
+		vi.mocked(api.cancelScheduledJob).mockImplementation(
+			() => new Promise((resolve) => { resolveCancelPromise = resolve; })
+		);
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByText('Cancel')).toBeTruthy();
+		});
+
+		await fireEvent.click(screen.getByText('Cancel'));
+
+		await waitFor(() => {
+			expect(screen.getByText('Cancelling...')).toBeTruthy();
+		});
+
+		// The recurring job row should have reduced opacity
+		const cancelBtn = screen.getByText('Cancelling...');
+		const listItem = cancelBtn.closest('li');
+		expect(listItem?.className).toContain('opacity-50');
+
+		// Skip button should also be hidden/disabled during cancel
+		expect(screen.queryByText('Skip next')).toBeNull();
+
+		// Resolve
+		resolveCancelPromise({ success: true });
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({ jobs: [] });
+		await waitFor(() => {
+			expect(screen.queryByText('Cancelling...')).toBeNull();
+		});
+	});
+
+	it('restores cancel button on error', async () => {
+		const now = new Date();
+		const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'job-cancel-error',
+					action: 'heater-on',
+					scheduledTime: tomorrow.toISOString(),
+					createdAt: now.toISOString(),
+					recurring: false,
+				},
+			],
+		});
+
+		let rejectCancelPromise!: (reason: Error) => void;
+		vi.mocked(api.cancelScheduledJob).mockImplementation(
+			() => new Promise((_, reject) => { rejectCancelPromise = reject; })
+		);
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByText('Cancel')).toBeTruthy();
+		});
+
+		await fireEvent.click(screen.getByText('Cancel'));
+
+		await waitFor(() => {
+			expect(screen.getByText('Cancelling...')).toBeTruthy();
+		});
+
+		// Reject the cancel
+		rejectCancelPromise(new Error('Network error'));
+
+		// Should restore the Cancel button and remove opacity
+		await waitFor(() => {
+			expect(screen.getByText('Cancel')).toBeTruthy();
+			expect(screen.queryByText('Cancelling...')).toBeNull();
+		});
+
+		const listItem = screen.getByText('Cancel').closest('li');
+		expect(listItem?.className).not.toContain('opacity-50');
+	});
+});
+
 describe('SchedulePanel skip/unskip', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
