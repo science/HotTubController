@@ -191,20 +191,26 @@ class SchedulerService
 
         // Health check schedule must match the ACTUAL cron fire time, not the display time.
         // For DTDT ready_by jobs, $cronTime is the wake-up time (earlier than display time).
+        //
+        // IMPORTANT: Use SYSTEM TIMEZONE for recurring healthchecks, not UTC.
+        // Cron fires in system timezone which adjusts for DST. If we use a frozen UTC
+        // expression, DST shifts cause the ping to arrive at the wrong UTC time relative
+        // to the healthcheck schedule, triggering false "down" alerts.
         $healthcheckTime = $cronTime ?? $time;
         $healthcheckHasOffset = preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $healthcheckTime);
 
         if ($healthcheckHasOffset) {
-            $utcDateTime = $this->timeConverter->parseTimeWithOffset($healthcheckTime, toUtc: true);
-            $healthcheckCronExpression = $this->formatDailyCronExpression($utcDateTime);
+            $serverDateTime = $this->timeConverter->parseTimeWithOffset($healthcheckTime, toServerTz: true);
+            $healthcheckCronExpression = $this->formatDailyCronExpression($serverDateTime);
         } else {
             $healthcheckCronExpression = $this->formatDailyCronFromTime($healthcheckTime);
         }
+        $healthcheckTimezone = TimeConverter::getSystemTimezone();
 
         // Create health check for recurring job monitoring
         // Uses same unified method as one-off jobs, just with daily cron expression
         $checkName = $this->formatCheckName($jobId, $action, true);
-        $healthcheckData = $this->createHealthCheck($checkName, $healthcheckCronExpression);
+        $healthcheckData = $this->createHealthCheck($checkName, $healthcheckCronExpression, $healthcheckTimezone);
         $healthcheckUuid = $healthcheckData['uuid'] ?? null;
         $healthcheckPingUrl = $healthcheckData['ping_url'] ?? null;
 
@@ -600,10 +606,11 @@ class SchedulerService
      * 3. Return both uuid and ping_url for storage in job file
      *
      * @param string $name Descriptive check name
-     * @param string $cronExpression Cron expression for the schedule (in UTC)
+     * @param string $cronExpression Cron expression for the schedule
+     * @param string $timezone IANA timezone for the schedule (default 'UTC')
      * @return array{uuid: string, ping_url: string}|null Check data or null if disabled/failed
      */
-    private function createHealthCheck(string $name, string $cronExpression): ?array
+    private function createHealthCheck(string $name, string $cronExpression, string $timezone = 'UTC'): ?array
     {
         // Skip if monitoring is not configured
         if ($this->healthchecksClient === null || !$this->healthchecksClient->isEnabled()) {
@@ -614,7 +621,7 @@ class SchedulerService
         $check = $this->healthchecksClient->createCheck(
             $name,
             $cronExpression,
-            'UTC', // Health check schedule is in UTC
+            $timezone,
             self::HEALTHCHECK_GRACE_SECONDS
         );
 
