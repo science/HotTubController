@@ -1,16 +1,19 @@
 # Hot Tub Controller
 
-A web-based automation system for intelligent hot tub temperature management and equipment control. Control your hot tub heater, pump, and ionizer remotely via a mobile-friendly web interface with scheduling, temperature monitoring, and safety features. 
+A web-based automation system for intelligent hot tub temperature management and equipment control. Control your hot tub heater, pump, and ionizer remotely via a mobile-friendly web interface with scheduling, temperature monitoring, predictive heating, and safety features.
 
 ## Why Use This?
 
 If you have a hot tub without built-in smart controls, this project lets you:
 
 - **Turn heating on/off remotely** - No more walking outside in the cold to check if the tub is ready
-- **Schedule heating in advance** - Wake up to a hot tub at the perfect temperature
-- **Monitor water temperature** - Check current temperature from anywhere
+- **Heat to a target temperature** - Set a desired temperature and the system automatically manages the heater, stopping when the target is reached
+- **"Ready By" scheduling** - Tell the system what time you want the tub ready, and it calculates when to start heating based on cooling and heating models
+- **Schedule heating in advance** - Create one-time or recurring daily schedules
+- **Monitor water temperature** - Check current water and ambient temperature from anywhere
 - **Automate heating cycles** - Schedule heater on, then auto-off after a set duration
 - **Run the circulation pump** - Keep water clean with scheduled ionizer/pump cycles
+- **Skip upcoming schedules** - Temporarily skip the next occurrence of a recurring job without deleting it
 
 The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it compatible with most affordable smart home equipment.
 
@@ -36,18 +39,50 @@ The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it
 
 ## Features
 
+### Core Controls
 - **Mobile-First Web UI** - Dark-themed, responsive interface optimized for phones
-- **One-Tap Controls** - Quick buttons for heater on/off and pump activation
-- **Quick Scheduling** - Pre-configured buttons to heat "In 30 min", "In 1 hour", etc.
-- **Full Scheduler** - Create one-time or recurring heating schedules
-- **Auto Heat-Off** - Automatically schedule heater shutdown after configurable duration
-- **Temperature Display** - Real-time water and ambient temperature from ESP32 sensors
+- **One-Tap Controls** - Quick buttons for heater on/off and pump activation with active glow state
 - **Equipment Status Display** - Control buttons illuminate when equipment is active
-- **User Authentication** - JWT-based login with three user roles (admin/user/basic)
-- **User Management** - Admin interface for creating and managing users
-- **Optional Monitoring** - Healthchecks.io integration for cron job alerts
-- **Comprehensive Logging** - Request logging with automatic rotation
-- **Safety First** - Stub mode for testing without triggering real hardware
+- **Cancel Feedback** - Buttons show "Cancelling..." state with visual dimming during API calls
+
+### Heat-to-Target
+- **Automatic Temperature Control** - Set a target temperature (80-110°F) and the system manages the heater automatically
+- **Stall Detection** - Detects when water temperature stops rising (e.g., heater malfunction) and shuts down safely
+- **Configurable Stall Parameters** - Adjust grace period and timeout for stall detection
+
+### Scheduling
+- **Quick Scheduling** - Pre-configured buttons to heat "In 30 min", "In 1 hour", etc.
+- **Full Scheduler** - Create one-time or recurring daily heating schedules
+- **"Ready By" Mode** - Schedule by desired ready time; the system uses cooling and heating models to calculate the optimal start time
+- **Auto Heat-Off** - Automatically schedule heater shutdown after configurable duration
+- **Skip/Unskip** - Temporarily skip the next occurrence of a recurring job and resume later
+- **Auto-Refresh** - Schedule panel automatically refreshes when a job's scheduled time passes
+
+### Heating Analysis
+- **Heating Characteristics** - Analyzes past heating sessions to determine heating velocity (°F/min), startup lag, and overshoot
+- **Newton's Law Cooling Model** - Fits a cooling curve to historical data to predict temperature decay over time
+- **Precision Start Calculation** - "Ready By" mode uses heating and cooling models to project the optimal time to begin heating
+
+### Temperature Monitoring
+- **Real-Time Display** - Water and ambient temperature from ESP32 sensors
+- **Multi-Sensor Support** - Configure multiple DS18B20 sensors with assigned roles (water, ambient)
+- **Sensor Calibration** - Per-sensor calibration offsets for accuracy
+- **Dynamic Reporting Intervals** - ESP32 reports every 5 minutes normally, switching to 1-minute intervals when the heater is active for tighter temperature control
+- **Temperature History** - Daily temperature logs for analysis
+- **OTA Firmware Updates** - ESP32 firmware updated over-the-air via HTTP; the device checks for updates each time it reports temperature
+
+### Users & Authentication
+- **JWT Authentication** - Secure login with httpOnly cookie support
+- **Three User Roles** - Admin (full access), User (controls + scheduling), Basic (controls + temperature only)
+- **User Management** - Admin interface for creating, managing, and deleting users
+- **Password Management** - Admin can reset user passwords
+
+### Monitoring & Maintenance
+- **Healthchecks.io Integration** - Optional monitoring for cron job alerts
+- **Request Logging** - All API requests logged in JSON Lines format with automatic rotation
+- **Equipment Event Log** - Timestamped record of all heater/pump actions and stall events
+- **Crontab Backups** - Automatic timestamped backups before crontab modifications
+- **Orphan Job Cleanup** - Maintenance endpoint to clean up stale job files
 
 ## Hardware Requirements
 
@@ -72,7 +107,7 @@ The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it
 
 ## IFTTT Webhook Setup
 
-The system requires IFTTT webhook events connected to SmartLife/Tuya "scenes". Since IFTTT cannot directly control individual SmartLife switches, you create scenes that IFTTT can trigger. 
+The system requires IFTTT webhook events connected to SmartLife/Tuya "scenes". Since IFTTT cannot directly control individual SmartLife switches, you create scenes that IFTTT can trigger.
 
 If you use other smart home control systems, they will work fine as long as IFTTT can trigger the appropriate events associated with the Webhooks described below.
 
@@ -168,8 +203,10 @@ pio device monitor
 ```
 
 The ESP32 will:
-- Connect to WiFi and read temperature from DS18B20 sensor (GPIO 4)
-- POST temperature readings to the backend API every 5 minutes
+- Connect to WiFi and read temperature from DS18B20 sensors (GPIO 4)
+- Sync time via NTP for coordinated reporting, aligned to the :53 second mark
+- POST temperature readings every 5 minutes normally, or every 1 minute when the heater is active (interval is server-controlled)
+- Check for OTA firmware updates on each report and install automatically
 - Use exponential backoff on failures (10s to 5 min)
 - Auto-reboot after 30 minutes of continuous failures
 
@@ -316,7 +353,7 @@ The unified `EXTERNAL_API_MODE` defaults to `stub` for fail-safe behavior.
 
 | Role | Capabilities |
 |------|--------------|
-| `admin` | Full access: equipment control, scheduling, settings, user management |
+| `admin` | Full access: equipment control, scheduling, settings, user management, heating analysis |
 | `user` | Standard access: equipment control, scheduling, settings |
 | `basic` | Simplified UI: equipment control and temperature display only |
 
@@ -325,17 +362,14 @@ The `basic` role is useful for household members who just need to turn the hot t
 ## Running Tests
 
 ```bash
-# Backend tests (excludes live API tests)
-cd backend && composer test
+# Run ALL tests (backend + frontend + ESP32 + E2E)
+./scripts/test.sh
 
-# All backend tests including live API tests
-cd backend && composer test:all
-
-# Frontend unit tests
-cd frontend && npm test
-
-# End-to-end tests (starts servers automatically)
-cd frontend && npm run test:e2e
+# Individual suites
+./scripts/test.sh backend      # PHP backend tests
+./scripts/test.sh frontend     # SvelteKit unit tests
+./scripts/test.sh esp32        # ESP32 native tests
+./scripts/test.sh e2e          # Playwright E2E tests
 ```
 
 ## Project Structure
@@ -349,7 +383,7 @@ hot-tub-controller/
 │   │   ├── Services/        # Business logic, external API clients
 │   │   ├── Middleware/      # Auth, CORS
 │   │   └── Routing/         # URL router
-│   ├── storage/             # Job files, logs, user data
+│   ├── storage/             # Job files, logs, user data, firmware
 │   └── tests/               # PHPUnit tests
 │
 ├── frontend/                # SvelteKit web UI
@@ -369,24 +403,53 @@ hot-tub-controller/
 
 ## API Endpoints
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/api/health` | No | Health check with equipment status |
-| POST | `/api/auth/login` | No | Login |
-| POST | `/api/auth/logout` | No | Logout |
-| GET | `/api/auth/me` | Yes | Current user info |
-| POST | `/api/equipment/heater/on` | Yes | Turn heater on |
-| POST | `/api/equipment/heater/off` | Yes | Turn heater off |
-| POST | `/api/equipment/pump/run` | Yes | Run pump (2 hours) |
-| GET | `/api/temperature` | Yes | Get current temperatures |
-| POST | `/api/esp32/temperature` | API Key | Receive temperature from ESP32 |
-| POST | `/api/schedule` | Yes | Schedule a job |
-| GET | `/api/schedule` | Yes | List scheduled jobs |
-| DELETE | `/api/schedule/{id}` | Yes | Cancel a job |
-| GET | `/api/users` | Admin | List users |
-| POST | `/api/users` | Admin | Create user |
-| DELETE | `/api/users/{username}` | Admin | Delete user |
-| POST | `/api/maintenance/logs/rotate` | Cron | Rotate log files |
+### Public
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check with equipment status and heat-target settings |
+| POST | `/api/auth/login` | Login (sets httpOnly cookie) |
+| POST | `/api/auth/logout` | Logout (clears cookie) |
+
+### Authenticated
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/auth/me` | Current user info |
+| POST | `/api/equipment/heater/on` | Turn heater on via IFTTT |
+| POST | `/api/equipment/heater/off` | Turn heater off via IFTTT |
+| POST | `/api/equipment/pump/run` | Run pump cycle via IFTTT |
+| POST | `/api/equipment/heat-to-target` | Start heat-to-target session |
+| GET | `/api/equipment/heat-to-target` | Get heat-to-target status |
+| DELETE | `/api/equipment/heat-to-target` | Cancel heat-to-target session |
+| GET | `/api/temperature` | Get current water/ambient temperatures |
+| GET | `/api/settings/heat-target` | Get heat-to-target settings |
+| POST | `/api/schedule` | Schedule a job (one-time or recurring) |
+| GET | `/api/schedule` | List scheduled jobs |
+| DELETE | `/api/schedule/{id}` | Cancel a scheduled job |
+| POST | `/api/schedule/{id}/skip` | Skip next occurrence of recurring job |
+| DELETE | `/api/schedule/{id}/skip` | Unskip a recurring job |
+| GET | `/api/esp32/sensors` | List ESP32 sensors with config |
+| PUT | `/api/esp32/sensors/{address}` | Update sensor role/calibration |
+
+### Admin Only
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| PUT | `/api/settings/heat-target` | Update heat-to-target settings |
+| GET | `/api/admin/heating-characteristics` | Get heating/cooling analysis |
+| POST | `/api/admin/heating-characteristics/generate` | Generate heating analysis |
+| GET | `/api/admin/crontab` | View current crontab entries |
+| GET | `/api/users` | List users |
+| POST | `/api/users` | Create user |
+| DELETE | `/api/users/{username}` | Delete user |
+| PUT | `/api/users/{username}/password` | Reset user password |
+
+### ESP32 / Cron
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/esp32/temperature` | Receive temperature data from ESP32 (API key auth) |
+| POST | `/api/maintenance/logs/rotate` | Rotate log files |
+| POST | `/api/maintenance/jobs/cleanup` | Clean up orphaned job files |
+| POST | `/api/maintenance/heat-target-check` | Heat-to-target temperature check |
+| POST | `/api/maintenance/dtdt-wakeup` | DTDT ready-by wakeup handler |
 
 ## Safety Considerations
 
@@ -394,8 +457,10 @@ This system controls real electrical equipment. Safety features include:
 
 - **Test Mode**: Always develop with `EXTERNAL_API_MODE=stub`
 - **Equipment Sequencing**: Pump starts before heater, heater stops before pump
+- **Stall Detection**: Heat-to-target automatically shuts down if temperature stops rising
 - **Authentication Required**: All control endpoints require login
-- **Audit Logging**: All API requests are logged with timestamps
+- **Audit Logging**: All API requests and equipment events are logged with timestamps
+- **File Locking**: Concurrent heat-to-target operations are prevented via `flock`
 
 Never deploy to production without:
 1. Changing default passwords
@@ -421,6 +486,13 @@ All API requests are logged in JSON Lines format to `backend/storage/logs/api-re
 - Timestamp, IP address, HTTP method, URI
 - Response status and duration
 - Authenticated username (if applicable)
+
+### Equipment Event Logging
+
+All heater/pump actions are recorded to `backend/storage/logs/equipment-events.log`:
+- Heater on/off events with water temperature at time of action
+- Stall detection events
+- Used by the heating characteristics analysis
 
 ### Log Rotation
 

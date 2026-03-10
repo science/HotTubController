@@ -26,6 +26,7 @@
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let success = $state<string | null>(null);
+	let cancellingJobs = $state(new Set<string>());
 
 	// Refresh button tooltip state
 	let showRefreshTooltip = $state(false);
@@ -248,11 +249,14 @@
 	}
 
 	async function handleCancel(jobId: string) {
+		cancellingJobs = new Set([...cancellingJobs, jobId]);
 		try {
 			await api.cancelScheduledJob(jobId);
 			await loadJobs();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to cancel job';
+		} finally {
+			cancellingJobs = new Set([...cancellingJobs].filter(id => id !== jobId));
 		}
 	}
 
@@ -459,44 +463,50 @@
 			<ul class="space-y-2">
 				{#each recurringJobs as job (job.jobId)}
 					{#if job.skipped}
-						<li class="flex items-center justify-between bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2">
+						<li class="flex items-center justify-between bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2{cancellingJobs.has(job.jobId) ? ' opacity-50' : ''}">
 							<div>
 								<span class="text-amber-300 font-medium line-through">{getJobDisplayLabel(job)}</span>
 								<span class="text-amber-300 text-sm ml-2">Skipped {job.skipDate ? formatShortDate(job.skipDate) : ''} — resumes {job.resumeDate ? formatShortDate(job.resumeDate) : ''}</span>
 							</div>
 							<div class="flex gap-2">
-								<button
-									onclick={() => handleUnskip(job.jobId)}
-									class="text-amber-400 hover:text-amber-300 text-sm font-medium"
-								>
-									Unskip
-								</button>
+								{#if !cancellingJobs.has(job.jobId)}
+									<button
+										onclick={() => handleUnskip(job.jobId)}
+										class="text-amber-400 hover:text-amber-300 text-sm font-medium"
+									>
+										Unskip
+									</button>
+								{/if}
 								<button
 									onclick={() => handleCancel(job.jobId)}
 									class="text-red-400 hover:text-red-300 text-sm font-medium"
+									disabled={cancellingJobs.has(job.jobId)}
 								>
-									Cancel
+									{cancellingJobs.has(job.jobId) ? 'Cancelling...' : 'Cancel'}
 								</button>
 							</div>
 						</li>
 					{:else}
-						<li class="flex items-center justify-between bg-purple-900/30 border border-purple-700/50 rounded-lg px-3 py-2">
+						<li class="flex items-center justify-between bg-purple-900/30 border border-purple-700/50 rounded-lg px-3 py-2{cancellingJobs.has(job.jobId) ? ' opacity-50' : ''}">
 							<div>
 								<span class="text-slate-200 font-medium">{getJobDisplayLabel(job)}</span>
 								<span class="text-purple-300 text-sm ml-2">Daily at {formatRecurringTime(job.scheduledTime)}</span>
 							</div>
 							<div class="flex gap-2">
-								<button
-									onclick={() => handleSkip(job.jobId)}
-									class="text-amber-400 hover:text-amber-300 text-sm font-medium"
-								>
-									Skip next
-								</button>
+								{#if !cancellingJobs.has(job.jobId)}
+									<button
+										onclick={() => handleSkip(job.jobId)}
+										class="text-amber-400 hover:text-amber-300 text-sm font-medium"
+									>
+										Skip next
+									</button>
+								{/if}
 								<button
 									onclick={() => handleCancel(job.jobId)}
 									class="text-red-400 hover:text-red-300 text-sm font-medium"
+									disabled={cancellingJobs.has(job.jobId)}
 								>
-									Cancel
+									{cancellingJobs.has(job.jobId) ? 'Cancelling...' : 'Cancel'}
 								</button>
 							</div>
 						</li>
@@ -540,7 +550,7 @@
 		{#if oneOffJobs.length > 0}
 			<ul class="space-y-2">
 				{#each oneOffJobs as job (job.jobId)}
-					<li class="flex items-center justify-between bg-slate-700/50 rounded-lg px-3 py-2">
+					<li class="flex items-center justify-between bg-slate-700/50 rounded-lg px-3 py-2{cancellingJobs.has(job.jobId) ? ' opacity-50' : ''}">
 						<div>
 							<span class="text-slate-200 font-medium">{getJobDisplayLabel(job)}</span>
 							<span class="text-slate-400 text-sm ml-2">{formatDateTime(job.scheduledTime)}</span>
@@ -548,8 +558,9 @@
 						<button
 							onclick={() => handleCancel(job.jobId)}
 							class="text-red-400 hover:text-red-300 text-sm font-medium"
+							disabled={cancellingJobs.has(job.jobId)}
 						>
-							Cancel
+							{cancellingJobs.has(job.jobId) ? 'Cancelling...' : 'Cancel'}
 						</button>
 					</li>
 				{/each}

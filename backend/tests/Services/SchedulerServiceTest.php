@@ -985,10 +985,11 @@ class SchedulerServiceTest extends TestCase
         $this->assertStringContainsString('heater-on', $checks[0]['name']);
         $this->assertStringContainsString('DAILY', $checks[0]['name']);
         $this->assertStringContainsString('30 6', $checks[0]['schedule']);
-        $this->assertEquals('UTC', $checks[0]['timezone']);
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+        $this->assertEquals($systemTz, $checks[0]['timezone']);
     }
 
-    public function testRecurringJobWithTimezoneCreatesUtcSchedule(): void
+    public function testRecurringJobWithTimezoneCreatesSystemTzSchedule(): void
     {
         $healthchecksClient = new MockHealthchecksClient(enabled: true);
         $scheduler = new SchedulerService(
@@ -1000,13 +1001,19 @@ class SchedulerServiceTest extends TestCase
             $healthchecksClient
         );
 
-        // 06:30 Pacific (UTC-8) = 14:30 UTC
+        // 06:30 Pacific (UTC-8) converted to system timezone for healthcheck
         $scheduler->scheduleJob('heater-on', '06:30-08:00', recurring: true);
 
         $checks = $healthchecksClient->getCreatedChecks();
         $this->assertCount(1, $checks);
-        $this->assertStringContainsString('30 14', $checks[0]['schedule'],
-            'Schedule should be 14:30 UTC (converted from 06:30 Pacific)');
+
+        // Schedule should be in system timezone (same as cron), not UTC
+        $serverDateTime = (new \HotTub\Services\TimeConverter())->parseTimeWithOffset('06:30-08:00', toServerTz: true);
+        $expectedMinute = (int) $serverDateTime->format('i');
+        $expectedHour = (int) $serverDateTime->format('G');
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+        $this->assertStringContainsString("$expectedMinute $expectedHour", $checks[0]['schedule'],
+            "Schedule should be in system timezone ($systemTz), not UTC");
     }
 
     public function testRecurringJobPingsHealthCheckToArm(): void
@@ -1092,6 +1099,106 @@ class SchedulerServiceTest extends TestCase
         $entries = $this->crontabAdapter->listEntries();
         $this->assertCount(1, $entries);
         $this->assertStringContainsString('HOTTUB:', $entries[0]);
+    }
+
+    // ========== DST Safety: Healthcheck Must Use System Timezone ==========
+
+    /**
+     * Recurring healthchecks MUST use the system timezone, not UTC.
+     *
+     * Why: Cron fires in system timezone, which adjusts for DST automatically.
+     * If the healthcheck uses a frozen UTC schedule, DST shifts cause the cron
+     * ping to arrive at a different UTC time than the healthcheck expects,
+     * triggering false "down" alerts.
+     *
+     * Real-world example (March 2026 DST bug):
+     * - Job scheduled at 5:29 AM Pacific
+     * - Pre-DST: cron fires at 13:29 UTC, healthcheck expects 13:29 UTC ✓
+     * - Post-DST: cron fires at 12:29 UTC, healthcheck still expects 13:29 UTC ✗
+     * - Result: daily UP→DOWN flips after every DST transition
+     *
+     * Fix: Both cron and healthcheck use system timezone, so DST adjustments
+     * are handled identically by both systems.
+     */
+    public function testRecurringHealthcheckUsesSystemTimezoneNotUtc(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $scheduler->scheduleJob('heater-on', '06:30-08:00', recurring: true);
+
+        $checks = $healthchecksClient->getCreatedChecks();
+        $this->assertCount(1, $checks);
+
+        // The healthcheck timezone MUST be the system timezone so that DST
+        // adjustments are applied identically to both cron and healthcheck
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+        $this->assertEquals($systemTz, $checks[0]['timezone'],
+            'Healthcheck must use system timezone (not UTC) to stay in sync with cron across DST transitions');
+    }
+
+    /**
+     * Verify the healthcheck schedule matches the cron schedule (both in system timezone).
+     *
+     * When both use system timezone, the cron expression should be identical:
+     * the same HH:MM that cron fires at is the HH:MM the healthcheck expects.
+     */
+    public function testRecurringHealthcheckScheduleMatchesCronSchedule(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        // 06:30 Pacific (UTC-8) — the cron fires at this time in system timezone
+        $scheduler->scheduleJob('heater-on', '06:30-08:00', recurring: true);
+
+        // Get what cron was scheduled as (in system timezone)
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+        // Extract "M H" from cron expression (first two fields)
+        preg_match('/^(\d+ \d+)/', $entries[0], $cronMatches);
+        $cronMinuteHour = $cronMatches[1];
+
+        // The healthcheck schedule should use the SAME minute/hour as the cron
+        $checks = $healthchecksClient->getCreatedChecks();
+        $this->assertStringContainsString($cronMinuteHour, $checks[0]['schedule'],
+            'Healthcheck schedule must match cron schedule (both in system timezone)');
+    }
+
+    /**
+     * Bare time format (no offset) should also use system timezone for healthcheck.
+     */
+    public function testRecurringHealthcheckBareTimeUsesSystemTimezone(): void
+    {
+        $healthchecksClient = new MockHealthchecksClient(enabled: true);
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter,
+            null,
+            $healthchecksClient
+        );
+
+        $scheduler->scheduleJob('heater-on', '06:30', recurring: true);
+
+        $checks = $healthchecksClient->getCreatedChecks();
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+        $this->assertEquals($systemTz, $checks[0]['timezone'],
+            'Healthcheck must use system timezone even for bare time format');
     }
 
     // ========== Heat-to-Target Params Tests ==========
@@ -1241,7 +1348,7 @@ class SchedulerServiceTest extends TestCase
         );
 
         // Display time 06:30 Pacific, wake-up cron at 03:30 Pacific
-        // Healthcheck should use wake-up time (03:30 Pacific = 11:30 UTC), NOT display time
+        // Healthcheck should use wake-up time in SYSTEM TIMEZONE, not display time or UTC
         $scheduler->scheduleJob(
             'heat-to-target',
             '06:30-08:00',          // display time (ready-by)
@@ -1252,8 +1359,14 @@ class SchedulerServiceTest extends TestCase
 
         $checks = $healthchecksClient->getCreatedChecks();
         $this->assertCount(1, $checks);
-        $this->assertStringContainsString('30 11', $checks[0]['schedule'],
-            'Healthcheck schedule should be 11:30 UTC (03:30 Pacific wake-up time), not 14:30 UTC (06:30 display time)');
+
+        // Healthcheck should match cron: wake-up time converted to system timezone
+        $serverDateTime = (new \HotTub\Services\TimeConverter())->parseTimeWithOffset('03:30-08:00', toServerTz: true);
+        $expectedMinute = (int) $serverDateTime->format('i');
+        $expectedHour = (int) $serverDateTime->format('G');
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+        $this->assertStringContainsString("$expectedMinute $expectedHour", $checks[0]['schedule'],
+            "Healthcheck should use wake-up time in system timezone ($systemTz), not display time or UTC");
     }
 
     // ========== Skip Next Occurrence Tests ==========
