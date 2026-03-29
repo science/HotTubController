@@ -86,6 +86,41 @@ class CronSchedulingService
     }
 
     /**
+     * Schedule a recurring daily cron job using an IANA timezone (DST-safe).
+     *
+     * Unlike scheduleDaily() which uses a frozen numeric offset, this method
+     * uses an IANA timezone name so the cron expression is computed correctly
+     * regardless of DST state. "06:30" + "America/Los_Angeles" always maps
+     * to the same server-local time.
+     *
+     * @param string $time Bare time in "HH:MM" format (e.g., "06:30")
+     * @param string $timezone IANA timezone name (e.g., "America/Los_Angeles")
+     * @param string $command The command to execute
+     * @param string $comment Cron comment for identification
+     * @return string The cron expression that was scheduled (minute hour * * *)
+     */
+    public function scheduleDailyInTimezone(string $time, string $timezone, string $command, string $comment): string
+    {
+        $serverDateTime = $this->timeConverter->parseTimeInTimezone($time, $timezone, toServerTz: true);
+
+        $minute = (int) $serverDateTime->format('i');
+        $hour = (int) $serverDateTime->format('G');
+
+        $cronExpression = sprintf('%d %d * * *', $minute, $hour);
+
+        $entry = sprintf(
+            '%s %s # %s',
+            $cronExpression,
+            $command,
+            $comment
+        );
+
+        $this->crontabAdapter->addEntry($entry);
+
+        return $cronExpression;
+    }
+
+    /**
      * Get the cron expression for a timestamp WITHOUT scheduling.
      *
      * Useful for:

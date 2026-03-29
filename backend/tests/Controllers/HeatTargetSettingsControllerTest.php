@@ -369,4 +369,93 @@ class HeatTargetSettingsControllerTest extends TestCase
         $this->assertEquals(200, $response['status']);
         $this->assertEquals('ready_by', $response['body']['schedule_mode']);
     }
+
+    // ==================== Stall Detection Settings Tests ====================
+
+    /**
+     * @test
+     */
+    public function getReturnsStallDetectionDefaults(): void
+    {
+        $response = $this->controller->get();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertArrayHasKey('stall_grace_period_minutes', $response['body']);
+        $this->assertArrayHasKey('stall_timeout_minutes', $response['body']);
+        $this->assertEquals(15, $response['body']['stall_grace_period_minutes']);
+        $this->assertEquals(5, $response['body']['stall_timeout_minutes']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateAcceptsStallDetectionSettings(): void
+    {
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'stall_grace_period_minutes' => 20,
+            'stall_timeout_minutes' => 10,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals(20, $response['body']['stall_grace_period_minutes']);
+        $this->assertEquals(10, $response['body']['stall_timeout_minutes']);
+    }
+
+    /**
+     * @test
+     */
+    public function updatePreservesStallSettingsWhenNotProvided(): void
+    {
+        // Set stall settings first
+        $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'stall_grace_period_minutes' => 20,
+            'stall_timeout_minutes' => 10,
+        ]);
+
+        // Update without stall settings
+        $response = $this->controller->update([
+            'enabled' => false,
+            'target_temp_f' => 104.0,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals(20, $response['body']['stall_grace_period_minutes']);
+        $this->assertEquals(10, $response['body']['stall_timeout_minutes']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateReturns400ForInvalidStallGracePeriod(): void
+    {
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'stall_grace_period_minutes' => 0,
+            'stall_timeout_minutes' => 5,
+        ]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertStringContainsString('grace period', $response['body']['error']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateReturns400ForInvalidStallTimeout(): void
+    {
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'stall_grace_period_minutes' => 15,
+            'stall_timeout_minutes' => 0,
+        ]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertStringContainsString('timeout', $response['body']['error']);
+    }
 }

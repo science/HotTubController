@@ -25,6 +25,9 @@ class TargetTemperatureService
     private ?string $cronRunnerPath;
     private ?string $apiBaseUrl;
     private ?Esp32SensorConfigService $esp32Config;
+    private ?HeatTargetSettingsService $heatTargetSettings;
+    private ?string $stallEventFile;
+    private ?string $equipmentEventLogFile;
 
     public function __construct(
         string $stateFile,
@@ -35,7 +38,10 @@ class TargetTemperatureService
         ?string $cronRunnerPath = null,
         ?string $apiBaseUrl = null,
         ?Esp32SensorConfigService $esp32Config = null,
-        ?CronSchedulingService $cronSchedulingService = null
+        ?CronSchedulingService $cronSchedulingService = null,
+        ?HeatTargetSettingsService $heatTargetSettings = null,
+        ?string $stallEventFile = null,
+        ?string $equipmentEventLogFile = null
     ) {
         $this->stateFile = $stateFile;
         $this->iftttClient = $iftttClient;
@@ -45,6 +51,9 @@ class TargetTemperatureService
         $this->cronRunnerPath = $cronRunnerPath;
         $this->apiBaseUrl = $apiBaseUrl;
         $this->esp32Config = $esp32Config;
+        $this->heatTargetSettings = $heatTargetSettings;
+        $this->stallEventFile = $stallEventFile;
+        $this->equipmentEventLogFile = $equipmentEventLogFile;
         // Use provided CronSchedulingService, or create one if crontabAdapter is available
         $this->cronSchedulingService = $cronSchedulingService
             ?? ($crontabAdapter !== null ? new CronSchedulingService($crontabAdapter) : null);
@@ -118,6 +127,9 @@ class TargetTemperatureService
             ];
 
             $this->saveState($state);
+
+            // Clear any previous stall event
+            $this->clearStallEventFile();
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
@@ -267,7 +279,12 @@ class TargetTemperatureService
 
         // Use tolerance for comparison to handle floating-point precision issues
         if ($currentTempF < ($targetTempF - self::TEMP_TOLERANCE_F)) {
-            // Need to heat
+            // Need to heat — check for stall
+            $stallResult = $this->checkForStall($state, $currentTempF, $targetTempF);
+            if ($stallResult !== null) {
+                return $stallResult;
+            }
+
             $heaterTurnedOn = false;
 
             if (!$heaterIsOn) {
@@ -314,6 +331,151 @@ class TargetTemperatureService
             'current_temp_f' => $currentTempF,
             'target_temp_f' => $targetTempF,
         ];
+    }
+
+    /**
+     * Check for heating stall and take action if detected.
+     *
+     * @return array|null Stall result if detected, null to continue heating
+     */
+    private function checkForStall(array &$state, float $currentTempF, float $targetTempF): ?array
+    {
+        $now = time();
+        $startedAt = isset($state['started_at'])
+            ? (new \DateTimeImmutable($state['started_at']))->getTimestamp()
+            : $now;
+
+        // Read settings
+        $gracePeriodMinutes = $this->heatTargetSettings?->getStallGracePeriodMinutes()
+            ?? HeatTargetSettingsService::DEFAULT_STALL_GRACE_PERIOD_MINUTES;
+        $stallTimeoutMinutes = $this->heatTargetSettings?->getStallTimeoutMinutes()
+            ?? HeatTargetSettingsService::DEFAULT_STALL_TIMEOUT_MINUTES;
+
+        // 1. Initialize stall reference if not set
+        if (!isset($state['stall_reference_temp_f']) || !isset($state['stall_reference_at'])) {
+            $state['stall_reference_temp_f'] = $currentTempF;
+            $state['stall_reference_at'] = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c');
+            $this->saveState($state);
+            return null;
+        }
+
+        $stallRefTempF = (float) $state['stall_reference_temp_f'];
+        $stallRefAt = (new \DateTimeImmutable($state['stall_reference_at']))->getTimestamp();
+
+        // 2. If current_temp > stall_reference_temp → progress! Update both fields
+        if ($currentTempF > $stallRefTempF) {
+            $state['stall_reference_temp_f'] = $currentTempF;
+            $state['stall_reference_at'] = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c');
+            $this->saveState($state);
+            return null;
+        }
+
+        // 3. No progress — check timing
+        $sessionAgeMinutes = ($now - $startedAt) / 60;
+        $stallRefAgeMinutes = ($now - $stallRefAt) / 60;
+
+        // 3a. Within grace period — continue waiting
+        if ($sessionAgeMinutes < $gracePeriodMinutes) {
+            return null;
+        }
+
+        // 3b. Stall timeout not yet reached — continue waiting
+        if ($stallRefAgeMinutes < $stallTimeoutMinutes) {
+            return null;
+        }
+
+        // STALL DETECTED
+        return $this->handleStallDetected($currentTempF, $targetTempF, $stallRefTempF);
+    }
+
+    /**
+     * Handle a detected heating stall: log, write event file, stop heating.
+     */
+    private function handleStallDetected(float $currentTempF, float $targetTempF, float $stallRefTempF): array
+    {
+        $reason = sprintf(
+            'Temperature stalled at %.1f°F (target: %.1f°F, last progress at: %.1f°F)',
+            $currentTempF,
+            $targetTempF,
+            $stallRefTempF
+        );
+
+        // Log to equipment event log
+        $this->logStallEvent($currentTempF);
+
+        // Write stall event file
+        $this->writeStallEventFile($currentTempF, $targetTempF, $reason);
+
+        // Stop heating (turns off heater, clears state, cleans up cron)
+        $this->stop();
+
+        return [
+            'active' => false,
+            'heating' => false,
+            'heater_turned_on' => false,
+            'heater_turned_off' => true,
+            'stall_detected' => true,
+            'current_temp_f' => $currentTempF,
+            'target_temp_f' => $targetTempF,
+            'error' => $reason,
+        ];
+    }
+
+    /**
+     * Log a stall event to the equipment event log (JSONL).
+     */
+    private function logStallEvent(float $currentTempF): void
+    {
+        if ($this->equipmentEventLogFile === null) {
+            return;
+        }
+
+        $logEntry = json_encode([
+            'timestamp' => date('c'),
+            'equipment' => 'heater',
+            'action' => 'stall_detected',
+            'water_temp_f' => $currentTempF,
+        ]) . "\n";
+
+        $dir = dirname($this->equipmentEventLogFile);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        file_put_contents($this->equipmentEventLogFile, $logEntry, FILE_APPEND | LOCK_EX);
+    }
+
+    /**
+     * Write the last stall event file for the health endpoint.
+     */
+    private function writeStallEventFile(float $currentTempF, float $targetTempF, string $reason): void
+    {
+        if ($this->stallEventFile === null) {
+            return;
+        }
+
+        $dir = dirname($this->stallEventFile);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $event = [
+            'timestamp' => date('c'),
+            'current_temp_f' => $currentTempF,
+            'target_temp_f' => $targetTempF,
+            'reason' => $reason,
+        ];
+
+        file_put_contents($this->stallEventFile, json_encode($event, JSON_PRETTY_PRINT));
+    }
+
+    /**
+     * Clear the stall event file (called when a new session starts).
+     */
+    private function clearStallEventFile(): void
+    {
+        if ($this->stallEventFile !== null && file_exists($this->stallEventFile)) {
+            unlink($this->stallEventFile);
+        }
     }
 
     private const CRON_SAFETY_MARGIN_SECONDS = 5;

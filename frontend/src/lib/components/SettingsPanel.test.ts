@@ -22,6 +22,8 @@ vi.mock('$lib/stores/heatTargetSettings.svelte', () => ({
 	getTargetTempF: vi.fn(() => 103),
 	getTimezone: vi.fn(() => 'America/Los_Angeles'),
 	getScheduleMode: vi.fn(() => 'start_at'),
+	getStallGracePeriodMinutes: vi.fn(() => 15),
+	getStallTimeoutMinutes: vi.fn(() => 5),
 	getMinTempF: vi.fn(() => 80),
 	getMaxTempF: vi.fn(() => 110),
 	updateSettings: vi.fn(),
@@ -519,6 +521,60 @@ describe('SettingsPanel', () => {
 
 			await waitFor(() => {
 				expect(screen.getByText(/network error/i)).toBeTruthy();
+			});
+		});
+	});
+
+	describe('stall detection settings (admin only)', () => {
+		it('renders stall detection section for admin', async () => {
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByText(/stall detection/i)).toBeTruthy();
+			});
+		});
+
+		it('does not render stall detection for non-admin', () => {
+			render(SettingsPanel, { props: { isAdmin: false } });
+			expect(screen.queryByText(/stall detection/i)).toBeNull();
+		});
+
+		it('renders grace period input with default value', async () => {
+			vi.mocked(heatTargetStore.getStallGracePeriodMinutes).mockReturnValue(15);
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				const input = screen.getByLabelText(/stall grace period/i) as HTMLInputElement;
+				expect(input).toBeTruthy();
+				expect(input.value).toBe('15');
+			});
+		});
+
+		it('renders stall timeout input with default value', async () => {
+			vi.mocked(heatTargetStore.getStallTimeoutMinutes).mockReturnValue(5);
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				const input = screen.getByLabelText(/stall timeout/i) as HTMLInputElement;
+				expect(input).toBeTruthy();
+				expect(input.value).toBe('5');
+			});
+		});
+
+		it('changing stall settings marks form as dirty', async () => {
+			vi.mocked(heatTargetStore.getStallGracePeriodMinutes).mockReturnValue(15);
+			render(SettingsPanel, { props: { isAdmin: true } });
+
+			await waitFor(() => {
+				expect(screen.getByLabelText(/stall grace period/i)).toBeTruthy();
+			});
+
+			const input = screen.getByLabelText(/stall grace period/i);
+			await fireEvent.input(input, { target: { value: '20' } });
+			await fireEvent.change(input);
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /save settings/i })).toBeTruthy();
 			});
 		});
 	});

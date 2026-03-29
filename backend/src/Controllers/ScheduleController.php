@@ -58,6 +58,7 @@ class ScheduleController
 
         try {
             $recurring = isset($data['recurring']) && $data['recurring'] === true;
+            $timezone = $data['timezone'] ?? null;
 
             // DTDT transformation: ready_by + heat-to-target + recurring
             if ($data['action'] === 'heat-to-target'
@@ -65,14 +66,14 @@ class ScheduleController
                 && $this->dtdtService !== null
                 && $this->settings?->getScheduleMode() === 'ready_by'
             ) {
-                $result = $this->dtdtService->createReadyBySchedule($data['scheduledTime'], $params);
+                $result = $this->dtdtService->createReadyBySchedule($data['scheduledTime'], $params, $timezone);
                 return [
                     'status' => 201,
                     'body' => $result,
                 ];
             }
 
-            $result = $this->scheduler->scheduleJob($data['action'], $data['scheduledTime'], $recurring, $params);
+            $result = $this->scheduler->scheduleJob($data['action'], $data['scheduledTime'], $recurring, $params, timezone: $timezone);
 
             return [
                 'status' => 201,
@@ -170,6 +171,38 @@ class ScheduleController
             return [
                 'status' => 500,
                 'body' => ['error' => 'Failed to unskip job: ' . $e->getMessage()],
+            ];
+        }
+    }
+
+    /**
+     * PUT /api/schedule/{id}/target-temp - Update target temperature for a heat-to-target job.
+     *
+     * @param string $jobId The job ID to update
+     * @param array{target_temp_f?: float} $data Request body
+     * @return array{status: int, body: array}
+     */
+    public function updateTargetTemp(string $jobId, array $data): array
+    {
+        if (!isset($data['target_temp_f'])) {
+            return [
+                'status' => 400,
+                'body' => ['error' => 'Missing required field: target_temp_f'],
+            ];
+        }
+
+        try {
+            $updated = $this->scheduler->updateJobTargetTemp($jobId, (float) $data['target_temp_f']);
+
+            return [
+                'status' => 200,
+                'body' => $updated,
+            ];
+        } catch (InvalidArgumentException $e) {
+            $status = str_contains(strtolower($e->getMessage()), 'not found') ? 404 : 400;
+            return [
+                'status' => $status,
+                'body' => ['error' => $e->getMessage()],
             ];
         }
     }

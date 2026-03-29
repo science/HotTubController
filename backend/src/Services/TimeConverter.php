@@ -191,6 +191,51 @@ class TimeConverter
     }
 
     /**
+     * Parse a bare time string using an IANA timezone (DST-safe).
+     *
+     * Unlike parseTimeWithOffset() which uses a frozen numeric offset and a fixed
+     * reference date, this method uses PHP's DateTimeZone with today's date so DST
+     * rules are applied correctly regardless of when the schedule was created.
+     *
+     * "06:30" + "America/Los_Angeles" always resolves to 6:30 AM Pacific wall-clock
+     * time, whether that's PST or PDT. Converting to any other IANA timezone also
+     * applies DST rules correctly for today's date on both sides.
+     *
+     * @param string $time Bare time in "HH:MM" format (e.g., "06:30")
+     * @param string $timezone IANA timezone name (e.g., "America/Los_Angeles")
+     * @param bool $toServerTz If true, convert result to server's system timezone
+     * @param bool $toUtc If true, convert result to UTC
+     * @return DateTime Parsed DateTime
+     * @throws InvalidArgumentException If time format or timezone is invalid
+     */
+    public function parseTimeInTimezone(string $time, string $timezone, bool $toServerTz = false, bool $toUtc = false): DateTime
+    {
+        if (!preg_match('/^\d{2}:\d{2}$/', $time)) {
+            throw new InvalidArgumentException(
+                "Invalid time format: '$time'. Expected HH:MM"
+            );
+        }
+
+        try {
+            $tz = new DateTimeZone($timezone);
+        } catch (\Exception $e) {
+            throw new InvalidArgumentException(
+                "Invalid timezone: '$timezone'. Expected IANA timezone name (e.g., 'America/Los_Angeles')"
+            );
+        }
+
+        $dateTime = new DateTime("today $time:00", $tz);
+
+        if ($toServerTz) {
+            $dateTime->setTimezone(new DateTimeZone(self::getSystemTimezone()));
+        } elseif ($toUtc) {
+            $dateTime->setTimezone(new DateTimeZone('UTC'));
+        }
+
+        return $dateTime;
+    }
+
+    /**
      * Format a time-with-offset string as UTC time for storage.
      *
      * This is used for recurring jobs: converts "06:30-08:00" to "14:30:00+00:00".

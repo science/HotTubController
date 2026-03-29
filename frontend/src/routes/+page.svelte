@@ -15,8 +15,10 @@
 		getEnabled as getTargetTempEnabled,
 		getTargetTempF,
 		getHeatButtonLabel,
-		getHeatButtonTooltip
+		getHeatButtonTooltip,
+		getLastStallEvent
 	} from '$lib/stores/heatTargetSettings.svelte';
+	import type { LastStallEvent } from '$lib/api';
 	import {
 		fetchStatus,
 		getHeaterOn,
@@ -53,6 +55,8 @@
 	let status = $state<{ message: string; type: 'success' | 'error' } | null>(null);
 	let schedulePanel = $state<{ loadJobs: () => Promise<void> } | null>(null);
 	let temperaturePanel = $state<{ loadTemperature: () => Promise<void> } | null>(null);
+	let stallBannerDismissed = $state(false);
+	let lastStallEvent = $derived(stallBannerDismissed ? null : getLastStallEvent());
 
 	async function handleAction(
 		action: () => Promise<unknown>,
@@ -196,6 +200,30 @@
 
 		<!-- Equipment Status Bar -->
 		<EquipmentStatusBar />
+
+		<!-- Stall Warning Banner -->
+		{#if lastStallEvent}
+			<div
+				data-testid="stall-warning-banner"
+				class="bg-red-500/20 border border-red-500/50 rounded-lg p-3 flex items-start gap-2"
+			>
+				<div class="flex-1">
+					<p class="text-red-400 text-sm font-medium">Heating stalled</p>
+					<p class="text-red-300 text-xs mt-0.5">
+						Stalled at {lastStallEvent.current_temp_f.toFixed(1)}°F (target: {lastStallEvent.target_temp_f}°F) — heater turned off
+					</p>
+					<p class="text-red-400/60 text-xs mt-0.5">
+						{new Date(lastStallEvent.timestamp).toLocaleString()}
+					</p>
+				</div>
+				<button
+					type="button"
+					aria-label="Dismiss stall warning"
+					onclick={() => { stallBannerDismissed = true; }}
+					class="text-red-400 hover:text-red-300 text-lg leading-none px-1"
+				>&times;</button>
+			</div>
+		{/if}
 
 		<!-- Quick Schedule Buttons (hidden for basic users) -->
 		{#if !isBasicUser}

@@ -214,6 +214,86 @@ class CronSchedulingServiceTest extends TestCase
 
     // ========== Edge cases ==========
 
+    // ========== scheduleDailyInTimezone() tests ==========
+
+    /**
+     * Core DST safety test: same wall-clock time must produce the same cron
+     * expression regardless of which DST state the system is currently in.
+     */
+    public function testScheduleDailyInTimezoneProducesSameCronAcrossDst(): void
+    {
+        $capturedEntries = [];
+        $this->mockCrontab->method('addEntry')
+            ->willReturnCallback(function ($entry) use (&$capturedEntries) {
+                $capturedEntries[] = $entry;
+            });
+
+        $result = $this->service->scheduleDailyInTimezone(
+            '06:30', 'America/Los_Angeles', '/script.sh', 'TEST:DAILY'
+        );
+
+        $this->assertCount(1, $capturedEntries);
+
+        // Verify it matches what we'd get from manually computing with IANA timezone
+        $systemTz = TimeConverter::getSystemTimezone();
+        $winter = new \DateTime('2030-01-15 06:30:00', new \DateTimeZone('America/Los_Angeles'));
+        $winter->setTimezone(new \DateTimeZone($systemTz));
+        $summer = new \DateTime('2030-07-15 06:30:00', new \DateTimeZone('America/Los_Angeles'));
+        $summer->setTimezone(new \DateTimeZone($systemTz));
+
+        // Both should give the same hour:minute in server timezone
+        $expectedMinute = (int) $winter->format('i');
+        $expectedHour = (int) $winter->format('G');
+        $this->assertEquals($winter->format('H:i'), $summer->format('H:i'),
+            'IANA timezone conversion should be DST-stable');
+
+        $expectedCron = "$expectedMinute $expectedHour * * *";
+        $this->assertEquals($expectedCron, $result);
+    }
+
+    /**
+     * Verify scheduleDailyInTimezone produces the correct server-local time
+     * by manually computing the expected conversion.
+     */
+    public function testScheduleDailyInTimezoneConvertsToServerTimezoneCorrectly(): void
+    {
+        $capturedEntry = null;
+        $this->mockCrontab->method('addEntry')
+            ->willReturnCallback(function ($entry) use (&$capturedEntry) {
+                $capturedEntry = $entry;
+            });
+
+        $this->service->scheduleDailyInTimezone(
+            '06:30', 'America/Los_Angeles', '/script.sh', 'TEST:DAILY'
+        );
+
+        // Manually compute: "today 06:30 in America/Los_Angeles" → server timezone
+        $systemTz = TimeConverter::getSystemTimezone();
+        $dt = new \DateTime('today 06:30:00', new \DateTimeZone('America/Los_Angeles'));
+        $dt->setTimezone(new \DateTimeZone($systemTz));
+        $expectedMinute = (int) $dt->format('i');
+        $expectedHour = (int) $dt->format('G');
+
+        $this->assertMatchesRegularExpression(
+            "/^$expectedMinute\s+$expectedHour\s+\*\s+\*\s+\*/",
+            $capturedEntry,
+            "Should convert 06:30 America/Los_Angeles to $expectedHour:$expectedMinute in $systemTz"
+        );
+    }
+
+    public function testScheduleDailyInTimezoneReturnsRecurringPattern(): void
+    {
+        $this->mockCrontab->method('addEntry');
+
+        $result = $this->service->scheduleDailyInTimezone(
+            '06:30', 'America/Los_Angeles', '/script.sh', 'TEST'
+        );
+
+        $this->assertMatchesRegularExpression('/^\d+\s+\d+\s+\*\s+\*\s+\*$/', $result);
+    }
+
+    // ========== Edge cases ==========
+
     public function testScheduleAtHandlesDayBoundary(): void
     {
         // Given: 23:30 UTC, which might be the next day in some timezones

@@ -8,7 +8,8 @@
 	} from '$lib/autoHeatOff';
 	import {
 		getEnabled as getTargetTempEnabled,
-		getTargetTempF
+		getTargetTempF,
+		getTimezone as getConfiguredTimezone
 	} from '$lib/stores/heatTargetSettings.svelte';
 	import { onDestroy } from 'svelte';
 	import { RefreshCw } from 'lucide-svelte';
@@ -27,6 +28,12 @@
 	let error = $state<string | null>(null);
 	let success = $state<string | null>(null);
 	let cancellingJobs = $state(new Set<string>());
+
+	// Inline temperature editing state
+	let editingJobId = $state<string | null>(null);
+	let editTempValue = $state('');
+	let savingTemp = $state(false);
+	let editTempError = $state<string | null>(null);
 
 	// Refresh button tooltip state
 	let showRefreshTooltip = $state(false);
@@ -172,15 +179,16 @@
 			const targetTempF = useTargetTemp ? getTargetTempF() : undefined;
 
 			if (isRecurring) {
-				// For recurring jobs, send time with timezone offset (HH:MM+/-HH:MM format)
-				// This ensures the server schedules the job at the correct local time
-				const timeWithOffset = `${scheduledTime}${getTimezoneOffset()}`;
+				// For recurring jobs, send bare time + IANA timezone (DST-safe)
+				// The server uses the IANA timezone to compute the correct cron schedule
+				// regardless of the current DST state
+				const timezone = getConfiguredTimezone();
 
 				if (useTargetTemp) {
-					await api.scheduleJob(effectiveAction, timeWithOffset, true, { target_temp_f: targetTempF });
+					await api.scheduleJob(effectiveAction, scheduledTime, true, { target_temp_f: targetTempF }, timezone);
 					success = `Recurring: Daily heat to ${targetTempF}°F at ${scheduledTime}`;
 				} else {
-					await api.scheduleJob(effectiveAction, timeWithOffset, true);
+					await api.scheduleJob(effectiveAction, scheduledTime, true, undefined, timezone);
 
 					// If auto heat-off is enabled and action is heater-on, create paired recurring off job
 					const autoHeatOffEnabled = getAutoHeatOffEnabled();
@@ -190,8 +198,8 @@
 						const [hours, minutes] = scheduledTime.split(':').map(Number);
 						const offDate = new Date();
 						offDate.setHours(hours, minutes + autoHeatOffMinutes, 0, 0);
-						const offTimeStr = `${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}${getTimezoneOffset()}`;
-						await api.scheduleJob('heater-off', offTimeStr, true);
+						const offTimeStr = `${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}`;
+						await api.scheduleJob('heater-off', offTimeStr, true, undefined, timezone);
 
 						success = `Recurring: Daily heater-on at ${scheduledTime} with auto off at ${offDate.getHours().toString().padStart(2, '0')}:${offDate.getMinutes().toString().padStart(2, '0')}`;
 					} else {
@@ -312,26 +320,36 @@
 		});
 	}
 
-	function formatRecurringTime(timeString: string): string {
-		// Handle two formats:
-		// 1. New UTC format: "14:30:00+00:00" (from timezone-aware scheduling)
-		// 2. Legacy format: "06:30" (bare time, backward compatible)
+	function formatRecurringTime(timeString: string, timezone?: string): string {
+		// Handle three formats:
+		// 1. Bare HH:MM with IANA timezone: "06:30" + timezone (DST-safe, new format)
+		// 2. UTC format: "14:30:00+00:00" (legacy timezone-aware scheduling)
+		// 3. Bare HH:MM without timezone: "06:30" (legacy, assumes local)
 
-		if (timeString.includes('+') || timeString.includes('Z')) {
-			// New format: UTC time with offset indicator
-			// Parse as ISO datetime using a reference date, then convert to local
-			const refDate = `2030-01-01T${timeString}`;
-			const date = new Date(refDate);
+		const isBareTime = !timeString.includes('+') && !timeString.includes('Z') && !timeString.includes('T');
+
+		if (isBareTime) {
+			// Bare HH:MM — this IS the user's local time, format directly
+			const [hours, minutes] = timeString.split(':').map(Number);
+			const period = hours >= 12 ? 'PM' : 'AM';
+			const displayHour = hours % 12 || 12;
+			return `${displayHour}:${minutes.toString().padStart(2, '0')} ${period}`;
+		}
+
+		// UTC format: use today's date (not hardcoded 2030-01-01) to get correct DST offset
+		const today = new Date();
+		const todayStr = today.toISOString().split('T')[0];
+		const date = new Date(`${todayStr}T${timeString}`);
+
+		if (timezone) {
+			// Use the stored IANA timezone for display
 			return date.toLocaleTimeString(undefined, {
 				hour: 'numeric',
-				minute: '2-digit'
+				minute: '2-digit',
+				timeZone: timezone
 			});
 		}
 
-		// Legacy format: bare HH:MM (assumes server timezone)
-		const [hours, minutes] = timeString.split(':').map(Number);
-		const date = new Date();
-		date.setHours(hours, minutes, 0, 0);
 		return date.toLocaleTimeString(undefined, {
 			hour: 'numeric',
 			minute: '2-digit'
@@ -361,6 +379,63 @@
 
 	function getActionLabel(action: string): string {
 		return actionDisplayLabels[action] ?? action;
+	}
+
+	function startEditTemp(job: ScheduledJob) {
+		editingJobId = job.jobId;
+		editTempValue = String(job.params?.target_temp_f ?? '');
+		editTempError = null;
+	}
+
+	async function saveEditTemp(jobId: string) {
+		const temp = Number(editTempValue);
+		if (isNaN(temp) || temp < 80 || temp > 110) {
+			editTempError = 'Temperature must be 80–110°F';
+			return;
+		}
+		savingTemp = true;
+		editTempError = null;
+		try {
+			const updated = await api.updateScheduledJobTemp(jobId, temp);
+			// Update local job data
+			jobs = jobs.map((j) =>
+				j.jobId === jobId
+					? { ...j, params: { ...j.params, target_temp_f: updated.params?.target_temp_f ?? temp } }
+					: j
+			);
+			editingJobId = null;
+		} catch (e: unknown) {
+			editTempError = e instanceof Error ? e.message : 'Failed to update';
+		} finally {
+			savingTemp = false;
+		}
+	}
+
+	function cancelEditTemp() {
+		editingJobId = null;
+		editTempError = null;
+	}
+
+	// Auto-focus edit input when entering edit mode
+	$effect(() => {
+		if (editingJobId) {
+			// Use tick to wait for DOM update
+			setTimeout(() => {
+				const input = document.querySelector<HTMLInputElement>('[data-testid="edit-temp-input"]');
+				input?.focus();
+				input?.select();
+			}, 0);
+		}
+	});
+
+	function handleEditKeydown(event: KeyboardEvent, jobId: string) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			saveEditTemp(jobId);
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			cancelEditTemp();
+		}
 	}
 
 	function getJobDisplayLabel(job: ScheduledJob): string {
@@ -465,7 +540,35 @@
 					{#if job.skipped}
 						<li class="flex items-center justify-between bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2{cancellingJobs.has(job.jobId) ? ' opacity-50' : ''}">
 							<div>
-								<span class="text-amber-300 font-medium line-through">{getJobDisplayLabel(job)}</span>
+								{#if editingJobId === job.jobId}
+									<span class="inline-flex items-center gap-1">
+										<span class="text-amber-300 font-medium">Heat to</span>
+										<input
+											type="number"
+											min="80"
+											max="110"
+											step="1"
+											bind:value={editTempValue}
+											onkeydown={(e) => handleEditKeydown(e, job.jobId)}
+											onblur={() => cancelEditTemp()}
+											disabled={savingTemp}
+											class="w-16 bg-slate-700 border border-amber-500 rounded px-1 py-0.5 text-amber-300 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-amber-400"
+											data-testid="edit-temp-input"
+										/>
+										<span class="text-amber-300 font-medium">°F</span>
+										{#if savingTemp}<span class="text-amber-400 text-xs">Saving...</span>{/if}
+									</span>
+									{#if editTempError}<span class="text-red-400 text-xs ml-1">{editTempError}</span>{/if}
+								{:else if job.action === 'heat-to-target' && job.params?.target_temp_f}
+									<button
+										onclick={() => startEditTemp(job)}
+										class="text-amber-300 font-medium line-through underline decoration-dotted cursor-pointer hover:text-amber-200"
+										title="Click to edit temperature"
+										data-testid="editable-temp"
+									>{getJobDisplayLabel(job)}</button>
+								{:else}
+									<span class="text-amber-300 font-medium line-through">{getJobDisplayLabel(job)}</span>
+								{/if}
 								<span class="text-amber-300 text-sm ml-2">Skipped {job.skipDate ? formatShortDate(job.skipDate) : ''} — resumes {job.resumeDate ? formatShortDate(job.resumeDate) : ''}</span>
 							</div>
 							<div class="flex gap-2">
@@ -489,8 +592,36 @@
 					{:else}
 						<li class="flex items-center justify-between bg-purple-900/30 border border-purple-700/50 rounded-lg px-3 py-2{cancellingJobs.has(job.jobId) ? ' opacity-50' : ''}">
 							<div>
-								<span class="text-slate-200 font-medium">{getJobDisplayLabel(job)}</span>
-								<span class="text-purple-300 text-sm ml-2">Daily at {formatRecurringTime(job.scheduledTime)}</span>
+								{#if editingJobId === job.jobId}
+									<span class="inline-flex items-center gap-1">
+										<span class="text-slate-200 font-medium">Heat to</span>
+										<input
+											type="number"
+											min="80"
+											max="110"
+											step="1"
+											bind:value={editTempValue}
+											onkeydown={(e) => handleEditKeydown(e, job.jobId)}
+											onblur={() => cancelEditTemp()}
+											disabled={savingTemp}
+											class="w-16 bg-slate-700 border border-blue-500 rounded px-1 py-0.5 text-slate-200 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-400"
+											data-testid="edit-temp-input"
+										/>
+										<span class="text-slate-200 font-medium">°F</span>
+										{#if savingTemp}<span class="text-blue-400 text-xs">Saving...</span>{/if}
+									</span>
+									{#if editTempError}<span class="text-red-400 text-xs ml-1">{editTempError}</span>{/if}
+								{:else if job.action === 'heat-to-target' && job.params?.target_temp_f}
+									<button
+										onclick={() => startEditTemp(job)}
+										class="text-slate-200 font-medium underline decoration-dotted cursor-pointer hover:text-slate-100"
+										title="Click to edit temperature"
+										data-testid="editable-temp"
+									>{getJobDisplayLabel(job)}</button>
+								{:else}
+									<span class="text-slate-200 font-medium">{getJobDisplayLabel(job)}</span>
+								{/if}
+								<span class="text-purple-300 text-sm ml-2">Daily at {formatRecurringTime(job.scheduledTime, job.timezone)}</span>
 							</div>
 							<div class="flex gap-2">
 								{#if !cancellingJobs.has(job.jobId)}
@@ -552,7 +683,35 @@
 				{#each oneOffJobs as job (job.jobId)}
 					<li class="flex items-center justify-between bg-slate-700/50 rounded-lg px-3 py-2{cancellingJobs.has(job.jobId) ? ' opacity-50' : ''}">
 						<div>
-							<span class="text-slate-200 font-medium">{getJobDisplayLabel(job)}</span>
+							{#if editingJobId === job.jobId}
+								<span class="inline-flex items-center gap-1">
+									<span class="text-slate-200 font-medium">Heat to</span>
+									<input
+										type="number"
+										min="80"
+										max="110"
+										step="1"
+										bind:value={editTempValue}
+										onkeydown={(e) => handleEditKeydown(e, job.jobId)}
+										onblur={() => cancelEditTemp()}
+										disabled={savingTemp}
+										class="w-16 bg-slate-700 border border-blue-500 rounded px-1 py-0.5 text-slate-200 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-400"
+										data-testid="edit-temp-input"
+									/>
+									<span class="text-slate-200 font-medium">°F</span>
+									{#if savingTemp}<span class="text-blue-400 text-xs">Saving...</span>{/if}
+								</span>
+								{#if editTempError}<span class="text-red-400 text-xs ml-1">{editTempError}</span>{/if}
+							{:else if job.action === 'heat-to-target' && job.params?.target_temp_f}
+								<button
+									onclick={() => startEditTemp(job)}
+									class="text-slate-200 font-medium underline decoration-dotted cursor-pointer hover:text-slate-100"
+									title="Click to edit temperature"
+									data-testid="editable-temp"
+								>{getJobDisplayLabel(job)}</button>
+							{:else}
+								<span class="text-slate-200 font-medium">{getJobDisplayLabel(job)}</span>
+							{/if}
 							<span class="text-slate-400 text-sm ml-2">{formatDateTime(job.scheduledTime)}</span>
 						</div>
 						<button

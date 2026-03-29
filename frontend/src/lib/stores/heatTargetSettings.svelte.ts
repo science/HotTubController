@@ -1,4 +1,4 @@
-import { api, type HeatTargetSettings, type HealthResponse } from '$lib/api';
+import { api, type HeatTargetSettings, type HealthResponse, type LastStallEvent } from '$lib/api';
 
 /**
  * Store for shared heat-target settings from the backend.
@@ -16,6 +16,8 @@ const DEFAULT_ENABLED = false;
 const DEFAULT_TARGET_TEMP_F = 103.0;
 const DEFAULT_TIMEZONE = 'America/Los_Angeles';
 const DEFAULT_SCHEDULE_MODE = 'start_at' as const;
+const DEFAULT_STALL_GRACE_PERIOD_MINUTES = 15;
+const DEFAULT_STALL_TIMEOUT_MINUTES = 5;
 const MIN_TEMP_F = 80.0;
 const MAX_TEMP_F = 110.0;
 
@@ -24,6 +26,9 @@ let enabled = $state(DEFAULT_ENABLED);
 let targetTempF = $state(DEFAULT_TARGET_TEMP_F);
 let timezone = $state(DEFAULT_TIMEZONE);
 let scheduleMode = $state<'start_at' | 'ready_by'>(DEFAULT_SCHEDULE_MODE);
+let stallGracePeriodMinutes = $state(DEFAULT_STALL_GRACE_PERIOD_MINUTES);
+let stallTimeoutMinutes = $state(DEFAULT_STALL_TIMEOUT_MINUTES);
+let lastStallEvent = $state<LastStallEvent | null>(null);
 let isLoading = $state(false);
 let error = $state<string | null>(null);
 let initialized = $state(false);
@@ -38,13 +43,20 @@ export function initFromHealthResponse(response: HealthResponse): void {
 		targetTempF = response.heatTargetSettings.target_temp_f;
 		timezone = response.heatTargetSettings.timezone ?? DEFAULT_TIMEZONE;
 		scheduleMode = response.heatTargetSettings.schedule_mode ?? DEFAULT_SCHEDULE_MODE;
+		stallGracePeriodMinutes =
+			response.heatTargetSettings.stall_grace_period_minutes ?? DEFAULT_STALL_GRACE_PERIOD_MINUTES;
+		stallTimeoutMinutes =
+			response.heatTargetSettings.stall_timeout_minutes ?? DEFAULT_STALL_TIMEOUT_MINUTES;
 	} else {
 		// Reset to defaults when backend doesn't provide settings
 		enabled = DEFAULT_ENABLED;
 		targetTempF = DEFAULT_TARGET_TEMP_F;
 		timezone = DEFAULT_TIMEZONE;
 		scheduleMode = DEFAULT_SCHEDULE_MODE;
+		stallGracePeriodMinutes = DEFAULT_STALL_GRACE_PERIOD_MINUTES;
+		stallTimeoutMinutes = DEFAULT_STALL_TIMEOUT_MINUTES;
 	}
+	lastStallEvent = response.lastStallEvent ?? null;
 	initialized = true;
 }
 
@@ -59,7 +71,9 @@ export async function updateSettings(
 	newEnabled: boolean,
 	newTargetTempF: number,
 	newTimezone?: string,
-	newScheduleMode?: 'start_at' | 'ready_by'
+	newScheduleMode?: 'start_at' | 'ready_by',
+	newStallGracePeriodMinutes?: number,
+	newStallTimeoutMinutes?: number
 ): Promise<void> {
 	isLoading = true;
 	error = null;
@@ -69,12 +83,17 @@ export async function updateSettings(
 			newEnabled,
 			newTargetTempF,
 			newTimezone,
-			newScheduleMode
+			newScheduleMode,
+			newStallGracePeriodMinutes,
+			newStallTimeoutMinutes
 		);
 		enabled = response.enabled;
 		targetTempF = response.target_temp_f;
 		timezone = response.timezone ?? timezone;
 		scheduleMode = response.schedule_mode ?? scheduleMode;
+		stallGracePeriodMinutes =
+			response.stall_grace_period_minutes ?? stallGracePeriodMinutes;
+		stallTimeoutMinutes = response.stall_timeout_minutes ?? stallTimeoutMinutes;
 	} catch (e) {
 		error = e instanceof Error ? e.message : 'Failed to update settings';
 		throw e;
@@ -170,4 +189,25 @@ export function getMinTempF(): number {
  */
 export function getMaxTempF(): number {
 	return MAX_TEMP_F;
+}
+
+/**
+ * Get the stall detection grace period in minutes.
+ */
+export function getStallGracePeriodMinutes(): number {
+	return stallGracePeriodMinutes;
+}
+
+/**
+ * Get the stall detection timeout in minutes.
+ */
+export function getStallTimeoutMinutes(): number {
+	return stallTimeoutMinutes;
+}
+
+/**
+ * Get the last stall event, if any.
+ */
+export function getLastStallEvent(): LastStallEvent | null {
+	return lastStallEvent;
 }

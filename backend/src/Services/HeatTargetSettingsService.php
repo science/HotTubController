@@ -24,6 +24,8 @@ class HeatTargetSettingsService
     public const DEFAULT_TIMEZONE = 'America/Los_Angeles';
     public const DEFAULT_SCHEDULE_MODE = 'start_at';
     public const VALID_SCHEDULE_MODES = ['start_at', 'ready_by'];
+    public const DEFAULT_STALL_GRACE_PERIOD_MINUTES = 15;
+    public const DEFAULT_STALL_TIMEOUT_MINUTES = 5;
 
     public function __construct(string $settingsFile)
     {
@@ -43,6 +45,8 @@ class HeatTargetSettingsService
             'target_temp_f' => $this->settings['target_temp_f'] ?? self::DEFAULT_TEMP_F,
             'timezone' => $this->settings['timezone'] ?? self::DEFAULT_TIMEZONE,
             'schedule_mode' => $this->settings['schedule_mode'] ?? self::DEFAULT_SCHEDULE_MODE,
+            'stall_grace_period_minutes' => $this->settings['stall_grace_period_minutes'] ?? self::DEFAULT_STALL_GRACE_PERIOD_MINUTES,
+            'stall_timeout_minutes' => $this->settings['stall_timeout_minutes'] ?? self::DEFAULT_STALL_TIMEOUT_MINUTES,
             'updated_at' => $this->settings['updated_at'] ?? null,
         ];
     }
@@ -130,6 +134,41 @@ class HeatTargetSettingsService
 
         $this->settings['enabled'] = $enabled;
         $this->settings['target_temp_f'] = $targetTempF;
+        $this->saveSettings();
+    }
+
+    /**
+     * Get the stall detection grace period in minutes.
+     */
+    public function getStallGracePeriodMinutes(): int
+    {
+        return $this->settings['stall_grace_period_minutes'] ?? self::DEFAULT_STALL_GRACE_PERIOD_MINUTES;
+    }
+
+    /**
+     * Get the stall detection timeout in minutes.
+     */
+    public function getStallTimeoutMinutes(): int
+    {
+        return $this->settings['stall_timeout_minutes'] ?? self::DEFAULT_STALL_TIMEOUT_MINUTES;
+    }
+
+    /**
+     * Update stall detection settings.
+     *
+     * @throws \InvalidArgumentException if values are out of range
+     */
+    public function updateStallSettings(int $gracePeriodMinutes, int $timeoutMinutes): void
+    {
+        if ($gracePeriodMinutes < 1) {
+            throw new \InvalidArgumentException('Stall grace period must be at least 1 minute');
+        }
+        if ($timeoutMinutes < 1) {
+            throw new \InvalidArgumentException('Stall timeout must be at least 1 minute');
+        }
+
+        $this->settings['stall_grace_period_minutes'] = $gracePeriodMinutes;
+        $this->settings['stall_timeout_minutes'] = $timeoutMinutes;
         $this->saveSettings();
     }
 

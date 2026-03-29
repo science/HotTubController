@@ -325,4 +325,93 @@ class HeatTargetSettingsServiceTest extends TestCase
 
         $this->assertEquals('ready_by', $this->service->getScheduleMode());
     }
+
+    // ==================== Stall Detection Settings Tests ====================
+
+    /**
+     * @test
+     */
+    public function stallGracePeriodDefaultsTo15Minutes(): void
+    {
+        $this->assertEquals(15, $this->service->getStallGracePeriodMinutes());
+    }
+
+    /**
+     * @test
+     */
+    public function stallTimeoutDefaultsTo5Minutes(): void
+    {
+        $this->assertEquals(5, $this->service->getStallTimeoutMinutes());
+    }
+
+    /**
+     * @test
+     */
+    public function getSettingsIncludesStallDetectionDefaults(): void
+    {
+        $settings = $this->service->getSettings();
+
+        $this->assertArrayHasKey('stall_grace_period_minutes', $settings);
+        $this->assertArrayHasKey('stall_timeout_minutes', $settings);
+        $this->assertEquals(15, $settings['stall_grace_period_minutes']);
+        $this->assertEquals(5, $settings['stall_timeout_minutes']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateStallSettingsStoresValues(): void
+    {
+        $this->service->updateStallSettings(20, 10);
+
+        $this->assertEquals(20, $this->service->getStallGracePeriodMinutes());
+        $this->assertEquals(10, $this->service->getStallTimeoutMinutes());
+    }
+
+    /**
+     * @test
+     */
+    public function updateStallSettingsPersistsAcrossInstances(): void
+    {
+        $this->service->updateStallSettings(25, 8);
+
+        $newService = new HeatTargetSettingsService($this->settingsFile);
+
+        $this->assertEquals(25, $newService->getStallGracePeriodMinutes());
+        $this->assertEquals(8, $newService->getStallTimeoutMinutes());
+    }
+
+    /**
+     * @test
+     */
+    public function updateStallSettingsRejectsNegativeGracePeriod(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Stall grace period must be at least 1 minute');
+
+        $this->service->updateStallSettings(0, 5);
+    }
+
+    /**
+     * @test
+     */
+    public function updateStallSettingsRejectsNegativeTimeout(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Stall timeout must be at least 1 minute');
+
+        $this->service->updateStallSettings(15, 0);
+    }
+
+    /**
+     * @test
+     */
+    public function updateSettingsPreservesStallSettings(): void
+    {
+        $this->service->updateStallSettings(20, 10);
+        $this->service->updateSettings(true, 105.0);
+
+        $this->assertEquals(20, $this->service->getStallGracePeriodMinutes());
+        $this->assertEquals(10, $this->service->getStallTimeoutMinutes());
+    }
 }

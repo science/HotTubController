@@ -14,6 +14,8 @@
 		getScheduleMode,
 		getMinTempF,
 		getMaxTempF,
+		getStallGracePeriodMinutes,
+		getStallTimeoutMinutes,
 		updateSettings as updateTargetTempSettings,
 		getIsLoading as getTargetTempLoading,
 		getError as getTargetTempError
@@ -44,6 +46,8 @@
 	let localTargetTempF = $state(getTargetTempF());
 	let localTimezone = $state(getTimezone());
 	let localScheduleMode = $state<'start_at' | 'ready_by'>(getScheduleMode());
+	let localStallGracePeriod = $state(getStallGracePeriodMinutes());
+	let localStallTimeout = $state(getStallTimeoutMinutes());
 	let savingTargetTemp = $state(false);
 	let targetTempSaveError = $state<string | null>(null);
 	let userHasEditedTargetTemp = $state(false); // Track if user made changes
@@ -63,7 +67,9 @@
 		localTargetTempEnabled !== getTargetTempEnabled() ||
 			localTargetTempF !== getTargetTempF() ||
 			localTimezone !== getTimezone() ||
-			localScheduleMode !== getScheduleMode()
+			localScheduleMode !== getScheduleMode() ||
+			localStallGracePeriod !== getStallGracePeriodMinutes() ||
+			localStallTimeout !== getStallTimeoutMinutes()
 	);
 
 	async function loadServerHeatTargetState() {
@@ -96,7 +102,14 @@
 		savingTargetTemp = true;
 		targetTempSaveError = null;
 		try {
-			await updateTargetTempSettings(localTargetTempEnabled, localTargetTempF, localTimezone, localScheduleMode);
+			await updateTargetTempSettings(
+				localTargetTempEnabled,
+				localTargetTempF,
+				localTimezone,
+				localScheduleMode,
+				localStallGracePeriod,
+				localStallTimeout
+			);
 			userHasEditedTargetTemp = false; // Reset after successful save
 		} catch (e) {
 			targetTempSaveError = e instanceof Error ? e.message : 'Failed to save';
@@ -121,6 +134,8 @@
 			localTargetTempF = getTargetTempF();
 			localTimezone = getTimezone();
 			localScheduleMode = getScheduleMode();
+			localStallGracePeriod = getStallGracePeriodMinutes();
+			localStallTimeout = getStallTimeoutMinutes();
 		}
 	});
 
@@ -392,6 +407,43 @@
 						"Ready by" calculates optimal start time using heating characteristics.
 					</p>
 				</fieldset>
+
+				<div class="ml-6 mt-3 space-y-2">
+					<h4 class="text-slate-400 text-sm">Stall detection</h4>
+					<div class="flex items-center gap-2">
+						<label for="stallGracePeriod" class="text-slate-400 text-xs">Grace period</label>
+						<input
+							type="number"
+							id="stallGracePeriod"
+							aria-label="Stall grace period"
+							bind:value={localStallGracePeriod}
+							onchange={() => { userHasEditedTargetTemp = true; }}
+							min="1"
+							max="60"
+							disabled={savingTargetTemp}
+							class="w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+						/>
+						<span class="text-slate-400 text-xs">min</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<label for="stallTimeout" class="text-slate-400 text-xs">Stall timeout</label>
+						<input
+							type="number"
+							id="stallTimeout"
+							aria-label="Stall timeout"
+							bind:value={localStallTimeout}
+							onchange={() => { userHasEditedTargetTemp = true; }}
+							min="1"
+							max="30"
+							disabled={savingTargetTemp}
+							class="w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+						/>
+						<span class="text-slate-400 text-xs">min</span>
+					</div>
+					<p class="text-slate-500 text-xs">
+						If temperature stops rising for the timeout period after the grace period, heating is stopped automatically.
+					</p>
+				</div>
 
 				{#if targetTempDirty}
 					<div class="ml-6 flex items-center gap-2">

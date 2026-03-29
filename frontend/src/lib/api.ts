@@ -13,9 +13,11 @@ export interface ScheduledJob {
 	scheduledTime: string;
 	createdAt: string;
 	recurring: boolean;
+	timezone?: string;
 	params?: {
 		target_temp_f?: number;
 		ready_by_time?: string;
+		timezone?: string;
 	};
 	skipped?: boolean;
 	skipDate?: string;
@@ -96,6 +98,15 @@ export interface HeatTargetSettings {
 	target_temp_f: number;
 	timezone: string;
 	schedule_mode?: 'start_at' | 'ready_by';
+	stall_grace_period_minutes?: number;
+	stall_timeout_minutes?: number;
+}
+
+export interface LastStallEvent {
+	timestamp: string;
+	current_temp_f: number;
+	target_temp_f: number;
+	reason: string;
 }
 
 export interface HealthResponse {
@@ -104,6 +115,7 @@ export interface HealthResponse {
 	equipmentStatus: EquipmentStatus;
 	blindsEnabled?: boolean;
 	heatTargetSettings?: HeatTargetSettings;
+	lastStallEvent?: LastStallEvent;
 }
 
 export interface TargetTemperatureState {
@@ -273,10 +285,13 @@ export const api = {
 		action: string,
 		scheduledTime: string,
 		recurring: boolean = false,
-		params?: { target_temp_f?: number }
-	) => postJson<ScheduledJob>('/api/schedule', { action, scheduledTime, recurring, ...params }),
+		params?: { target_temp_f?: number },
+		timezone?: string
+	) => postJson<ScheduledJob>('/api/schedule', { action, scheduledTime, recurring, ...params, ...(timezone ? { timezone } : {}) }),
 	listScheduledJobs: () => get<ScheduleListResponse>('/api/schedule'),
 	cancelScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}`),
+	updateScheduledJobTemp: (jobId: string, targetTempF: number) =>
+		put<ScheduledJob>(`/api/schedule/${jobId}/target-temp`, { target_temp_f: targetTempF }),
 	skipScheduledJob: (jobId: string) => post(`/api/schedule/${jobId}/skip`),
 	unskipScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}/skip`),
 
@@ -305,13 +320,17 @@ export const api = {
 		enabled: boolean,
 		target_temp_f: number,
 		timezone?: string,
-		schedule_mode?: 'start_at' | 'ready_by'
+		schedule_mode?: 'start_at' | 'ready_by',
+		stall_grace_period_minutes?: number,
+		stall_timeout_minutes?: number
 	) =>
 		put<HeatTargetSettings & { message: string }>('/api/settings/heat-target', {
 			enabled,
 			target_temp_f,
 			...(timezone !== undefined && { timezone }),
-			...(schedule_mode !== undefined && { schedule_mode })
+			...(schedule_mode !== undefined && { schedule_mode }),
+			...(stall_grace_period_minutes !== undefined && { stall_grace_period_minutes }),
+			...(stall_timeout_minutes !== undefined && { stall_timeout_minutes })
 		}),
 
 	// Heating characteristics analysis (admin only)

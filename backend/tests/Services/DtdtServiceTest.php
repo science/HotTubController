@@ -471,6 +471,107 @@ class DtdtServiceTest extends TestCase
         $this->assertEquals('stays_warm', $result['status']);
     }
 
+    // ==================== DST IANA Timezone Tests ====================
+
+    /**
+     * IANA timezone resolves to the same UTC time regardless of DST state.
+     *
+     * This is the fix for the frozen offset bug: resolveNextOccurrence with
+     * an IANA timezone always gives the correct UTC time for "6:30 AM Pacific"
+     * whether called during PST or PDT.
+     *
+     * @test
+     */
+    public function resolveNextOccurrenceWithTimezoneIsDstSafe(): void
+    {
+        $service = $this->createService();
+
+        $method = new \ReflectionMethod(DtdtService::class, 'resolveNextOccurrence');
+        $method->setAccessible(true);
+
+        // Using IANA timezone: both calls resolve to the same UTC time
+        $timestamp = $method->invoke($service, '06:30', 'America/Los_Angeles');
+
+        // Manually compute expected: "today 06:30 in America/Los_Angeles"
+        $expected = new \DateTime('today 06:30:00', new \DateTimeZone('America/Los_Angeles'));
+        if ($expected->getTimestamp() <= time()) {
+            $expected->modify('+1 day');
+        }
+
+        $this->assertEquals(
+            $expected->getTimestamp(),
+            $timestamp,
+            'resolveNextOccurrence with IANA timezone should match DateTime with same timezone'
+        );
+    }
+
+    /**
+     * handleWakeUp with IANA timezone produces consistent results regardless
+     * of which DST state was active at schedule creation time.
+     *
+     * @test
+     */
+    public function handleWakeUpWithTimezoneIsDstSafe(): void
+    {
+        $this->writeHeatingChars([
+            'heating_velocity_f_per_min' => 0.5,
+            'startup_lag_minutes' => 5.0,
+            'max_cooling_k' => 0.0005,
+        ]);
+
+        // Water is 98°F, needs to reach 103°F — will schedule precision cron
+        $mockCalibrated = $this->createMockCalibratedService(98.0, 50.0);
+        $service = $this->createService(null, $mockCalibrated);
+
+        // Compute a ready-by time 3 hours from now in LA timezone
+        $la = new \DateTimeZone('America/Los_Angeles');
+        $threeHoursFromNow = new \DateTime('+3 hours', $la);
+        $readyByTime = $threeHoursFromNow->format('H:i');
+
+        $result = $service->handleWakeUp([
+            'ready_by_time' => $readyByTime,
+            'timezone' => 'America/Los_Angeles',
+            'target_temp_f' => 103.0,
+        ]);
+
+        $this->assertEquals('precision_scheduled', $result['status']);
+        $this->assertArrayHasKey('start_time', $result);
+
+        // The start_time should be before the ready-by time
+        $startTimestamp = (new \DateTime($result['start_time']))->getTimestamp();
+        $readyByTimestamp = $threeHoursFromNow->getTimestamp();
+        $this->assertLessThan($readyByTimestamp, $startTimestamp,
+            'Precision start time should be before ready-by time');
+    }
+
+    /**
+     * createReadyBySchedule with timezone stores bare time + timezone in params.
+     *
+     * @test
+     */
+    public function createReadyByScheduleWithTimezoneStoresBareTimeAndTimezone(): void
+    {
+        $this->writeHeatingChars([
+            'heating_velocity_f_per_min' => 0.3,
+            'startup_lag_minutes' => 10.0,
+            'max_cooling_k' => 0.001,
+        ]);
+
+        $service = $this->createService();
+        $result = $service->createReadyBySchedule('06:30', ['target_temp_f' => 103], 'America/Los_Angeles');
+
+        $this->assertArrayHasKey('jobId', $result);
+        $this->assertTrue($result['recurring']);
+
+        // Job file should have timezone and bare ready_by_time
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        $this->assertEquals('America/Los_Angeles', $jobData['timezone']);
+        $this->assertEquals('06:30', $jobData['params']['ready_by_time']);
+        $this->assertEquals('America/Los_Angeles', $jobData['params']['timezone']);
+    }
+
     // ==================== Helper Methods ====================
 
     private function createMockCalibratedService(float $waterTempF, float $ambientTempF): Esp32CalibratedTemperatureService
