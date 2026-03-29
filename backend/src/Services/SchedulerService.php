@@ -73,7 +73,8 @@ class SchedulerService
         bool $recurring = false,
         array $params = [],
         ?string $endpointOverride = null,
-        ?string $cronTime = null
+        ?string $cronTime = null,
+        ?string $timezone = null
     ): array {
         // Validate action
         if (!isset(self::VALID_ACTIONS[$action])) {
@@ -87,7 +88,7 @@ class SchedulerService
 
         if ($recurring) {
             // For recurring jobs, scheduledTime is just HH:MM format
-            return $this->scheduleRecurringJob($action, $scheduledTime, $createdAt, $params, $endpointOverride, $cronTime);
+            return $this->scheduleRecurringJob($action, $scheduledTime, $createdAt, $params, $endpointOverride, $cronTime, $timezone);
         }
 
         // Parse and validate scheduled time for one-off jobs
@@ -172,43 +173,49 @@ class SchedulerService
         string $createdAt,
         array $params = [],
         ?string $endpointOverride = null,
-        ?string $cronTime = null
+        ?string $cronTime = null,
+        ?string $timezone = null
     ): array {
         // Generate unique job ID with rec- prefix for recurring
         $jobId = 'rec-' . bin2hex(random_bytes(4));
 
-        // Check if time includes timezone offset (HH:MM+/-HH:MM format)
-        $hasTimezoneOffset = preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $time);
-
-        if ($hasTimezoneOffset) {
-            // New format: time with timezone offset
-            // Convert to UTC for storage, server-local for cron
-            $storedTime = $this->timeConverter->formatTimeUtc($time);
+        // Determine storage format based on whether IANA timezone is provided
+        if ($timezone !== null) {
+            // DST-safe path: store bare local time + IANA timezone
+            // The stored time IS the user's wall-clock time, no conversion needed
+            $storedTime = preg_match('/^\d{2}:\d{2}$/', $time) ? $time : substr($time, 0, 5);
         } else {
-            // Legacy format: bare HH:MM (assumes server timezone)
-            $storedTime = $time;
+            // Legacy path: frozen offset or bare time
+            $hasTimezoneOffset = preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $time);
+            if ($hasTimezoneOffset) {
+                $storedTime = $this->timeConverter->formatTimeUtc($time);
+            } else {
+                $storedTime = $time;
+            }
         }
 
         // Health check schedule must match the ACTUAL cron fire time, not the display time.
         // For DTDT ready_by jobs, $cronTime is the wake-up time (earlier than display time).
-        //
-        // IMPORTANT: Use SYSTEM TIMEZONE for recurring healthchecks, not UTC.
-        // Cron fires in system timezone which adjusts for DST. If we use a frozen UTC
-        // expression, DST shifts cause the ping to arrive at the wrong UTC time relative
-        // to the healthcheck schedule, triggering false "down" alerts.
         $healthcheckTime = $cronTime ?? $time;
-        $healthcheckHasOffset = preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $healthcheckTime);
-
-        if ($healthcheckHasOffset) {
-            $serverDateTime = $this->timeConverter->parseTimeWithOffset($healthcheckTime, toServerTz: true);
-            $healthcheckCronExpression = $this->formatDailyCronExpression($serverDateTime);
-        } else {
-            $healthcheckCronExpression = $this->formatDailyCronFromTime($healthcheckTime);
-        }
         $healthcheckTimezone = TimeConverter::getSystemTimezone();
 
+        if ($timezone !== null) {
+            // DST-safe: use IANA timezone for healthcheck schedule
+            $hcTime = preg_match('/^\d{2}:\d{2}$/', $healthcheckTime) ? $healthcheckTime : substr($healthcheckTime, 0, 5);
+            $serverDateTime = $this->timeConverter->parseTimeInTimezone($hcTime, $timezone, toServerTz: true);
+            $healthcheckCronExpression = $this->formatDailyCronExpression($serverDateTime);
+        } else {
+            // Legacy path
+            $healthcheckHasOffset = preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $healthcheckTime);
+            if ($healthcheckHasOffset) {
+                $serverDateTime = $this->timeConverter->parseTimeWithOffset($healthcheckTime, toServerTz: true);
+                $healthcheckCronExpression = $this->formatDailyCronExpression($serverDateTime);
+            } else {
+                $healthcheckCronExpression = $this->formatDailyCronFromTime($healthcheckTime);
+            }
+        }
+
         // Create health check for recurring job monitoring
-        // Uses same unified method as one-off jobs, just with daily cron expression
         $checkName = $this->formatCheckName($jobId, $action, true);
         $healthcheckData = $this->createHealthCheck($checkName, $healthcheckCronExpression, $healthcheckTimezone);
         $healthcheckUuid = $healthcheckData['uuid'] ?? null;
@@ -224,6 +231,11 @@ class SchedulerService
             'recurring' => true,
             'createdAt' => $createdAt,
         ];
+
+        // Store IANA timezone for DST-safe resolution on execution
+        if ($timezone !== null) {
+            $jobData['timezone'] = $timezone;
+        }
 
         // Add action-specific parameters (e.g., target_temp_f for heat-to-target)
         if (!empty($params)) {
@@ -248,17 +260,22 @@ class SchedulerService
         $command = sprintf('%s %s', escapeshellarg($this->cronRunnerPath), escapeshellarg($jobId));
         $comment = sprintf('HOTTUB:%s:%s:DAILY', $jobId, $actionLabel);
 
-        // Use cronTime override if provided, otherwise use display time
-        $actualCronTime = $cronTime ?? $time;
-        $actualHasTimezoneOffset = preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $actualCronTime);
-
-        if ($actualHasTimezoneOffset) {
-            // Use CronSchedulingService for correct timezone conversion
-            $this->cronSchedulingService->scheduleDaily($actualCronTime, $command, $comment);
+        if ($timezone !== null) {
+            // DST-safe: use IANA timezone for cron scheduling
+            $actualCronTime = $cronTime ?? $time;
+            $cronTimeStr = preg_match('/^\d{2}:\d{2}$/', $actualCronTime) ? $actualCronTime : substr($actualCronTime, 0, 5);
+            $this->cronSchedulingService->scheduleDailyInTimezone($cronTimeStr, $timezone, $command, $comment);
         } else {
-            // Legacy bare HH:MM format - schedule directly (assumes server timezone)
-            $cronExpression = $this->formatDailyCronFromTime($actualCronTime);
-            $this->crontabAdapter->addEntry(sprintf('%s %s # %s', $cronExpression, $command, $comment));
+            // Legacy path
+            $actualCronTime = $cronTime ?? $time;
+            $actualHasTimezoneOffset = preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $actualCronTime);
+
+            if ($actualHasTimezoneOffset) {
+                $this->cronSchedulingService->scheduleDaily($actualCronTime, $command, $comment);
+            } else {
+                $cronExpression = $this->formatDailyCronFromTime($actualCronTime);
+                $this->crontabAdapter->addEntry(sprintf('%s %s # %s', $cronExpression, $command, $comment));
+            }
         }
 
         return [
@@ -324,6 +341,11 @@ class SchedulerService
                     'createdAt' => $jobData['createdAt'] ?? '',
                     'recurring' => $jobData['recurring'] ?? false,
                 ];
+
+                // Include IANA timezone for DST-safe display
+                if (isset($jobData['timezone'])) {
+                    $job['timezone'] = $jobData['timezone'];
+                }
 
                 // Include action-specific parameters (e.g., target_temp_f for heat-to-target)
                 if (isset($jobData['params']) && is_array($jobData['params'])) {
@@ -521,6 +543,45 @@ class SchedulerService
             return null;
         }
         return json_decode($content, true);
+    }
+
+    /**
+     * Update the target temperature for a heat-to-target job.
+     *
+     * @param string $jobId The job ID to update
+     * @param float $targetTempF New target temperature in Fahrenheit
+     * @return array Updated job data
+     * @throws InvalidArgumentException If job not found, not heat-to-target, or temp out of range
+     */
+    public function updateJobTargetTemp(string $jobId, float $targetTempF): array
+    {
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+
+        if (!file_exists($jobFile)) {
+            throw new InvalidArgumentException('Job not found: ' . $jobId);
+        }
+
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        if (($jobData['action'] ?? '') !== 'heat-to-target') {
+            throw new InvalidArgumentException('Can only update target temperature for heat-to-target jobs');
+        }
+
+        if ($targetTempF < TargetTemperatureService::MIN_TARGET_TEMP_F
+            || $targetTempF > TargetTemperatureService::MAX_TARGET_TEMP_F
+        ) {
+            throw new InvalidArgumentException(sprintf(
+                'Target temperature must be between %.0f and %.0f°F',
+                TargetTemperatureService::MIN_TARGET_TEMP_F,
+                TargetTemperatureService::MAX_TARGET_TEMP_F
+            ));
+        }
+
+        $jobData['params'] = array_merge($jobData['params'] ?? [], ['target_temp_f' => $targetTempF]);
+
+        file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        return $jobData;
     }
 
     /**

@@ -28,8 +28,11 @@ test.describe('Scheduler Integration', () => {
 		// Wait for redirect to main page
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
-		// Clean up any existing scheduled jobs from previous test runs
-		const cancelButtons = page.locator('ul li button:has-text("Cancel")');
+		// Wait for all initial data to load (including job list)
+		await page.waitForLoadState('networkidle');
+
+		// Clean up any existing scheduled jobs (both recurring and one-off) from previous test runs
+		const cancelButtons = page.locator('button:has-text("Cancel")');
 		let count = await cancelButtons.count();
 		while (count > 0) {
 			await cancelButtons.first().click({ force: true });
@@ -105,7 +108,7 @@ test.describe('Scheduler Integration', () => {
 		await jobItem.locator('button:has-text("Cancel")').click({ force: true });
 
 		// Verify DELETE was called
-		await page.waitForTimeout(500);
+		await page.waitForLoadState('networkidle');
 		expect(deleteCallMade).toBe(true);
 
 		// Verify job is removed from UI
@@ -165,7 +168,6 @@ test.describe('Scheduler Integration', () => {
 			await page.fill('#time', `${10 + i}:00`);
 			await page.click('button:has-text("Schedule")', { force: true });
 			await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
-			await page.waitForTimeout(300);
 		}
 
 		// Verify all labels appear correctly
@@ -206,19 +208,20 @@ test.describe('Scheduler Integration', () => {
 		await page.fill('#time', '18:00'); // Later
 		await page.click('button:has-text("Schedule")', { force: true });
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
-		await page.waitForTimeout(300);
+
+		// Wait for first success message to disappear so second scheduling has distinct confirmation
+		await expect(page.locator('text=Job scheduled successfully')).not.toBeVisible({ timeout: 5000 });
 
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#date', dateStr);
 		await page.fill('#time', '08:00'); // Earlier
 		await page.click('button:has-text("Schedule")', { force: true });
 		await expect(page.locator('text=Job scheduled successfully')).toBeVisible({ timeout: 5000 });
-		await page.waitForTimeout(300);
+		await page.waitForLoadState('networkidle');
 
 		// Verify the first job in the list is the earlier one (Heater ON at 08:00)
-		const firstJobText = await page.locator('ul li').first().textContent();
-		expect(firstJobText).toContain('Heater ON');
-		expect(firstJobText).toContain('8:00');
+		await expect(page.locator('ul li').first()).toContainText('Heater ON');
+		await expect(page.locator('ul li').first()).toContainText('8:00');
 
 		// Clean up
 		await page.locator('ul li button:has-text("Cancel")').first().click({ force: true });

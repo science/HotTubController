@@ -1101,6 +1101,106 @@ class SchedulerServiceTest extends TestCase
         $this->assertStringContainsString('HOTTUB:', $entries[0]);
     }
 
+    // ========== IANA Timezone Scheduling (DST-safe) ==========
+
+    public function testRecurringJobWithTimezoneStoresBareTimeAndTimezone(): void
+    {
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter
+        );
+
+        $result = $scheduler->scheduleJob(
+            'heater-on', '06:30',
+            recurring: true,
+            timezone: 'America/Los_Angeles'
+        );
+
+        // scheduledTime should be bare HH:MM (not UTC-converted)
+        $this->assertEquals('06:30', $result['scheduledTime']);
+
+        // Job file should contain timezone field
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+        $this->assertEquals('America/Los_Angeles', $jobData['timezone']);
+        $this->assertEquals('06:30', $jobData['scheduledTime']);
+    }
+
+    public function testRecurringJobWithTimezoneUsesScheduleDailyInTimezone(): void
+    {
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter
+        );
+
+        $scheduler->scheduleJob(
+            'heater-on', '06:30',
+            recurring: true,
+            timezone: 'America/Los_Angeles'
+        );
+
+        $entries = $this->crontabAdapter->listEntries();
+        $this->assertCount(1, $entries);
+
+        // Verify cron expression matches IANA-based conversion
+        $systemTz = \HotTub\Services\TimeConverter::getSystemTimezone();
+        $dt = new \DateTime('today 06:30:00', new \DateTimeZone('America/Los_Angeles'));
+        $dt->setTimezone(new \DateTimeZone($systemTz));
+        $expectedMinute = (int) $dt->format('i');
+        $expectedHour = (int) $dt->format('G');
+
+        $this->assertMatchesRegularExpression(
+            "/^$expectedMinute\s+$expectedHour\s+\*\s+\*\s+\*/",
+            $entries[0],
+            "Cron should use IANA timezone conversion"
+        );
+    }
+
+    public function testListJobsIncludesTimezoneField(): void
+    {
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter
+        );
+
+        $scheduler->scheduleJob(
+            'heater-on', '06:30',
+            recurring: true,
+            timezone: 'America/Los_Angeles'
+        );
+
+        $jobs = $scheduler->listJobs();
+        $this->assertCount(1, $jobs);
+        $this->assertEquals('America/Los_Angeles', $jobs[0]['timezone']);
+    }
+
+    public function testLegacyJobWithoutTimezoneStillWorks(): void
+    {
+        $scheduler = new SchedulerService(
+            $this->jobsDir,
+            $this->cronRunnerPath,
+            $this->apiBaseUrl,
+            $this->crontabAdapter
+        );
+
+        // No timezone parameter — uses legacy offset path
+        $result = $scheduler->scheduleJob('heater-on', '06:30-08:00', recurring: true);
+
+        // Should store as UTC (legacy behavior)
+        $this->assertEquals('14:30:00+00:00', $result['scheduledTime']);
+
+        // Job file should NOT have timezone field
+        $jobFile = $this->jobsDir . '/' . $result['jobId'] . '.json';
+        $jobData = json_decode(file_get_contents($jobFile), true);
+        $this->assertArrayNotHasKey('timezone', $jobData);
+    }
+
     // ========== DST Safety: Healthcheck Must Use System Timezone ==========
 
     /**
@@ -1726,6 +1826,113 @@ class SchedulerServiceTest extends TestCase
             is_dir($path) ? $this->recursiveDeleteDir($path) : unlink($path);
         }
         rmdir($dir);
+    }
+
+    // ========== updateJobTargetTemp Tests ==========
+
+    public function testUpdateJobTargetTempUpdatesFileAndReturnsData(): void
+    {
+        // Create a heat-to-target job
+        $result = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            '2030-12-11T06:30:00',
+            params: ['target_temp_f' => 100.0]
+        );
+        $jobId = $result['jobId'];
+
+        // Update the target temp
+        $updated = $this->scheduler->updateJobTargetTemp($jobId, 105.0);
+
+        // Verify returned data
+        $this->assertEquals(105.0, $updated['params']['target_temp_f']);
+        $this->assertEquals('heat-to-target', $updated['action']);
+
+        // Verify file was updated
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+        $fileData = json_decode(file_get_contents($jobFile), true);
+        $this->assertEquals(105.0, $fileData['params']['target_temp_f']);
+    }
+
+    public function testUpdateJobTargetTempThrowsForNonexistentJob(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Job not found');
+
+        $this->scheduler->updateJobTargetTemp('job-nonexistent', 100.0);
+    }
+
+    public function testUpdateJobTargetTempThrowsForNonHeatToTargetJob(): void
+    {
+        $result = $this->scheduler->scheduleJob('heater-on', '2030-12-11T06:30:00');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('heat-to-target');
+
+        $this->scheduler->updateJobTargetTemp($result['jobId'], 100.0);
+    }
+
+    public function testUpdateJobTargetTempThrowsForTempBelow80(): void
+    {
+        $result = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            '2030-12-11T06:30:00',
+            params: ['target_temp_f' => 100.0]
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->scheduler->updateJobTargetTemp($result['jobId'], 79.0);
+    }
+
+    public function testUpdateJobTargetTempThrowsForTempAbove110(): void
+    {
+        $result = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            '2030-12-11T06:30:00',
+            params: ['target_temp_f' => 100.0]
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->scheduler->updateJobTargetTemp($result['jobId'], 111.0);
+    }
+
+    public function testUpdateJobTargetTempWorksForRecurringJobs(): void
+    {
+        $result = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            '06:30',
+            recurring: true,
+            params: ['target_temp_f' => 100.0]
+        );
+        $jobId = $result['jobId'];
+
+        $updated = $this->scheduler->updateJobTargetTemp($jobId, 108.0);
+
+        $this->assertEquals(108.0, $updated['params']['target_temp_f']);
+
+        // Verify file was updated
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+        $fileData = json_decode(file_get_contents($jobFile), true);
+        $this->assertEquals(108.0, $fileData['params']['target_temp_f']);
+    }
+
+    public function testUpdateJobTargetTempPreservesOtherParams(): void
+    {
+        $result = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            '06:30-08:00',
+            recurring: true,
+            params: ['target_temp_f' => 100.0, 'ready_by_time' => '06:30-08:00']
+        );
+        $jobId = $result['jobId'];
+
+        $updated = $this->scheduler->updateJobTargetTemp($jobId, 105.0);
+
+        // target_temp_f updated
+        $this->assertEquals(105.0, $updated['params']['target_temp_f']);
+        // ready_by_time preserved
+        $this->assertEquals('06:30-08:00', $updated['params']['ready_by_time']);
     }
 
     // ========== Bug Reproduction Test ==========

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTub\Tests\Services;
 
 use HotTub\Services\TimeConverter;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -344,5 +345,124 @@ class TimeConverterTest extends TestCase
         $formatted = $converter->formatTimeUtc($timeWithOffset);
 
         $this->assertEquals('07:30:00+00:00', $formatted);
+    }
+
+    // ========== parseTimeInTimezone Tests (DST-safe IANA timezone) ==========
+
+    /**
+     * Core DST safety test: "6:30 AM America/Los_Angeles" must produce the
+     * same server-timezone time whether we compute it on a winter or summer date.
+     *
+     * This proves IANA timezone conversion is DST-stable, unlike frozen offsets.
+     */
+    public function testParseTimeInTimezoneGivesSameServerTimeAcrossDst(): void
+    {
+        $converter = new TimeConverter();
+        $systemTz = TimeConverter::getSystemTimezone();
+
+        // Compute "06:30 America/Los_Angeles" using winter date
+        $winter = new \DateTime('2030-01-15 06:30:00', new \DateTimeZone('America/Los_Angeles'));
+        $winter->setTimezone(new \DateTimeZone($systemTz));
+
+        // Compute "06:30 America/Los_Angeles" using summer date
+        $summer = new \DateTime('2030-07-15 06:30:00', new \DateTimeZone('America/Los_Angeles'));
+        $summer->setTimezone(new \DateTimeZone($systemTz));
+
+        // Both should give the same server-local hour:minute
+        $this->assertEquals(
+            $winter->format('H:i'),
+            $summer->format('H:i'),
+            "6:30 AM America/Los_Angeles must convert to the same server-local time " .
+            "in both winter and summer (system tz: $systemTz)"
+        );
+
+        // Now verify parseTimeInTimezone gives the same result
+        $result = $converter->parseTimeInTimezone('06:30', 'America/Los_Angeles', toServerTz: true);
+
+        $this->assertEquals(
+            $winter->format('H:i'),
+            $result->format('H:i'),
+            "parseTimeInTimezone should match manual IANA conversion"
+        );
+    }
+
+    /**
+     * Contrast test: frozen offsets give DIFFERENT server-timezone times.
+     * This demonstrates the bug that parseTimeInTimezone fixes.
+     */
+    public function testFrozenOffsetsGiveDifferentServerTimesAcrossDst(): void
+    {
+        $converter = new TimeConverter();
+
+        // Same wall-clock intent "6:30 AM Pacific" with different frozen offsets
+        $pst = $converter->parseTimeWithOffset('06:30-08:00', toUtc: true);
+        $pdt = $converter->parseTimeWithOffset('06:30-07:00', toUtc: true);
+
+        // These give DIFFERENT UTC times (14:30 vs 13:30) — this is the bug
+        $this->assertNotEquals(
+            $pst->format('H:i'),
+            $pdt->format('H:i'),
+            "Frozen offsets produce different UTC times for same wall-clock intent (this IS the bug)"
+        );
+    }
+
+    public function testParseTimeInTimezoneConvertsToUtc(): void
+    {
+        $converter = new TimeConverter();
+
+        $utc = $converter->parseTimeInTimezone('06:30', 'America/Los_Angeles', toUtc: true);
+
+        $this->assertEquals('UTC', $utc->getTimezone()->getName());
+
+        // Manually compute expected UTC for today
+        $expected = new \DateTime('today 06:30:00', new \DateTimeZone('America/Los_Angeles'));
+        $expected->setTimezone(new \DateTimeZone('UTC'));
+
+        $this->assertEquals($expected->format('H:i'), $utc->format('H:i'));
+    }
+
+    public function testParseTimeInTimezoneReturnsInUserTimezone(): void
+    {
+        $converter = new TimeConverter();
+
+        // Without any conversion flags, should return in the specified timezone
+        $result = $converter->parseTimeInTimezone('06:30', 'America/Los_Angeles');
+
+        $this->assertEquals(6, (int) $result->format('G'));
+        $this->assertEquals(30, (int) $result->format('i'));
+        $this->assertEquals('America/Los_Angeles', $result->getTimezone()->getName());
+    }
+
+    public function testParseTimeInTimezoneRejectsInvalidTimezone(): void
+    {
+        $converter = new TimeConverter();
+
+        $this->expectException(InvalidArgumentException::class);
+        $converter->parseTimeInTimezone('06:30', 'Invalid/Timezone');
+    }
+
+    public function testParseTimeInTimezoneRejectsInvalidTimeFormat(): void
+    {
+        $converter = new TimeConverter();
+
+        $this->expectException(InvalidArgumentException::class);
+        $converter->parseTimeInTimezone('6:30', 'America/Los_Angeles'); // missing leading zero
+    }
+
+    public function testParseTimeInTimezoneHandlesVariousTimezones(): void
+    {
+        $converter = new TimeConverter();
+
+        // Eastern
+        $eastern = $converter->parseTimeInTimezone('06:30', 'America/New_York', toUtc: true);
+        $expectedEastern = new \DateTime('today 06:30:00', new \DateTimeZone('America/New_York'));
+        $expectedEastern->setTimezone(new \DateTimeZone('UTC'));
+        $this->assertEquals($expectedEastern->format('H:i'), $eastern->format('H:i'));
+
+        // Honolulu (no DST)
+        $hawaii = $converter->parseTimeInTimezone('06:30', 'Pacific/Honolulu', toUtc: true);
+        $expectedHawaii = new \DateTime('today 06:30:00', new \DateTimeZone('Pacific/Honolulu'));
+        $expectedHawaii->setTimezone(new \DateTimeZone('UTC'));
+        $this->assertEquals($expectedHawaii->format('H:i'), $hawaii->format('H:i'));
     }
 }

@@ -17,7 +17,10 @@ import {
 	getHeatButtonLabel,
 	getHeatButtonTooltip,
 	getMinTempF,
-	getMaxTempF
+	getMaxTempF,
+	getStallGracePeriodMinutes,
+	getStallTimeoutMinutes,
+	getLastStallEvent
 } from './heatTargetSettings.svelte';
 import { api } from '$lib/api';
 
@@ -195,7 +198,7 @@ describe('heatTargetSettings store', () => {
 
 			await updateSettings(true, 106);
 
-			expect(api.updateHeatTargetSettings).toHaveBeenCalledWith(true, 106, undefined, undefined);
+			expect(api.updateHeatTargetSettings).toHaveBeenCalledWith(true, 106, undefined, undefined, undefined, undefined);
 		});
 
 		it('updates local state on success', async () => {
@@ -219,6 +222,93 @@ describe('heatTargetSettings store', () => {
 		it('returns correct min/max temperatures', () => {
 			expect(getMinTempF()).toBe(80);
 			expect(getMaxTempF()).toBe(110);
+		});
+	});
+
+	describe('stall detection settings', () => {
+		it('returns default stall grace period', () => {
+			expect(getStallGracePeriodMinutes()).toBe(15);
+		});
+
+		it('returns default stall timeout', () => {
+			expect(getStallTimeoutMinutes()).toBe(5);
+		});
+
+		it('initializes stall settings from health response', () => {
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				heatTargetSettings: {
+					enabled: true,
+					target_temp_f: 105,
+					timezone: 'America/Los_Angeles',
+					stall_grace_period_minutes: 20,
+					stall_timeout_minutes: 10
+				}
+			});
+
+			expect(getStallGracePeriodMinutes()).toBe(20);
+			expect(getStallTimeoutMinutes()).toBe(10);
+		});
+
+		it('returns null lastStallEvent by default', () => {
+			expect(getLastStallEvent()).toBeNull();
+		});
+
+		it('initializes lastStallEvent from health response', () => {
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				lastStallEvent: {
+					timestamp: '2026-02-11T12:00:00Z',
+					current_temp_f: 92.3,
+					target_temp_f: 103,
+					reason: 'Temperature stalled'
+				}
+			});
+
+			const event = getLastStallEvent();
+			expect(event).not.toBeNull();
+			expect(event?.current_temp_f).toBe(92.3);
+			expect(event?.target_temp_f).toBe(103);
+		});
+
+		it('clears lastStallEvent when health response has none', () => {
+			// First set a stall event
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				lastStallEvent: {
+					timestamp: '2026-02-11T12:00:00Z',
+					current_temp_f: 92.3,
+					target_temp_f: 103,
+					reason: 'Temperature stalled'
+				}
+			});
+			expect(getLastStallEvent()).not.toBeNull();
+
+			// Then reset without stall event
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				}
+			});
+			expect(getLastStallEvent()).toBeNull();
 		});
 	});
 });

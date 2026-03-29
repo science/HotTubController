@@ -322,6 +322,75 @@ class ScheduleControllerTest extends TestCase
         $this->assertArrayHasKey('error', $response['body']);
     }
 
+    // ========== PUT /api/schedule/{id}/target-temp Tests ==========
+
+    public function testUpdateTargetTempReturns200OnSuccess(): void
+    {
+        $createResponse = $this->controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => '2030-12-11T06:30:00',
+            'target_temp_f' => 100,
+        ]);
+        $jobId = $createResponse['body']['jobId'];
+
+        $response = $this->controller->updateTargetTemp($jobId, ['target_temp_f' => 105]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals(105.0, $response['body']['params']['target_temp_f']);
+    }
+
+    public function testUpdateTargetTempReturns400ForMissingField(): void
+    {
+        $createResponse = $this->controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => '2030-12-11T06:30:00',
+            'target_temp_f' => 100,
+        ]);
+        $jobId = $createResponse['body']['jobId'];
+
+        $response = $this->controller->updateTargetTemp($jobId, []);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
+    public function testUpdateTargetTempReturns400ForNonHeatToTargetJob(): void
+    {
+        $createResponse = $this->controller->create([
+            'action' => 'heater-on',
+            'scheduledTime' => '2030-12-11T06:30:00',
+        ]);
+        $jobId = $createResponse['body']['jobId'];
+
+        $response = $this->controller->updateTargetTemp($jobId, ['target_temp_f' => 105]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
+    public function testUpdateTargetTempReturns404ForNonexistentJob(): void
+    {
+        $response = $this->controller->updateTargetTemp('job-nonexistent', ['target_temp_f' => 105]);
+
+        $this->assertEquals(404, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
+    public function testUpdateTargetTempReturns400ForOutOfRangeTemp(): void
+    {
+        $createResponse = $this->controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => '2030-12-11T06:30:00',
+            'target_temp_f' => 100,
+        ]);
+        $jobId = $createResponse['body']['jobId'];
+
+        $response = $this->controller->updateTargetTemp($jobId, ['target_temp_f' => 120]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
     // ========== DTDT Ready-By Integration Tests ==========
 
     public function testScheduleControllerUsesReadyByMode(): void

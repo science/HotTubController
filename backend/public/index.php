@@ -145,6 +145,9 @@ $apiBaseUrl = $protocol . '://' . $host . $scriptDir;
 $crontabBackupService = new CrontabBackupService($crontabBackupDir);
 $crontabAdapter = new CrontabAdapter($crontabBackupService);
 
+// Path for stall event file (used by health endpoint and target temperature service)
+$stallEventFile = __DIR__ . '/../storage/state/last-stall-event.json';
+
 // Create target temperature service and controller
 // (for automated heating to target temperature)
 $targetTempStateFile = __DIR__ . '/../storage/state/target-temperature.json';
@@ -156,7 +159,11 @@ $targetTemperatureService = new TargetTemperatureService(
     $crontabAdapter,
     $cronRunnerPath,
     $apiBaseUrl,
-    $esp32SensorConfigService
+    $esp32SensorConfigService,
+    null, // CronSchedulingService (auto-created from crontabAdapter)
+    $heatTargetSettingsService,
+    $stallEventFile,
+    $equipmentEventLogFile
 );
 $targetTemperatureController = new TargetTemperatureController($targetTemperatureService);
 
@@ -234,7 +241,7 @@ $requireAdmin = fn() => $authMiddleware->requireAdmin($headers, $cookies);
 $router = new Router();
 
 // Public routes
-$router->get('/api/health', function() use ($equipmentController, $blindsController, $heatTargetSettingsService) {
+$router->get('/api/health', function() use ($equipmentController, $blindsController, $heatTargetSettingsService, $stallEventFile) {
     $response = $equipmentController->health();
     $response['body']['blindsEnabled'] = $blindsController->isEnabled();
     $response['body']['heatTargetSettings'] = [
@@ -242,7 +249,16 @@ $router->get('/api/health', function() use ($equipmentController, $blindsControl
         'target_temp_f' => $heatTargetSettingsService->getTargetTempF(),
         'timezone' => $heatTargetSettingsService->getTimezone(),
         'schedule_mode' => $heatTargetSettingsService->getScheduleMode(),
+        'stall_grace_period_minutes' => $heatTargetSettingsService->getStallGracePeriodMinutes(),
+        'stall_timeout_minutes' => $heatTargetSettingsService->getStallTimeoutMinutes(),
     ];
+    // Include last stall event if it exists
+    if (file_exists($stallEventFile)) {
+        $stallData = json_decode(file_get_contents($stallEventFile), true);
+        if (is_array($stallData)) {
+            $response['body']['lastStallEvent'] = $stallData;
+        }
+    }
     return $response;
 });
 
@@ -284,6 +300,7 @@ $router->put('/api/settings/heat-target', fn() => handleHeatTargetSettingsUpdate
 $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireAuth);
 $router->get('/api/schedule', fn() => $scheduleController->list(), $requireAuth);
 $router->delete('/api/schedule/{id}', fn($params) => $scheduleController->cancel($params['id']), $requireAuth);
+$router->put('/api/schedule/{id}/target-temp', fn($params) => handleScheduleUpdateTargetTemp($scheduleController, $params['id']), $requireAuth);
 $router->post('/api/schedule/{id}/skip', fn($params) => $scheduleController->skip($params['id']), $requireAuth);
 $router->delete('/api/schedule/{id}/skip', fn($params) => $scheduleController->unskip($params['id']), $requireAuth);
 
@@ -443,6 +460,12 @@ function handleHeatTargetSettingsUpdate(HeatTargetSettingsController $controller
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->update($input);
+}
+
+function handleScheduleUpdateTargetTemp(ScheduleController $controller, string $jobId): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->updateTargetTemp($jobId, $input);
 }
 
 function handleDtdtWakeUp(DtdtService $dtdtService): array

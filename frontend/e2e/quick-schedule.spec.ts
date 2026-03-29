@@ -27,8 +27,11 @@ test.describe('Quick Schedule Feature', () => {
 		await page.reload();
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
-		// Clean up any existing scheduled jobs from previous test runs
-		const cancelButtons = page.locator('ul li button:has-text("Cancel")');
+		// Wait for all initial data to load (including job list)
+		await page.waitForLoadState('networkidle');
+
+		// Clean up any existing scheduled jobs (both recurring and one-off) from previous test runs
+		const cancelButtons = page.locator('button:has-text("Cancel")');
 		let count = await cancelButtons.count();
 		while (count > 0) {
 			await cancelButtons.first().click({ force: true });

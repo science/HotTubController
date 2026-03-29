@@ -35,6 +35,8 @@ class HeatTargetSettingsController
                 'target_temp_f' => $settings['target_temp_f'],
                 'timezone' => $settings['timezone'],
                 'schedule_mode' => $settings['schedule_mode'],
+                'stall_grace_period_minutes' => $settings['stall_grace_period_minutes'],
+                'stall_timeout_minutes' => $settings['stall_timeout_minutes'],
             ],
         ];
     }
@@ -84,6 +86,16 @@ class HeatTargetSettingsController
             if (isset($data['schedule_mode']) && is_string($data['schedule_mode'])) {
                 $this->settingsService->updateScheduleMode($data['schedule_mode']);
             }
+
+            if (isset($data['stall_grace_period_minutes']) || isset($data['stall_timeout_minutes'])) {
+                $gracePeriod = isset($data['stall_grace_period_minutes']) && is_numeric($data['stall_grace_period_minutes'])
+                    ? (int) $data['stall_grace_period_minutes']
+                    : $this->settingsService->getStallGracePeriodMinutes();
+                $timeout = isset($data['stall_timeout_minutes']) && is_numeric($data['stall_timeout_minutes'])
+                    ? (int) $data['stall_timeout_minutes']
+                    : $this->settingsService->getStallTimeoutMinutes();
+                $this->settingsService->updateStallSettings($gracePeriod, $timeout);
+            }
         } catch (\InvalidArgumentException $e) {
             return [
                 'status' => 400,
@@ -100,6 +112,8 @@ class HeatTargetSettingsController
                 'target_temp_f' => $settings['target_temp_f'],
                 'timezone' => $settings['timezone'],
                 'schedule_mode' => $settings['schedule_mode'],
+                'stall_grace_period_minutes' => $settings['stall_grace_period_minutes'],
+                'stall_timeout_minutes' => $settings['stall_timeout_minutes'],
                 'message' => 'Settings updated',
             ],
         ];

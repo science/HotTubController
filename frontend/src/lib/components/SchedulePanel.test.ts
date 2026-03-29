@@ -12,6 +12,7 @@ vi.mock('$lib/api', () => ({
 		cancelScheduledJob: vi.fn(),
 		skipScheduledJob: vi.fn(),
 		unskipScheduledJob: vi.fn(),
+		updateScheduledJobTemp: vi.fn(),
 	},
 }));
 
@@ -46,7 +47,8 @@ vi.mock('$lib/config', () => ({
 // Mock heatTargetSettings store
 vi.mock('$lib/stores/heatTargetSettings.svelte', () => ({
 	getEnabled: vi.fn(() => false),
-	getTargetTempF: vi.fn(() => 103)
+	getTargetTempF: vi.fn(() => 103),
+	getTimezone: vi.fn(() => 'America/Los_Angeles')
 }));
 
 describe('SchedulePanel auto-refresh', () => {
@@ -374,13 +376,14 @@ describe('SchedulePanel recurring job timezone', () => {
 		vi.mocked(autoHeatOff.getAutoHeatOffEnabled).mockReturnValue(false);
 	});
 
-	it('sends timezone offset with recurring job time', async () => {
+	it('sends bare time with IANA timezone for recurring job', async () => {
 		vi.mocked(api.scheduleJob).mockResolvedValue({
 			jobId: 'rec-123',
 			action: 'heater-on',
-			scheduledTime: '14:30:00+00:00', // UTC time returned from backend
+			scheduledTime: '06:30',
 			createdAt: '2024-12-10T10:00:00+00:00',
-			recurring: true
+			recurring: true,
+			timezone: 'America/Los_Angeles'
 		});
 
 		render(SchedulePanel);
@@ -405,14 +408,82 @@ describe('SchedulePanel recurring job timezone', () => {
 			expect(api.scheduleJob).toHaveBeenCalledTimes(1);
 		});
 
-		// The time should include timezone offset (e.g., "06:30-08:00" for PST)
-		// We can't know the exact offset since it depends on the test environment,
-		// but we verify the format includes an offset
-		const [action, time, recurring] = vi.mocked(api.scheduleJob).mock.calls[0];
+		// Should send bare time (no offset) + IANA timezone
+		const [action, time, recurring, params, timezone] = vi.mocked(api.scheduleJob).mock.calls[0];
 		expect(action).toBe('heater-on');
 		expect(recurring).toBe(true);
-		// Time should match pattern HH:MM+HH:MM or HH:MM-HH:MM
-		expect(time).toMatch(/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+		// Time should be bare HH:MM (no offset appended)
+		expect(time).toMatch(/^\d{2}:\d{2}$/);
+		expect(time).not.toMatch(/[+-]\d{2}:\d{2}$/);
+		// Timezone should be the IANA name from the settings store
+		expect(timezone).toBe('America/Los_Angeles');
+	});
+});
+
+describe('SchedulePanel DST-safe recurring time display', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('displays bare HH:MM time directly for new IANA timezone format', async () => {
+		// New format: scheduledTime is bare "06:30", timezone is IANA name
+		// The display should show "6:30 AM" directly (no UTC conversion needed)
+		const mockJobs = {
+			jobs: [{
+				jobId: 'rec-iana-test',
+				action: 'heat-to-target',
+				scheduledTime: '06:30',
+				createdAt: '2026-03-15T00:00:00Z',
+				recurring: true,
+				timezone: 'America/Los_Angeles',
+				params: { target_temp_f: 102.25, ready_by_time: '06:30', timezone: 'America/Los_Angeles' }
+			}]
+		};
+
+		vi.mocked(api.listScheduledJobs).mockResolvedValue(mockJobs);
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			const dailyText = screen.getByText((content) =>
+				content.includes('Daily at') && content.includes('6:30 AM')
+			);
+			expect(dailyText).toBeTruthy();
+		});
+	});
+
+	it('displays legacy UTC time using today date for correct DST offset', async () => {
+		// Legacy format: scheduledTime is UTC "13:30:00+00:00"
+		// The fix uses today's date instead of hardcoded 2030-01-01
+		const utcTimeString = '13:30:00+00:00';
+
+		const today = new Date();
+		const todayStr = today.toISOString().split('T')[0];
+		const correctDate = new Date(`${todayStr}T${utcTimeString}`);
+		const expectedTimeStr = correctDate.toLocaleTimeString(undefined, {
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+
+		const mockJobs = {
+			jobs: [{
+				jobId: 'rec-legacy-test',
+				action: 'heat-to-target',
+				scheduledTime: utcTimeString,
+				createdAt: '2026-03-15T00:00:00Z',
+				recurring: true,
+				params: { target_temp_f: 102.25, ready_by_time: '06:30-07:00' }
+			}]
+		};
+
+		vi.mocked(api.listScheduledJobs).mockResolvedValue(mockJobs);
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			const dailyText = screen.getByText((content) =>
+				content.includes('Daily at') && content.includes(expectedTimeStr)
+			);
+			expect(dailyText).toBeTruthy();
+		});
 	});
 });
 
@@ -1252,5 +1323,173 @@ describe('SchedulePanel skip/unskip', () => {
 			expect(api.unskipScheduledJob).toHaveBeenCalledWith('rec-unskip1');
 			expect(api.listScheduledJobs).toHaveBeenCalled();
 		});
+	});
+});
+
+describe('SchedulePanel inline temperature editing', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('shows editable temperature for heat-to-target jobs', async () => {
+		const now = new Date();
+		const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'job-edit1',
+					action: 'heat-to-target',
+					scheduledTime: tomorrow.toISOString(),
+					createdAt: now.toISOString(),
+					recurring: false,
+					params: { target_temp_f: 103 },
+				},
+			],
+		});
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			const editBtn = screen.getByTestId('editable-temp');
+			expect(editBtn).toBeTruthy();
+			expect(editBtn.textContent).toContain('Heat to 103°F');
+		});
+	});
+
+	it('enters edit mode on click', async () => {
+		const now = new Date();
+		const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'job-edit2',
+					action: 'heat-to-target',
+					scheduledTime: tomorrow.toISOString(),
+					createdAt: now.toISOString(),
+					recurring: false,
+					params: { target_temp_f: 103 },
+				},
+			],
+		});
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('editable-temp')).toBeTruthy();
+		});
+
+		await fireEvent.click(screen.getByTestId('editable-temp'));
+
+		await waitFor(() => {
+			const input = screen.getByTestId('edit-temp-input') as HTMLInputElement;
+			expect(input).toBeTruthy();
+			expect(input.value).toBe('103');
+		});
+	});
+
+	it('saves on Enter and verifies API called', async () => {
+		const now = new Date();
+		const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'job-edit3',
+					action: 'heat-to-target',
+					scheduledTime: tomorrow.toISOString(),
+					createdAt: now.toISOString(),
+					recurring: false,
+					params: { target_temp_f: 103 },
+				},
+			],
+		});
+		vi.mocked(api.updateScheduledJobTemp).mockResolvedValue({
+			jobId: 'job-edit3',
+			action: 'heat-to-target',
+			scheduledTime: tomorrow.toISOString(),
+			createdAt: now.toISOString(),
+			recurring: false,
+			params: { target_temp_f: 106 },
+		});
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('editable-temp')).toBeTruthy();
+		});
+
+		await fireEvent.click(screen.getByTestId('editable-temp'));
+
+		await waitFor(() => {
+			expect(screen.getByTestId('edit-temp-input')).toBeTruthy();
+		});
+
+		const input = screen.getByTestId('edit-temp-input') as HTMLInputElement;
+		await fireEvent.input(input, { target: { value: '106' } });
+		await fireEvent.keyDown(input, { key: 'Enter' });
+
+		await waitFor(() => {
+			expect(api.updateScheduledJobTemp).toHaveBeenCalledWith('job-edit3', 106);
+		});
+	});
+
+	it('cancels on Escape', async () => {
+		const now = new Date();
+		const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'job-edit4',
+					action: 'heat-to-target',
+					scheduledTime: tomorrow.toISOString(),
+					createdAt: now.toISOString(),
+					recurring: false,
+					params: { target_temp_f: 103 },
+				},
+			],
+		});
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByTestId('editable-temp')).toBeTruthy();
+		});
+
+		await fireEvent.click(screen.getByTestId('editable-temp'));
+
+		await waitFor(() => {
+			expect(screen.getByTestId('edit-temp-input')).toBeTruthy();
+		});
+
+		await fireEvent.keyDown(screen.getByTestId('edit-temp-input'), { key: 'Escape' });
+
+		await waitFor(() => {
+			// Should be back to the button view
+			expect(screen.getByTestId('editable-temp')).toBeTruthy();
+			expect(screen.queryByTestId('edit-temp-input')).toBeNull();
+		});
+	});
+
+	it('does not show edit affordance for non-heat-to-target jobs', async () => {
+		const now = new Date();
+		const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+		vi.mocked(api.listScheduledJobs).mockResolvedValue({
+			jobs: [
+				{
+					jobId: 'job-noedit',
+					action: 'heater-on',
+					scheduledTime: tomorrow.toISOString(),
+					createdAt: now.toISOString(),
+					recurring: false,
+				},
+			],
+		});
+
+		render(SchedulePanel);
+
+		await waitFor(() => {
+			expect(screen.getByText('Heater ON')).toBeTruthy();
+		});
+
+		expect(screen.queryByTestId('editable-temp')).toBeNull();
 	});
 });

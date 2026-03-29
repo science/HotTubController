@@ -21,7 +21,6 @@ test.describe('Auth State Recovery', () => {
 
 		// Visit main page without valid auth
 		await page.goto('/tub/');
-		await page.waitForTimeout(1000);
 
 		// Should redirect to login page, NOT show the dashboard
 		await expect(page).toHaveURL(/\/tub\/login/);
@@ -33,7 +32,6 @@ test.describe('Auth State Recovery', () => {
 
 		// Visit main page directly
 		await page.goto('/tub/');
-		await page.waitForTimeout(1000);
 
 		// Should show login page
 		await expect(page.locator('text=Sign in to continue')).toBeVisible();
@@ -48,7 +46,7 @@ test.describe('Auth State Recovery', () => {
 
 		// Visit main page without auth
 		await page.goto('/tub/');
-		await page.waitForTimeout(1000);
+		await page.waitForLoadState('networkidle');
 
 		// Either we're on login page, OR if on dashboard, we must have logout button
 		const isOnLoginPage = await page.locator('text=Sign in to continue').isVisible();
@@ -66,7 +64,7 @@ test.describe('Auth State Recovery', () => {
 		});
 
 		await page.goto('/tub/');
-		await page.waitForTimeout(1000);
+		await page.waitForLoadState('networkidle');
 
 		// User should have a way to recover - either:
 		// 1. Automatically redirected to login

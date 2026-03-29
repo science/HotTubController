@@ -21,6 +21,9 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
+		// Wait for all initial data to load (including job list)
+		await page.waitForLoadState('networkidle');
+
 		// Clean up ALL existing scheduled jobs (both recurring and one-off) from previous test runs
 		// Loop until no more cancel buttons exist in any section
 		let cancelButtons = page.locator('button:has-text("Cancel")');
@@ -28,14 +31,11 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		let maxAttempts = 20; // Safety limit
 		while (count > 0 && maxAttempts > 0) {
 			await cancelButtons.first().click({ force: true });
-			await page.waitForTimeout(400); // Wait for deletion to complete
+			await page.waitForTimeout(300);
 			cancelButtons = page.locator('button:has-text("Cancel")');
 			count = await cancelButtons.count();
 			maxAttempts--;
 		}
-
-		// Wait a moment to ensure all cleanup is complete
-		await page.waitForTimeout(300);
 	});
 
 	test('create a recurring job and verify it appears in Daily Schedule', async ({ page }) => {
@@ -183,7 +183,7 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		await expect(page.locator('text=Recurring job created')).toBeVisible({ timeout: 10000 });
 
 		// Wait for success message to disappear
-		await page.waitForTimeout(3500);
+		await expect(page.locator('text=Recurring job created')).not.toBeVisible({ timeout: 5000 });
 
 		// Uncheck recurring
 		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });

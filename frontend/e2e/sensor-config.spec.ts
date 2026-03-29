@@ -56,8 +56,11 @@ test.describe('ESP32 Sensor Configuration Panel', () => {
 			const newValue = initialValue === 'water' ? 'ambient' : 'water';
 			await roleSelect.selectOption(newValue);
 
-			// Wait for save to complete (panel might show loading state)
-			await page.waitForTimeout(1000);
+			// Wait for save to complete
+			await page.waitForResponse(response =>
+				response.url().includes('/api/esp32/sensors/') &&
+				response.request().method() === 'PUT'
+			);
 
 			// Verify the dropdown shows new value
 			await expect(roleSelect).toHaveValue(newValue);
@@ -83,9 +86,6 @@ test.describe('ESP32 Sensor Configuration Panel', () => {
 				response.url().includes('/api/esp32/sensors/') &&
 				response.request().method() === 'PUT'
 			);
-
-			// Small delay for UI to update
-			await page.waitForTimeout(500);
 
 			// Verify value changed in UI before reload
 			await expect(roleSelect).toHaveValue(newValue);
@@ -114,7 +114,10 @@ test.describe('ESP32 Sensor Configuration Panel', () => {
 
 			// Restore original value for cleanup
 			await roleSelectAfterReload.selectOption(initialValue);
-			await page.waitForTimeout(1000);
+			await page.waitForResponse(response =>
+				response.url().includes('/api/esp32/sensors/') &&
+				response.request().method() === 'PUT'
+			);
 		});
 	});
 

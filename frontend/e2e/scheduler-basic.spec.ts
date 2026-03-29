@@ -19,8 +19,11 @@ test.describe('Scheduler Basic Flow', () => {
 		await page.press('#password', 'Enter');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
-		// Clean up any existing scheduled jobs from previous test runs
-		const cancelButtons = page.locator('ul li button:has-text("Cancel")');
+		// Wait for all initial data to load (including job list)
+		await page.waitForLoadState('networkidle');
+
+		// Clean up any existing scheduled jobs (both recurring and one-off) from previous test runs
+		const cancelButtons = page.locator('button:has-text("Cancel")');
 		let count = await cancelButtons.count();
 		while (count > 0) {
 			await cancelButtons.first().click({ force: true });
@@ -34,6 +37,50 @@ test.describe('Scheduler Basic Flow', () => {
 
 		// Schedule panel should show "No upcoming jobs" (we cleaned up in beforeEach)
 		await expect(page.locator('text=No upcoming jobs')).toBeVisible();
+	});
+
+	test('edit temperature on a heat-to-target job', async ({ page }) => {
+		// Create a heat-to-target job via API (not available in UI dropdown)
+		const tomorrow = new Date();
+		tomorrow.setDate(tomorrow.getDate() + 1);
+		tomorrow.setHours(10, 30, 0, 0);
+
+		const response = await page.request.post('/tub/backend/public/api/schedule', {
+			data: {
+				action: 'heat-to-target',
+				scheduledTime: tomorrow.toISOString(),
+				target_temp_f: 103,
+			},
+		});
+		expect(response.ok()).toBeTruthy();
+
+		// Refresh the page to pick up the new job
+		await page.reload();
+		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
+		await page.waitForLoadState('networkidle');
+
+		// Verify heat-to-target job appears with editable temp
+		const editableTemp = page.getByTestId('editable-temp');
+		await expect(editableTemp).toBeVisible({ timeout: 10000 });
+		await expect(editableTemp).toContainText('Heat to 103°F');
+
+		// Click to enter edit mode
+		await editableTemp.click();
+
+		// Wait for the input to appear
+		const tempInput = page.getByTestId('edit-temp-input');
+		await expect(tempInput).toBeVisible({ timeout: 5000 });
+
+		// Change the temperature
+		await tempInput.fill('106');
+		await tempInput.press('Enter');
+
+		// Verify the display updates with new temp
+		await expect(page.getByTestId('editable-temp')).toContainText('Heat to 106°F', { timeout: 10000 });
+
+		// Clean up
+		const jobItem = page.locator('ul li').filter({ hasText: 'Heat to 106°F' }).first();
+		await jobItem.locator('button:has-text("Cancel")').click({ force: true });
 	});
 
 	test('schedule and cancel a job', async ({ page }) => {

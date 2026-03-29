@@ -37,7 +37,7 @@ class DtdtService
      * @return array Job data from scheduler
      * @throws \RuntimeException if heating characteristics are not available
      */
-    public function createReadyBySchedule(string $readyByTime, array $params): array
+    public function createReadyBySchedule(string $readyByTime, array $params, ?string $timezone = null): array
     {
         $chars = $this->loadHeatingCharacteristics();
 
@@ -45,16 +45,28 @@ class DtdtService
         $maxHeatMinutes = $this->calculateMaxHeatMinutes($targetTempF, $chars);
 
         // Calculate wake-up time by shifting readyByTime back by maxHeatMinutes
-        $wakeUpTime = $this->shiftTimeBack($readyByTime, (int) ceil($maxHeatMinutes));
+        $wakeUpTime = $this->shiftTimeBack($readyByTime, (int) ceil($maxHeatMinutes), $timezone);
+
+        // For IANA timezone path, store bare time + timezone in params
+        if ($timezone !== null) {
+            $bareTime = preg_match('/^\d{2}:\d{2}$/', $readyByTime) ? $readyByTime : substr($readyByTime, 0, 5);
+            $scheduleParams = array_merge($params, [
+                'ready_by_time' => $bareTime,
+                'timezone' => $timezone,
+            ]);
+        } else {
+            $scheduleParams = array_merge($params, ['ready_by_time' => $readyByTime]);
+        }
 
         // Schedule with the wake-up endpoint and earlier cron time
         return $this->schedulerService->scheduleJob(
             'heat-to-target',
             $readyByTime,                    // display time (ready-by)
             recurring: true,
-            params: array_merge($params, ['ready_by_time' => $readyByTime]),
+            params: $scheduleParams,
             endpointOverride: '/api/maintenance/dtdt-wakeup',
-            cronTime: $wakeUpTime            // actual cron fire time
+            cronTime: $wakeUpTime,           // actual cron fire time
+            timezone: $timezone
         );
     }
 
@@ -71,13 +83,14 @@ class DtdtService
     {
         $readyByTime = $params['ready_by_time'] ?? null;
         $targetTempF = (float) ($params['target_temp_f'] ?? 103.0);
+        $timezone = $params['timezone'] ?? null;
 
         if ($readyByTime === null) {
             return ['error' => 'Missing ready_by_time parameter'];
         }
 
         // Convert ready_by_time to today's Unix timestamp (next occurrence)
-        $readyByTimestamp = $this->resolveNextOccurrence($readyByTime);
+        $readyByTimestamp = $this->resolveNextOccurrence($readyByTime, $timezone);
         $now = time();
 
         // Try to read current temperature
@@ -215,9 +228,17 @@ class DtdtService
      * @param int $minutes Minutes to shift back
      * @return string Shifted time in same format
      */
-    private function shiftTimeBack(string $time, int $minutes): string
+    private function shiftTimeBack(string $time, int $minutes, ?string $timezone = null): string
     {
-        // Parse HH:MM+/-HH:MM format
+        if ($timezone !== null) {
+            // DST-safe path: use IANA timezone with today's date
+            $bareTime = preg_match('/^\d{2}:\d{2}$/', $time) ? $time : substr($time, 0, 5);
+            $dt = new \DateTime("today {$bareTime}:00", new \DateTimeZone($timezone));
+            $dt->modify("-{$minutes} minutes");
+            return $dt->format('H:i');
+        }
+
+        // Legacy path: parse HH:MM+/-HH:MM format
         if (!preg_match('/^(\d{2}):(\d{2})([+-]\d{2}:\d{2})$/', $time, $m)) {
             throw new \InvalidArgumentException("Invalid time format: {$time}");
         }
@@ -226,32 +247,45 @@ class DtdtService
         $minute = (int) $m[2];
         $offset = $m[3];
 
-        // Use a reference date for arithmetic
         $dt = new \DateTime("2030-01-01T{$hour}:{$minute}:00{$offset}");
         $dt->modify("-{$minutes} minutes");
 
-        // Extract HH:MM in the same offset
         return $dt->format('H:i') . $offset;
     }
 
     /**
-     * Resolve a time-with-offset to the next occurrence as a Unix timestamp.
+     * Resolve a time to the next occurrence as a Unix timestamp.
+     *
+     * When timezone is provided, uses IANA timezone for DST-safe resolution.
+     * Otherwise falls back to frozen offset parsing (legacy).
      */
-    private function resolveNextOccurrence(string $timeWithOffset): int
+    private function resolveNextOccurrence(string $time, ?string $timezone = null): int
     {
-        if (!preg_match('/^(\d{2}):(\d{2})([+-]\d{2}:\d{2})$/', $timeWithOffset, $m)) {
-            throw new \InvalidArgumentException("Invalid time format: {$timeWithOffset}");
+        if ($timezone !== null) {
+            // DST-safe: use IANA timezone with today's date
+            $bareTime = preg_match('/^\d{2}:\d{2}$/', $time) ? $time : substr($time, 0, 5);
+            $tz = new \DateTimeZone($timezone);
+            $candidate = new \DateTime("today {$bareTime}:00", $tz);
+
+            if ($candidate->getTimestamp() <= time()) {
+                $candidate->modify('+1 day');
+            }
+
+            return $candidate->getTimestamp();
+        }
+
+        // Legacy path: parse HH:MM+/-HH:MM format
+        if (!preg_match('/^(\d{2}):(\d{2})([+-]\d{2}:\d{2})$/', $time, $m)) {
+            throw new \InvalidArgumentException("Invalid time format: {$time}");
         }
 
         $hour = (int) $m[1];
         $minute = (int) $m[2];
         $offset = $m[3];
 
-        // Build today's timestamp at that time
         $today = new \DateTime('now', new \DateTimeZone('UTC'));
         $candidate = new \DateTime($today->format('Y-m-d') . "T{$hour}:{$minute}:00{$offset}");
 
-        // If it's in the past, use tomorrow
         if ($candidate->getTimestamp() <= time()) {
             $candidate->modify('+1 day');
         }
