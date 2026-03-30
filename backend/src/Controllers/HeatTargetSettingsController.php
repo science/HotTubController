@@ -37,6 +37,8 @@ class HeatTargetSettingsController
                 'schedule_mode' => $settings['schedule_mode'],
                 'stall_grace_period_minutes' => $settings['stall_grace_period_minutes'],
                 'stall_timeout_minutes' => $settings['stall_timeout_minutes'],
+                'dynamic_mode' => $settings['dynamic_mode'],
+                'calibration_points' => $settings['calibration_points'],
             ],
         ];
     }
@@ -96,6 +98,30 @@ class HeatTargetSettingsController
                     : $this->settingsService->getStallTimeoutMinutes();
                 $this->settingsService->updateStallSettings($gracePeriod, $timeout);
             }
+
+            if (isset($data['dynamic_mode']) || isset($data['calibration_points'])) {
+                if (isset($data['dynamic_mode']) && !is_bool($data['dynamic_mode'])) {
+                    return [
+                        'status' => 400,
+                        'body' => ['error' => 'dynamic_mode must be a boolean'],
+                    ];
+                }
+                if (isset($data['calibration_points']) && !is_array($data['calibration_points'])) {
+                    return [
+                        'status' => 400,
+                        'body' => ['error' => 'calibration_points must be an object'],
+                    ];
+                }
+
+                $dynamicMode = isset($data['dynamic_mode'])
+                    ? (bool) $data['dynamic_mode']
+                    : $this->settingsService->isDynamicMode();
+                $calibrationPoints = isset($data['calibration_points'])
+                    ? $data['calibration_points']
+                    : $this->settingsService->getCalibrationPoints();
+
+                $this->settingsService->updateDynamicSettings($dynamicMode, $calibrationPoints);
+            }
         } catch (\InvalidArgumentException $e) {
             return [
                 'status' => 400,
@@ -114,6 +140,8 @@ class HeatTargetSettingsController
                 'schedule_mode' => $settings['schedule_mode'],
                 'stall_grace_period_minutes' => $settings['stall_grace_period_minutes'],
                 'stall_timeout_minutes' => $settings['stall_timeout_minutes'],
+                'dynamic_mode' => $settings['dynamic_mode'],
+                'calibration_points' => $settings['calibration_points'],
                 'message' => 'Settings updated',
             ],
         ];

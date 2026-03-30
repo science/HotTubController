@@ -1,4 +1,4 @@
-import { api, type HeatTargetSettings, type HealthResponse, type LastStallEvent } from '$lib/api';
+import { api, type CalibrationPoints, type HeatTargetSettings, type HealthResponse, type LastStallEvent } from '$lib/api';
 
 /**
  * Store for shared heat-target settings from the backend.
@@ -18,6 +18,12 @@ const DEFAULT_TIMEZONE = 'America/Los_Angeles';
 const DEFAULT_SCHEDULE_MODE = 'start_at' as const;
 const DEFAULT_STALL_GRACE_PERIOD_MINUTES = 15;
 const DEFAULT_STALL_TIMEOUT_MINUTES = 5;
+const DEFAULT_DYNAMIC_MODE = false;
+const DEFAULT_CALIBRATION_POINTS: CalibrationPoints = {
+	cold:    { ambient_f: 45.0, water_target_f: 104.0 },
+	comfort: { ambient_f: 60.0, water_target_f: 102.0 },
+	hot:     { ambient_f: 75.0, water_target_f: 100.5 },
+};
 const MIN_TEMP_F = 80.0;
 const MAX_TEMP_F = 110.0;
 
@@ -28,6 +34,8 @@ let timezone = $state(DEFAULT_TIMEZONE);
 let scheduleMode = $state<'start_at' | 'ready_by'>(DEFAULT_SCHEDULE_MODE);
 let stallGracePeriodMinutes = $state(DEFAULT_STALL_GRACE_PERIOD_MINUTES);
 let stallTimeoutMinutes = $state(DEFAULT_STALL_TIMEOUT_MINUTES);
+let dynamicMode = $state(DEFAULT_DYNAMIC_MODE);
+let calibrationPoints = $state<CalibrationPoints>(DEFAULT_CALIBRATION_POINTS);
 let lastStallEvent = $state<LastStallEvent | null>(null);
 let isLoading = $state(false);
 let error = $state<string | null>(null);
@@ -47,6 +55,8 @@ export function initFromHealthResponse(response: HealthResponse): void {
 			response.heatTargetSettings.stall_grace_period_minutes ?? DEFAULT_STALL_GRACE_PERIOD_MINUTES;
 		stallTimeoutMinutes =
 			response.heatTargetSettings.stall_timeout_minutes ?? DEFAULT_STALL_TIMEOUT_MINUTES;
+		dynamicMode = response.heatTargetSettings.dynamic_mode ?? DEFAULT_DYNAMIC_MODE;
+		calibrationPoints = response.heatTargetSettings.calibration_points ?? DEFAULT_CALIBRATION_POINTS;
 	} else {
 		// Reset to defaults when backend doesn't provide settings
 		enabled = DEFAULT_ENABLED;
@@ -55,6 +65,8 @@ export function initFromHealthResponse(response: HealthResponse): void {
 		scheduleMode = DEFAULT_SCHEDULE_MODE;
 		stallGracePeriodMinutes = DEFAULT_STALL_GRACE_PERIOD_MINUTES;
 		stallTimeoutMinutes = DEFAULT_STALL_TIMEOUT_MINUTES;
+		dynamicMode = DEFAULT_DYNAMIC_MODE;
+		calibrationPoints = DEFAULT_CALIBRATION_POINTS;
 	}
 	lastStallEvent = response.lastStallEvent ?? null;
 	initialized = true;
@@ -73,7 +85,9 @@ export async function updateSettings(
 	newTimezone?: string,
 	newScheduleMode?: 'start_at' | 'ready_by',
 	newStallGracePeriodMinutes?: number,
-	newStallTimeoutMinutes?: number
+	newStallTimeoutMinutes?: number,
+	newDynamicMode?: boolean,
+	newCalibrationPoints?: CalibrationPoints
 ): Promise<void> {
 	isLoading = true;
 	error = null;
@@ -85,7 +99,9 @@ export async function updateSettings(
 			newTimezone,
 			newScheduleMode,
 			newStallGracePeriodMinutes,
-			newStallTimeoutMinutes
+			newStallTimeoutMinutes,
+			newDynamicMode,
+			newCalibrationPoints
 		);
 		enabled = response.enabled;
 		targetTempF = response.target_temp_f;
@@ -94,6 +110,8 @@ export async function updateSettings(
 		stallGracePeriodMinutes =
 			response.stall_grace_period_minutes ?? stallGracePeriodMinutes;
 		stallTimeoutMinutes = response.stall_timeout_minutes ?? stallTimeoutMinutes;
+		dynamicMode = response.dynamic_mode ?? dynamicMode;
+		calibrationPoints = response.calibration_points ?? calibrationPoints;
 	} catch (e) {
 		error = e instanceof Error ? e.message : 'Failed to update settings';
 		throw e;
@@ -137,6 +155,9 @@ export function getScheduleMode(): 'start_at' | 'ready_by' {
  */
 export function getHeatButtonLabel(): string {
 	if (enabled) {
+		if (dynamicMode) {
+			return 'Heat (Dynamic)';
+		}
 		// Format temperature, removing trailing zeros
 		const tempDisplay = Number.isInteger(targetTempF)
 			? targetTempF.toString()
@@ -151,6 +172,9 @@ export function getHeatButtonLabel(): string {
  */
 export function getHeatButtonTooltip(): string {
 	if (enabled) {
+		if (dynamicMode) {
+			return 'Heat to dynamic target based on ambient temperature';
+		}
 		return `Heat water to ${targetTempF}°F and automatically turn off`;
 	}
 	return 'Turn on the hot tub heater';
@@ -210,4 +234,25 @@ export function getStallTimeoutMinutes(): number {
  */
 export function getLastStallEvent(): LastStallEvent | null {
 	return lastStallEvent;
+}
+
+/**
+ * Check if dynamic target mode is enabled.
+ */
+export function getDynamicMode(): boolean {
+	return dynamicMode;
+}
+
+/**
+ * Get the calibration points for dynamic target calculation.
+ */
+export function getCalibrationPoints(): CalibrationPoints {
+	return calibrationPoints;
+}
+
+/**
+ * Get the default calibration points.
+ */
+export function getDefaultCalibrationPoints(): CalibrationPoints {
+	return DEFAULT_CALIBRATION_POINTS;
 }

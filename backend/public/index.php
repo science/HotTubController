@@ -251,6 +251,8 @@ $router->get('/api/health', function() use ($equipmentController, $blindsControl
         'schedule_mode' => $heatTargetSettingsService->getScheduleMode(),
         'stall_grace_period_minutes' => $heatTargetSettingsService->getStallGracePeriodMinutes(),
         'stall_timeout_minutes' => $heatTargetSettingsService->getStallTimeoutMinutes(),
+        'dynamic_mode' => $heatTargetSettingsService->isDynamicMode(),
+        'calibration_points' => $heatTargetSettingsService->getCalibrationPoints(),
     ];
     // Include last stall event if it exists
     if (file_exists($stallEventFile)) {

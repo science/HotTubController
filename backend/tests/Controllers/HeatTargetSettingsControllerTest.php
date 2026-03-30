@@ -458,4 +458,140 @@ class HeatTargetSettingsControllerTest extends TestCase
         $this->assertEquals(400, $response['status']);
         $this->assertStringContainsString('timeout', $response['body']['error']);
     }
+
+    // ==================== Dynamic Mode Tests ====================
+
+    /**
+     * @test
+     */
+    public function getReturnsDynamicModeAndCalibrationPoints(): void
+    {
+        $response = $this->controller->get();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertArrayHasKey('dynamic_mode', $response['body']);
+        $this->assertFalse($response['body']['dynamic_mode']);
+        $this->assertArrayHasKey('calibration_points', $response['body']);
+        $this->assertArrayHasKey('cold', $response['body']['calibration_points']);
+        $this->assertArrayHasKey('comfort', $response['body']['calibration_points']);
+        $this->assertArrayHasKey('hot', $response['body']['calibration_points']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateAcceptsDynamicMode(): void
+    {
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'dynamic_mode' => true,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertTrue($response['body']['dynamic_mode']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateAcceptsCalibrationPoints(): void
+    {
+        $calibration = [
+            'cold'    => ['ambient_f' => 40.0, 'water_target_f' => 105.0],
+            'comfort' => ['ambient_f' => 55.0, 'water_target_f' => 103.0],
+            'hot'     => ['ambient_f' => 70.0, 'water_target_f' => 101.0],
+        ];
+
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'dynamic_mode' => true,
+            'calibration_points' => $calibration,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals(40.0, $response['body']['calibration_points']['cold']['ambient_f']);
+        $this->assertEquals(105.0, $response['body']['calibration_points']['cold']['water_target_f']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateReturns400ForInvalidCalibrationPoints(): void
+    {
+        $calibration = [
+            'cold'    => ['ambient_f' => 60.0, 'water_target_f' => 104.0],
+            'comfort' => ['ambient_f' => 45.0, 'water_target_f' => 102.0],
+            'hot'     => ['ambient_f' => 75.0, 'water_target_f' => 100.5],
+        ];
+
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'dynamic_mode' => true,
+            'calibration_points' => $calibration,
+        ]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
+    /**
+     * @test
+     */
+    public function updatePreservesDynamicSettingsWhenNotProvided(): void
+    {
+        // Set dynamic settings first
+        $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'dynamic_mode' => true,
+            'calibration_points' => [
+                'cold'    => ['ambient_f' => 40.0, 'water_target_f' => 105.0],
+                'comfort' => ['ambient_f' => 55.0, 'water_target_f' => 103.0],
+                'hot'     => ['ambient_f' => 70.0, 'water_target_f' => 101.0],
+            ],
+        ]);
+
+        // Update without dynamic settings
+        $response = $this->controller->update([
+            'enabled' => false,
+            'target_temp_f' => 104.0,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertTrue($response['body']['dynamic_mode']);
+        $this->assertEquals(40.0, $response['body']['calibration_points']['cold']['ambient_f']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateReturns400ForNonBoolDynamicMode(): void
+    {
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'dynamic_mode' => 'yes',
+        ]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateReturns400ForNonArrayCalibrationPoints(): void
+    {
+        $response = $this->controller->update([
+            'enabled' => true,
+            'target_temp_f' => 104.0,
+            'calibration_points' => 'invalid',
+        ]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
 }

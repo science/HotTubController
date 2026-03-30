@@ -20,7 +20,9 @@ import {
 	getMaxTempF,
 	getStallGracePeriodMinutes,
 	getStallTimeoutMinutes,
-	getLastStallEvent
+	getLastStallEvent,
+	getDynamicMode,
+	getCalibrationPoints
 } from './heatTargetSettings.svelte';
 import { api } from '$lib/api';
 
@@ -198,7 +200,7 @@ describe('heatTargetSettings store', () => {
 
 			await updateSettings(true, 106);
 
-			expect(api.updateHeatTargetSettings).toHaveBeenCalledWith(true, 106, undefined, undefined, undefined, undefined);
+			expect(api.updateHeatTargetSettings).toHaveBeenCalledWith(true, 106, undefined, undefined, undefined, undefined, undefined, undefined);
 		});
 
 		it('updates local state on success', async () => {
@@ -309,6 +311,142 @@ describe('heatTargetSettings store', () => {
 				}
 			});
 			expect(getLastStallEvent()).toBeNull();
+		});
+	});
+
+	describe('dynamic mode settings', () => {
+		it('returns false dynamic mode by default', () => {
+			expect(getDynamicMode()).toBe(false);
+		});
+
+		it('returns default calibration points', () => {
+			const points = getCalibrationPoints();
+			expect(points.cold.ambient_f).toBe(45.0);
+			expect(points.cold.water_target_f).toBe(104.0);
+			expect(points.comfort.ambient_f).toBe(60.0);
+			expect(points.comfort.water_target_f).toBe(102.0);
+			expect(points.hot.ambient_f).toBe(75.0);
+			expect(points.hot.water_target_f).toBe(100.5);
+		});
+
+		it('initializes dynamic mode from health response', () => {
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				heatTargetSettings: {
+					enabled: true,
+					target_temp_f: 102,
+					timezone: 'America/Los_Angeles',
+					dynamic_mode: true,
+					calibration_points: {
+						cold:    { ambient_f: 40, water_target_f: 105 },
+						comfort: { ambient_f: 55, water_target_f: 103 },
+						hot:     { ambient_f: 70, water_target_f: 101 }
+					}
+				}
+			});
+
+			expect(getDynamicMode()).toBe(true);
+			const points = getCalibrationPoints();
+			expect(points.cold.ambient_f).toBe(40);
+			expect(points.cold.water_target_f).toBe(105);
+		});
+
+		it('returns "Heat (Dynamic)" label when dynamic mode is on', () => {
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				heatTargetSettings: {
+					enabled: true,
+					target_temp_f: 102,
+					timezone: 'America/Los_Angeles',
+					dynamic_mode: true
+				}
+			});
+
+			expect(getHeatButtonLabel()).toBe('Heat (Dynamic)');
+		});
+
+		it('returns dynamic tooltip when dynamic mode is on', () => {
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				heatTargetSettings: {
+					enabled: true,
+					target_temp_f: 102,
+					timezone: 'America/Los_Angeles',
+					dynamic_mode: true
+				}
+			});
+
+			expect(getHeatButtonTooltip()).toBe('Heat to dynamic target based on ambient temperature');
+		});
+
+		it('updates dynamic mode via updateSettings', async () => {
+			const mockResponse = {
+				enabled: true,
+				target_temp_f: 102,
+				timezone: 'America/Los_Angeles',
+				dynamic_mode: true,
+				calibration_points: {
+					cold:    { ambient_f: 40, water_target_f: 105 },
+					comfort: { ambient_f: 55, water_target_f: 103 },
+					hot:     { ambient_f: 70, water_target_f: 101 }
+				},
+				message: 'Settings updated'
+			};
+			vi.mocked(api.updateHeatTargetSettings).mockResolvedValue(mockResponse);
+
+			await updateSettings(true, 102, undefined, undefined, undefined, undefined, true, {
+				cold:    { ambient_f: 40, water_target_f: 105 },
+				comfort: { ambient_f: 55, water_target_f: 103 },
+				hot:     { ambient_f: 70, water_target_f: 101 }
+			});
+
+			expect(getDynamicMode()).toBe(true);
+			expect(getCalibrationPoints().cold.ambient_f).toBe(40);
+		});
+
+		it('resets dynamic mode to defaults when health response has no settings', () => {
+			// First set dynamic mode
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				heatTargetSettings: {
+					enabled: true,
+					target_temp_f: 102,
+					timezone: 'America/Los_Angeles',
+					dynamic_mode: true
+				}
+			});
+			expect(getDynamicMode()).toBe(true);
+
+			// Then reset
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				}
+			});
+			expect(getDynamicMode()).toBe(false);
 		});
 	});
 });

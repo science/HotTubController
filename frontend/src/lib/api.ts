@@ -93,6 +93,17 @@ export interface EquipmentStatus {
 	pump: EquipmentState;
 }
 
+export interface CalibrationPoint {
+	ambient_f: number;
+	water_target_f: number;
+}
+
+export interface CalibrationPoints {
+	cold: CalibrationPoint;
+	comfort: CalibrationPoint;
+	hot: CalibrationPoint;
+}
+
 export interface HeatTargetSettings {
 	enabled: boolean;
 	target_temp_f: number;
@@ -100,6 +111,8 @@ export interface HeatTargetSettings {
 	schedule_mode?: 'start_at' | 'ready_by';
 	stall_grace_period_minutes?: number;
 	stall_timeout_minutes?: number;
+	dynamic_mode?: boolean;
+	calibration_points?: CalibrationPoints;
 }
 
 export interface LastStallEvent {
@@ -118,6 +131,17 @@ export interface HealthResponse {
 	lastStallEvent?: LastStallEvent;
 }
 
+export interface DynamicTargetInfo {
+	dynamic_mode: boolean;
+	ambient_temp_f: number | null;
+	computed_target_f: number;
+	static_target_f: number;
+	segment?: string;
+	clamped: boolean;
+	fallback: boolean;
+	fallback_reason?: string;
+}
+
 export interface TargetTemperatureState {
 	active: boolean;
 	target_temp_f: number | null;
@@ -128,6 +152,7 @@ export interface TargetTemperatureState {
 	target_reached?: boolean;
 	current_temp_f?: number;
 	error?: string;
+	dynamic_target_info?: DynamicTargetInfo;
 }
 
 export interface HeatingSession {
@@ -322,7 +347,9 @@ export const api = {
 		timezone?: string,
 		schedule_mode?: 'start_at' | 'ready_by',
 		stall_grace_period_minutes?: number,
-		stall_timeout_minutes?: number
+		stall_timeout_minutes?: number,
+		dynamic_mode?: boolean,
+		calibration_points?: CalibrationPoints
 	) =>
 		put<HeatTargetSettings & { message: string }>('/api/settings/heat-target', {
 			enabled,
@@ -330,7 +357,9 @@ export const api = {
 			...(timezone !== undefined && { timezone }),
 			...(schedule_mode !== undefined && { schedule_mode }),
 			...(stall_grace_period_minutes !== undefined && { stall_grace_period_minutes }),
-			...(stall_timeout_minutes !== undefined && { stall_timeout_minutes })
+			...(stall_timeout_minutes !== undefined && { stall_timeout_minutes }),
+			...(dynamic_mode !== undefined && { dynamic_mode }),
+			...(calibration_points !== undefined && { calibration_points })
 		}),
 
 	// Heating characteristics analysis (admin only)

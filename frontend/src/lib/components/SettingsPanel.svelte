@@ -16,10 +16,13 @@
 		getMaxTempF,
 		getStallGracePeriodMinutes,
 		getStallTimeoutMinutes,
+		getDynamicMode,
+		getCalibrationPoints,
 		updateSettings as updateTargetTempSettings,
 		getIsLoading as getTargetTempLoading,
 		getError as getTargetTempError
 	} from '$lib/stores/heatTargetSettings.svelte';
+	import type { CalibrationPoints } from '$lib/api';
 	import {
 		api,
 		type TargetTemperatureState,
@@ -48,6 +51,8 @@
 	let localScheduleMode = $state<'start_at' | 'ready_by'>(getScheduleMode());
 	let localStallGracePeriod = $state(getStallGracePeriodMinutes());
 	let localStallTimeout = $state(getStallTimeoutMinutes());
+	let localDynamicMode = $state(getDynamicMode());
+	let localCalibrationPoints = $state<CalibrationPoints>(JSON.parse(JSON.stringify(getCalibrationPoints())));
 	let savingTargetTemp = $state(false);
 	let targetTempSaveError = $state<string | null>(null);
 	let userHasEditedTargetTemp = $state(false); // Track if user made changes
@@ -62,6 +67,18 @@
 		'Pacific/Honolulu',
 	];
 
+	// Helper to check if calibration points differ
+	function calibrationPointsDirty(): boolean {
+		const stored = getCalibrationPoints();
+		for (const key of ['cold', 'comfort', 'hot'] as const) {
+			if (localCalibrationPoints[key].ambient_f !== stored[key].ambient_f ||
+				localCalibrationPoints[key].water_target_f !== stored[key].water_target_f) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	// Track if local values differ from store (dirty state)
 	let targetTempDirty = $derived(
 		localTargetTempEnabled !== getTargetTempEnabled() ||
@@ -69,7 +86,9 @@
 			localTimezone !== getTimezone() ||
 			localScheduleMode !== getScheduleMode() ||
 			localStallGracePeriod !== getStallGracePeriodMinutes() ||
-			localStallTimeout !== getStallTimeoutMinutes()
+			localStallTimeout !== getStallTimeoutMinutes() ||
+			localDynamicMode !== getDynamicMode() ||
+			calibrationPointsDirty()
 	);
 
 	async function loadServerHeatTargetState() {
@@ -108,7 +127,9 @@
 				localTimezone,
 				localScheduleMode,
 				localStallGracePeriod,
-				localStallTimeout
+				localStallTimeout,
+				localDynamicMode,
+				localCalibrationPoints
 			);
 			userHasEditedTargetTemp = false; // Reset after successful save
 		} catch (e) {
@@ -136,6 +157,8 @@
 			localScheduleMode = getScheduleMode();
 			localStallGracePeriod = getStallGracePeriodMinutes();
 			localStallTimeout = getStallTimeoutMinutes();
+			localDynamicMode = getDynamicMode();
+			localCalibrationPoints = JSON.parse(JSON.stringify(getCalibrationPoints()));
 		}
 	});
 
@@ -173,6 +196,33 @@
 			generatingHeatingChars = false;
 		}
 	}
+
+	// Derived chart coordinates for dynamic calibration visualization
+	let chartData = $derived.by(() => {
+		const cp = localCalibrationPoints;
+		const ambientMin = cp.cold.ambient_f - 10;
+		const ambientMax = cp.hot.ambient_f + 10;
+		const waterMin = Math.min(cp.cold.water_target_f, cp.comfort.water_target_f, cp.hot.water_target_f) - 1;
+		const waterMax = Math.max(cp.cold.water_target_f, cp.comfort.water_target_f, cp.hot.water_target_f) + 1;
+		const W = 280, H = 160;
+		const pad = { top: 15, right: 15, bottom: 30, left: 45 };
+		const plotW = W - pad.left - pad.right;
+		const plotH = H - pad.top - pad.bottom;
+		const toX = (a: number) => pad.left + (a - ambientMin) / (ambientMax - ambientMin) * plotW;
+		const toY = (w: number) => pad.top + plotH - (w - waterMin) / (waterMax - waterMin) * plotH;
+		return {
+			W, H, pad, plotW, plotH,
+			ambientMin, ambientMax, waterMin, waterMax,
+			midWater: (waterMin + waterMax) / 2,
+			cold: { x: toX(cp.cold.ambient_f), y: toY(cp.cold.water_target_f) },
+			comfort: { x: toX(cp.comfort.ambient_f), y: toY(cp.comfort.water_target_f) },
+			hot: { x: toX(cp.hot.ambient_f), y: toY(cp.hot.water_target_f) },
+			clampLeftX: pad.left,
+			clampRightX: pad.left + plotW,
+			yTicks: [waterMin, (waterMin + waterMax) / 2, waterMax].map(t => ({ val: t, y: toY(t) })),
+			xTicks: [cp.cold.ambient_f, cp.comfort.ambient_f, cp.hot.ambient_f].map(t => ({ val: t, x: toX(t) })),
+		};
+	});
 
 	// Refresh temp on heater-off state
 	let refreshTempOnHeaterOff = $state(getRefreshTempOnHeaterOff());
@@ -303,61 +353,255 @@
 					<span class="text-slate-200 text-sm">Enable heat to target</span>
 				</label>
 
-				<div class="ml-6 space-y-2">
-					<div class="flex items-center gap-3">
-						<label for="targetTempSlider" class="text-slate-400 text-sm">Target temp</label>
+				<!-- Target mode: Static vs Dynamic -->
+				<fieldset class="ml-6 mt-1">
+					<legend class="text-slate-400 text-sm mb-2">Target mode</legend>
+					<label class="flex items-center gap-2 cursor-pointer">
 						<input
-							type="number"
-							id="targetTempInput"
-							aria-label="Target temp input"
-							bind:value={localTargetTempF}
-							onchange={() => { userHasEditedTargetTemp = true; }}
-							min={getMinTempF()}
-							max={getMaxTempF()}
-							step="0.25"
-							inputmode="decimal"
+							type="radio"
+							name="targetMode"
+							value="static"
+							checked={!localDynamicMode}
+							onchange={() => { localDynamicMode = false; userHasEditedTargetTemp = true; }}
 							disabled={savingTargetTemp}
-							class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-orange-400 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
-						/><span class="text-orange-400 font-medium">°F</span>
-					</div>
-					<div class="flex items-center gap-2">
-						<button
-							type="button"
-							aria-label="Decrease temperature"
-							onclick={decreaseTargetTemp}
-							disabled={savingTargetTemp || localTargetTempF <= getMinTempF()}
-							class="w-16 sm:w-8 h-10 sm:h-8 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-2xl sm:text-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-						>&minus;</button>
-						<input
-							type="range"
-							id="targetTempSlider"
-							aria-label="Target temp"
-							bind:value={localTargetTempF}
-							oninput={handleTargetTempSliderInput}
-							min={getMinTempF()}
-							max={getMaxTempF()}
-							step="0.25"
-							disabled={savingTargetTemp}
-							class="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500 disabled:opacity-50"
+							class="w-4 h-4 border-slate-500 bg-slate-700 text-orange-500 focus:ring-orange-500"
 						/>
-						<button
-							type="button"
-							aria-label="Increase temperature"
-							onclick={increaseTargetTemp}
-							disabled={savingTargetTemp || localTargetTempF >= getMaxTempF()}
-							class="w-16 sm:w-8 h-10 sm:h-8 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-2xl sm:text-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-						>&plus;</button>
-					</div>
-					<div class="flex justify-between text-xs text-slate-500">
-						<span>{getMinTempF()}°F</span>
-						<span>{getMaxTempF()}°F</span>
-					</div>
-				</div>
+						<span class="text-slate-300 text-sm">Static target</span>
+					</label>
+					<label class="flex items-center gap-2 cursor-pointer mt-1">
+						<input
+							type="radio"
+							name="targetMode"
+							value="dynamic"
+							checked={localDynamicMode}
+							onchange={() => { localDynamicMode = true; userHasEditedTargetTemp = true; }}
+							disabled={savingTargetTemp}
+							class="w-4 h-4 border-slate-500 bg-slate-700 text-orange-500 focus:ring-orange-500"
+						/>
+						<span class="text-slate-300 text-sm">Dynamic (ambient-adjusted)</span>
+					</label>
+				</fieldset>
 
-				<p class="text-slate-500 text-xs ml-6">
-					When enabled, heater will automatically turn off when target is reached. This setting
-					affects all users.
-				</p>
+				{#if !localDynamicMode}
+					<!-- Static target temperature -->
+					<div class="ml-6 space-y-2">
+						<div class="flex items-center gap-3">
+							<label for="targetTempSlider" class="text-slate-400 text-sm">Target temp</label>
+							<input
+								type="number"
+								id="targetTempInput"
+								aria-label="Target temp input"
+								bind:value={localTargetTempF}
+								onchange={() => { userHasEditedTargetTemp = true; }}
+								min={getMinTempF()}
+								max={getMaxTempF()}
+								step="0.25"
+								inputmode="decimal"
+								disabled={savingTargetTemp}
+								class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-orange-400 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+							/><span class="text-orange-400 font-medium">°F</span>
+						</div>
+						<div class="flex items-center gap-2">
+							<button
+								type="button"
+								aria-label="Decrease temperature"
+								onclick={decreaseTargetTemp}
+								disabled={savingTargetTemp || localTargetTempF <= getMinTempF()}
+								class="w-16 sm:w-8 h-10 sm:h-8 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-2xl sm:text-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+							>&minus;</button>
+							<input
+								type="range"
+								id="targetTempSlider"
+								aria-label="Target temp"
+								bind:value={localTargetTempF}
+								oninput={handleTargetTempSliderInput}
+								min={getMinTempF()}
+								max={getMaxTempF()}
+								step="0.25"
+								disabled={savingTargetTemp}
+								class="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500 disabled:opacity-50"
+							/>
+							<button
+								type="button"
+								aria-label="Increase temperature"
+								onclick={increaseTargetTemp}
+								disabled={savingTargetTemp || localTargetTempF >= getMaxTempF()}
+								class="w-16 sm:w-8 h-10 sm:h-8 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-2xl sm:text-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+							>&plus;</button>
+						</div>
+						<div class="flex justify-between text-xs text-slate-500">
+							<span>{getMinTempF()}°F</span>
+							<span>{getMaxTempF()}°F</span>
+						</div>
+					</div>
+
+					<p class="text-slate-500 text-xs ml-6">
+						When enabled, heater will automatically turn off when target is reached. This setting
+						affects all users.
+					</p>
+				{:else}
+					<!-- Dynamic target calibration -->
+					<div class="ml-6 space-y-3">
+						<p class="text-slate-500 text-xs">
+							Define how water target adjusts with air temperature. Colder air = hotter water.
+						</p>
+
+						<!-- Fallback static target -->
+						<div class="flex items-center gap-2">
+							<label for="fallbackTemp" class="text-slate-400 text-xs">Fallback target</label>
+							<input
+								type="number"
+								id="fallbackTemp"
+								bind:value={localTargetTempF}
+								onchange={() => { userHasEditedTargetTemp = true; }}
+								min={getMinTempF()}
+								max={getMaxTempF()}
+								step="0.25"
+								inputmode="decimal"
+								disabled={savingTargetTemp}
+								class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+							/>
+							<span class="text-slate-400 text-xs">°F (used if ambient sensor unavailable)</span>
+						</div>
+
+						<!-- Calibration point: Cold -->
+						<div class="bg-slate-700/50 rounded-lg p-3 border border-blue-500/30">
+							<div class="text-blue-400 text-xs font-medium mb-2">Cold weather</div>
+							<div class="flex items-center gap-2 flex-wrap">
+								<span class="text-slate-400 text-xs">Air</span>
+								<input
+									type="number"
+									aria-label="Cold ambient temp"
+									bind:value={localCalibrationPoints.cold.ambient_f}
+									onchange={() => { userHasEditedTargetTemp = true; }}
+									step="1"
+									disabled={savingTargetTemp}
+									class="w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-blue-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+								/>
+								<span class="text-slate-400 text-xs">°F</span>
+								<span class="text-slate-500 text-xs mx-1">&rarr;</span>
+								<span class="text-slate-400 text-xs">Water</span>
+								<input
+									type="number"
+									aria-label="Cold water target"
+									bind:value={localCalibrationPoints.cold.water_target_f}
+									onchange={() => { userHasEditedTargetTemp = true; }}
+									min={getMinTempF()}
+									max={getMaxTempF()}
+									step="0.25"
+									inputmode="decimal"
+									disabled={savingTargetTemp}
+									class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-orange-400 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+								/>
+								<span class="text-slate-400 text-xs">°F</span>
+							</div>
+						</div>
+
+						<!-- Calibration point: Comfort -->
+						<div class="bg-slate-700/50 rounded-lg p-3 border border-green-500/30">
+							<div class="text-green-400 text-xs font-medium mb-2">Comfortable (median)</div>
+							<div class="flex items-center gap-2 flex-wrap">
+								<span class="text-slate-400 text-xs">Air</span>
+								<input
+									type="number"
+									aria-label="Comfort ambient temp"
+									bind:value={localCalibrationPoints.comfort.ambient_f}
+									onchange={() => { userHasEditedTargetTemp = true; }}
+									step="1"
+									disabled={savingTargetTemp}
+									class="w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-green-400 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
+								/>
+								<span class="text-slate-400 text-xs">°F</span>
+								<span class="text-slate-500 text-xs mx-1">&rarr;</span>
+								<span class="text-slate-400 text-xs">Water</span>
+								<input
+									type="number"
+									aria-label="Comfort water target"
+									bind:value={localCalibrationPoints.comfort.water_target_f}
+									onchange={() => { userHasEditedTargetTemp = true; }}
+									min={getMinTempF()}
+									max={getMaxTempF()}
+									step="0.25"
+									inputmode="decimal"
+									disabled={savingTargetTemp}
+									class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-orange-400 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+								/>
+								<span class="text-slate-400 text-xs">°F</span>
+							</div>
+						</div>
+
+						<!-- Calibration point: Hot -->
+						<div class="bg-slate-700/50 rounded-lg p-3 border border-red-500/30">
+							<div class="text-red-400 text-xs font-medium mb-2">Hot weather</div>
+							<div class="flex items-center gap-2 flex-wrap">
+								<span class="text-slate-400 text-xs">Air</span>
+								<input
+									type="number"
+									aria-label="Hot ambient temp"
+									bind:value={localCalibrationPoints.hot.ambient_f}
+									onchange={() => { userHasEditedTargetTemp = true; }}
+									step="1"
+									disabled={savingTargetTemp}
+									class="w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-red-400 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+								/>
+								<span class="text-slate-400 text-xs">°F</span>
+								<span class="text-slate-500 text-xs mx-1">&rarr;</span>
+								<span class="text-slate-400 text-xs">Water</span>
+								<input
+									type="number"
+									aria-label="Hot water target"
+									bind:value={localCalibrationPoints.hot.water_target_f}
+									onchange={() => { userHasEditedTargetTemp = true; }}
+									min={getMinTempF()}
+									max={getMaxTempF()}
+									step="0.25"
+									inputmode="decimal"
+									disabled={savingTargetTemp}
+									class="w-20 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-orange-400 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+								/>
+								<span class="text-slate-400 text-xs">°F</span>
+							</div>
+						</div>
+
+						<!-- Calibration Visualization -->
+						<svg width={chartData.W} height={chartData.H} class="bg-slate-900/50 rounded-lg border border-slate-700">
+							<!-- Y axis label -->
+							<text x={12} y={chartData.H / 2} text-anchor="middle" transform="rotate(-90, 12, {chartData.H / 2})" class="fill-slate-500 text-[9px]">Water °F</text>
+							<!-- X axis label -->
+							<text x={chartData.pad.left + chartData.plotW / 2} y={chartData.H - 4} text-anchor="middle" class="fill-slate-500 text-[9px]">Ambient °F</text>
+
+							<!-- Y axis ticks -->
+							{#each chartData.yTicks as tick}
+								<line x1={chartData.pad.left - 3} y1={tick.y} x2={chartData.pad.left} y2={tick.y} class="stroke-slate-600" />
+								<text x={chartData.pad.left - 5} y={tick.y + 3} text-anchor="end" class="fill-slate-500 text-[9px]">{tick.val.toFixed(1)}</text>
+							{/each}
+
+							<!-- X axis ticks -->
+							{#each chartData.xTicks as tick}
+								<line x1={tick.x} y1={chartData.pad.top + chartData.plotH} x2={tick.x} y2={chartData.pad.top + chartData.plotH + 3} class="stroke-slate-600" />
+								<text x={tick.x} y={chartData.pad.top + chartData.plotH + 14} text-anchor="middle" class="fill-slate-500 text-[9px]">{tick.val}</text>
+							{/each}
+
+							<!-- Clamp low (dashed) -->
+							<line x1={chartData.clampLeftX} y1={chartData.cold.y} x2={chartData.cold.x} y2={chartData.cold.y} stroke-dasharray="4,3" class="stroke-blue-500/50" stroke-width="1.5" />
+							<!-- Cold segment -->
+							<line x1={chartData.cold.x} y1={chartData.cold.y} x2={chartData.comfort.x} y2={chartData.comfort.y} class="stroke-cyan-400" stroke-width="2" />
+							<!-- Hot segment -->
+							<line x1={chartData.comfort.x} y1={chartData.comfort.y} x2={chartData.hot.x} y2={chartData.hot.y} class="stroke-orange-400" stroke-width="2" />
+							<!-- Clamp high (dashed) -->
+							<line x1={chartData.hot.x} y1={chartData.hot.y} x2={chartData.clampRightX} y2={chartData.hot.y} stroke-dasharray="4,3" class="stroke-red-500/50" stroke-width="1.5" />
+
+							<!-- Calibration point dots -->
+							<circle cx={chartData.cold.x} cy={chartData.cold.y} r="4" class="fill-blue-400" />
+							<circle cx={chartData.comfort.x} cy={chartData.comfort.y} r="4" class="fill-green-400" />
+							<circle cx={chartData.hot.x} cy={chartData.hot.y} r="4" class="fill-red-400" />
+
+							<!-- Axis lines -->
+							<line x1={chartData.pad.left} y1={chartData.pad.top} x2={chartData.pad.left} y2={chartData.pad.top + chartData.plotH} class="stroke-slate-600" />
+							<line x1={chartData.pad.left} y1={chartData.pad.top + chartData.plotH} x2={chartData.pad.left + chartData.plotW} y2={chartData.pad.top + chartData.plotH} class="stroke-slate-600" />
+						</svg>
+					</div>
+				{/if}
 
 				<div class="ml-6 mt-3">
 					<label for="timezoneSelect" class="text-slate-400 text-sm block mb-1">System timezone</label>
@@ -481,6 +725,19 @@
 					<p class="text-slate-300 text-sm">
 						Target: {serverHeatTargetState.target_temp_f}°F
 					</p>
+					{#if serverHeatTargetState.dynamic_target_info}
+						{@const dti = serverHeatTargetState.dynamic_target_info}
+						{#if dti.fallback}
+							<p class="text-amber-400 text-xs">
+								Ambient sensor unavailable — using static target {dti.static_target_f}°F
+							</p>
+						{:else}
+							<p class="text-cyan-400 text-xs">
+								Dynamic target: {dti.computed_target_f}°F (ambient was {dti.ambient_temp_f}°F at start)
+								{#if dti.clamped}<span class="text-amber-400">(clamped)</span>{/if}
+							</p>
+						{/if}
+					{/if}
 					{#if serverHeatTargetState.started_at}
 						<p class="text-slate-400 text-xs">
 							Started: {new Date(serverHeatTargetState.started_at).toLocaleString()}

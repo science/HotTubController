@@ -26,6 +26,12 @@ class HeatTargetSettingsService
     public const VALID_SCHEDULE_MODES = ['start_at', 'ready_by'];
     public const DEFAULT_STALL_GRACE_PERIOD_MINUTES = 15;
     public const DEFAULT_STALL_TIMEOUT_MINUTES = 5;
+    public const DEFAULT_DYNAMIC_MODE = false;
+    public const DEFAULT_CALIBRATION_POINTS = [
+        'cold'    => ['ambient_f' => 45.0, 'water_target_f' => 104.0],
+        'comfort' => ['ambient_f' => 60.0, 'water_target_f' => 102.0],
+        'hot'     => ['ambient_f' => 75.0, 'water_target_f' => 100.5],
+    ];
 
     public function __construct(string $settingsFile)
     {
@@ -47,6 +53,8 @@ class HeatTargetSettingsService
             'schedule_mode' => $this->settings['schedule_mode'] ?? self::DEFAULT_SCHEDULE_MODE,
             'stall_grace_period_minutes' => $this->settings['stall_grace_period_minutes'] ?? self::DEFAULT_STALL_GRACE_PERIOD_MINUTES,
             'stall_timeout_minutes' => $this->settings['stall_timeout_minutes'] ?? self::DEFAULT_STALL_TIMEOUT_MINUTES,
+            'dynamic_mode' => $this->settings['dynamic_mode'] ?? self::DEFAULT_DYNAMIC_MODE,
+            'calibration_points' => $this->settings['calibration_points'] ?? self::DEFAULT_CALIBRATION_POINTS,
             'updated_at' => $this->settings['updated_at'] ?? null,
         ];
     }
@@ -169,6 +177,39 @@ class HeatTargetSettingsService
 
         $this->settings['stall_grace_period_minutes'] = $gracePeriodMinutes;
         $this->settings['stall_timeout_minutes'] = $timeoutMinutes;
+        $this->saveSettings();
+    }
+
+    /**
+     * Check if dynamic target mode is enabled.
+     */
+    public function isDynamicMode(): bool
+    {
+        return $this->settings['dynamic_mode'] ?? self::DEFAULT_DYNAMIC_MODE;
+    }
+
+    /**
+     * Get the calibration points for dynamic target calculation.
+     */
+    public function getCalibrationPoints(): array
+    {
+        return $this->settings['calibration_points'] ?? self::DEFAULT_CALIBRATION_POINTS;
+    }
+
+    /**
+     * Update dynamic target settings.
+     *
+     * @throws \InvalidArgumentException if calibration points are invalid
+     */
+    public function updateDynamicSettings(bool $dynamicMode, array $calibrationPoints): void
+    {
+        $errors = DynamicTargetCalculator::validateCalibrationPoints($calibrationPoints);
+        if (!empty($errors)) {
+            throw new \InvalidArgumentException('Invalid calibration points: ' . implode('; ', $errors));
+        }
+
+        $this->settings['dynamic_mode'] = $dynamicMode;
+        $this->settings['calibration_points'] = $calibrationPoints;
         $this->saveSettings();
     }
 
