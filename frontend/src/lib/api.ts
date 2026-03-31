@@ -153,6 +153,11 @@ export interface TargetTemperatureState {
 	current_temp_f?: number;
 	error?: string;
 	dynamic_target_info?: DynamicTargetInfo;
+	eta?: {
+		eta_timestamp: string;
+		minutes_remaining: number;
+		heating_velocity: number;
+	};
 }
 
 export interface HeatingSession {

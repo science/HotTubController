@@ -18,7 +18,7 @@
 		getHeatButtonTooltip,
 		getLastStallEvent
 	} from '$lib/stores/heatTargetSettings.svelte';
-	import type { LastStallEvent } from '$lib/api';
+	import type { LastStallEvent, TargetTemperatureState } from '$lib/api';
 	import {
 		fetchStatus,
 		getHeaterOn,
@@ -57,6 +57,35 @@
 	let temperaturePanel = $state<{ loadTemperature: () => Promise<void> } | null>(null);
 	let stallBannerDismissed = $state(false);
 	let lastStallEvent = $derived(stallBannerDismissed ? null : getLastStallEvent());
+
+	// ETA tracking for heat-to-target
+	let heatTargetEta = $state<TargetTemperatureState | null>(null);
+	let etaDisplay = $derived.by(() => {
+		if (!heatTargetEta?.active || !heatTargetEta.eta) return null;
+		const eta = heatTargetEta.eta;
+		const etaDate = new Date(eta.eta_timestamp);
+		const timeStr = etaDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+		return {
+			targetTempF: heatTargetEta.target_temp_f,
+			time: timeStr,
+			minutesRemaining: Math.round(eta.minutes_remaining),
+		};
+	});
+
+	// Poll heat-to-target status when heater is on and target mode is enabled
+	$effect(() => {
+		if (!heaterOn || !getTargetTempEnabled()) {
+			heatTargetEta = null;
+			return;
+		}
+		// Fetch immediately
+		api.getTargetTempStatus().then(s => { heatTargetEta = s; }).catch(() => {});
+		// Poll every 60s
+		const interval = setInterval(() => {
+			api.getTargetTempStatus().then(s => { heatTargetEta = s; }).catch(() => {});
+		}, 60_000);
+		return () => clearInterval(interval);
+	});
 
 	async function handleAction(
 		action: () => Promise<unknown>,
@@ -175,6 +204,14 @@
 				onClick={() => handleAction(api.pumpRun, 'Pump running for 2 hours', setPumpOn)}
 			/>
 		</div>
+
+		<!-- ETA: Estimated time to reach target temperature -->
+		{#if etaDisplay}
+			<div class="text-center text-sm text-orange-400/80 py-1" data-testid="eta-display">
+				Target {etaDisplay.targetTempF}°F by {etaDisplay.time}
+				<span class="text-slate-500 text-xs">({etaDisplay.minutesRemaining} min)</span>
+			</div>
+		{/if}
 
 		<!-- Dining Room Blinds Controls (optional feature, half-height) -->
 		{#if blindsEnabled}

@@ -1,0 +1,14 @@
+{
+    "sensors": {
+        "28:AA:BB:CC:DD:EE:FF:00": {
+            "role": "water",
+            "calibration_offset": 0,
+            "name": "Dev Water Sensor"
+        },
+        "28:BB:CC:DD:EE:FF:00:11": {
+            "role": "ambient",
+            "calibration_offset": 0,
+            "name": "Dev Ambient Sensor"
+        }
+    }
+}

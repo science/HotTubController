@@ -28,6 +28,7 @@ class TargetTemperatureService
     private ?HeatTargetSettingsService $heatTargetSettings;
     private ?string $stallEventFile;
     private ?string $equipmentEventLogFile;
+    private ?string $heatingCharacteristicsFile;
 
     public function __construct(
         string $stateFile,
@@ -41,7 +42,8 @@ class TargetTemperatureService
         ?CronSchedulingService $cronSchedulingService = null,
         ?HeatTargetSettingsService $heatTargetSettings = null,
         ?string $stallEventFile = null,
-        ?string $equipmentEventLogFile = null
+        ?string $equipmentEventLogFile = null,
+        ?string $heatingCharacteristicsFile = null
     ) {
         $this->stateFile = $stateFile;
         $this->iftttClient = $iftttClient;
@@ -54,6 +56,7 @@ class TargetTemperatureService
         $this->heatTargetSettings = $heatTargetSettings;
         $this->stallEventFile = $stallEventFile;
         $this->equipmentEventLogFile = $equipmentEventLogFile;
+        $this->heatingCharacteristicsFile = $heatingCharacteristicsFile;
         // Use provided CronSchedulingService, or create one if crontabAdapter is available
         $this->cronSchedulingService = $cronSchedulingService
             ?? ($crontabAdapter !== null ? new CronSchedulingService($crontabAdapter) : null);
@@ -590,6 +593,59 @@ class TargetTemperatureService
     public function cleanupCronJobs(): void
     {
         $this->crontabAdapter?->removeByPattern('HOTTUB:' . self::CRON_JOB_PREFIX);
+    }
+
+    /**
+     * Compute estimated time of arrival at target temperature.
+     *
+     * Returns null if not actively heating, no characteristics data,
+     * no temperature data, or target already reached.
+     */
+    public function computeEta(): ?array
+    {
+        $state = $this->getState();
+        if (!($state['active'] ?? false)) {
+            return null;
+        }
+
+        // Load heating characteristics
+        if ($this->heatingCharacteristicsFile === null || !file_exists($this->heatingCharacteristicsFile)) {
+            return null;
+        }
+        $chars = json_decode(file_get_contents($this->heatingCharacteristicsFile), true);
+        if (!is_array($chars) || empty($chars['heating_velocity_f_per_min'])) {
+            return null;
+        }
+
+        $currentTempF = $this->getCalibratedWaterTempF();
+        if ($currentTempF === null) {
+            return null;
+        }
+
+        $targetTempF = (float) $state['target_temp_f'];
+        if ($currentTempF >= $targetTempF) {
+            return null;
+        }
+
+        $velocity = (float) $chars['heating_velocity_f_per_min'];
+        $startupLag = (float) ($chars['startup_lag_minutes'] ?? 0);
+
+        // Calculate remaining startup lag based on elapsed time
+        $now = time();
+        $startedAt = isset($state['started_at'])
+            ? (new \DateTimeImmutable($state['started_at']))->getTimestamp()
+            : $now;
+        $elapsedMinutes = ($now - $startedAt) / 60.0;
+        $remainingLag = max(0.0, $startupLag - $elapsedMinutes);
+
+        $heatingMinutes = ($targetTempF - $currentTempF) / $velocity + $remainingLag;
+        $etaTimestamp = $now + (int) ceil($heatingMinutes * 60);
+
+        return [
+            'eta_timestamp' => (new \DateTimeImmutable('@' . $etaTimestamp))->format('c'),
+            'minutes_remaining' => round($heatingMinutes, 1),
+            'heating_velocity' => $velocity,
+        ];
     }
 
     /**

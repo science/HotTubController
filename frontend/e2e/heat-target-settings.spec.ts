@@ -440,4 +440,24 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await expect(page.getByRole('button', { name: 'Heat (Dynamic)' })).toBeVisible({ timeout: 5000 });
 		});
 	});
+
+	test.describe('ETA display', () => {
+		test('ETA is not visible when heater is not active', async ({ page }) => {
+			// Reset to known state
+			await page.request.put('/tub/backend/public/api/settings/heat-target', {
+				data: { enabled: true, target_temp_f: 103, dynamic_mode: false }
+			});
+
+			await page.goto('/tub/login');
+			await page.fill('#username', 'admin');
+			await page.fill('#password', 'password');
+			await page.press('#password', 'Enter');
+			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
+				timeout: 10000
+			});
+
+			// ETA display should not exist
+			await expect(page.getByTestId('eta-display')).not.toBeVisible();
+		});
+	});
 });

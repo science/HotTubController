@@ -1065,4 +1065,180 @@ class TargetTemperatureServiceTest extends TestCase
         }
         $this->dynamicSettingsFiles = [];
     }
+
+    // ==================== ETA Computation Tests ====================
+
+    private function createHeatingCharacteristicsFile(
+        float $velocity = 0.1,
+        float $startupLag = 5.0
+    ): string {
+        $file = sys_get_temp_dir() . '/test_heating_chars_' . uniqid() . '.json';
+        $this->dynamicSettingsFiles[] = $file;
+        file_put_contents($file, json_encode([
+            'heating_velocity_f_per_min' => $velocity,
+            'startup_lag_minutes' => $startupLag,
+            'overshoot_degrees_f' => 0.5,
+            'sessions_analyzed' => 3,
+            'generated_at' => date('c'),
+        ]));
+        return $file;
+    }
+
+    private function createServiceWithEta(
+        ?string $heatingCharsFile = null
+    ): TargetTemperatureService {
+        return new TargetTemperatureService(
+            $this->stateFile,
+            $this->mockIfttt,
+            $this->equipmentStatus,
+            $this->esp32Temp,
+            $this->mockCrontab,
+            '/path/to/cron-runner.sh',
+            'https://example.com/api',
+            $this->esp32Config,
+            null, // cronSchedulingService
+            null, // heatTargetSettings
+            null, // stallEventFile
+            null, // equipmentEventLogFile
+            $heatingCharsFile
+        );
+    }
+
+    public function testComputeEtaReturnsNullWhenNotActive(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile();
+        $service = $this->createServiceWithEta($charsFile);
+
+        $this->assertNull($service->computeEta());
+    }
+
+    public function testComputeEtaReturnsNullWhenNoCharacteristics(): void
+    {
+        $service = $this->createServiceWithEta(null);
+
+        // Start a session
+        $this->storeEsp32Reading(90.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+        $service->start(103.0);
+
+        $this->assertNull($service->computeEta());
+    }
+
+    public function testComputeEtaReturnsNullWhenCharacteristicsFileMissing(): void
+    {
+        $service = $this->createServiceWithEta('/tmp/nonexistent_chars.json');
+
+        $this->storeEsp32Reading(90.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+        $service->start(103.0);
+
+        $this->assertNull($service->computeEta());
+    }
+
+    public function testComputeEtaCalculatesCorrectly(): void
+    {
+        // 0.1°F/min velocity, 5 min startup lag
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $service = $this->createServiceWithEta($charsFile);
+
+        // Water at 93°F, target 103°F → 10°F to go at 0.1°F/min = 100 min
+        $this->storeEsp32Reading(93.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+        $service->start(103.0);
+
+        $eta = $service->computeEta();
+
+        $this->assertNotNull($eta);
+        $this->assertArrayHasKey('eta_timestamp', $eta);
+        $this->assertArrayHasKey('minutes_remaining', $eta);
+        $this->assertArrayHasKey('heating_velocity', $eta);
+        // Just started → full startup lag applies: 100 + 5 = 105 min
+        $this->assertEqualsWithDelta(105.0, $eta['minutes_remaining'], 1.0);
+        $this->assertEqualsWithDelta(0.1, $eta['heating_velocity'], 0.001);
+    }
+
+    public function testComputeEtaSkipsStartupLagWhenPastLagWindow(): void
+    {
+        // 0.1°F/min velocity, 5 min startup lag
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $service = $this->createServiceWithEta($charsFile);
+
+        // Simulate a session started 10 minutes ago (past the 5-min lag)
+        $this->storeEsp32Reading(93.0);
+        $startedAt = (new \DateTimeImmutable('-10 minutes', new \DateTimeZone('UTC')))->format('c');
+        $state = [
+            'active' => true,
+            'target_temp_f' => 103.0,
+            'started_at' => $startedAt,
+        ];
+        file_put_contents($this->stateFile, json_encode($state));
+
+        $eta = $service->computeEta();
+
+        $this->assertNotNull($eta);
+        // 10°F at 0.1°F/min = 100 min, no lag since past window
+        $this->assertEqualsWithDelta(100.0, $eta['minutes_remaining'], 1.0);
+    }
+
+    public function testComputeEtaIncludesPartialStartupLag(): void
+    {
+        // 0.1°F/min velocity, 10 min startup lag
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 10.0);
+        $service = $this->createServiceWithEta($charsFile);
+
+        // Session started 3 minutes ago (7 min of lag remaining)
+        $this->storeEsp32Reading(93.0);
+        $startedAt = (new \DateTimeImmutable('-3 minutes', new \DateTimeZone('UTC')))->format('c');
+        $state = [
+            'active' => true,
+            'target_temp_f' => 103.0,
+            'started_at' => $startedAt,
+        ];
+        file_put_contents($this->stateFile, json_encode($state));
+
+        $eta = $service->computeEta();
+
+        $this->assertNotNull($eta);
+        // 10°F at 0.1°F/min = 100 min + 7 min remaining lag = 107 min
+        $this->assertEqualsWithDelta(107.0, $eta['minutes_remaining'], 1.5);
+    }
+
+    public function testComputeEtaReturnsNullWhenTargetReached(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $service = $this->createServiceWithEta($charsFile);
+
+        // Water already at target
+        $this->storeEsp32Reading(103.0);
+        $state = [
+            'active' => true,
+            'target_temp_f' => 103.0,
+            'started_at' => date('c'),
+        ];
+        file_put_contents($this->stateFile, json_encode($state));
+
+        $eta = $service->computeEta();
+
+        $this->assertNull($eta);
+    }
+
+    public function testComputeEtaIncludesEtaTimestamp(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile(1.0, 0.0);
+        $service = $this->createServiceWithEta($charsFile);
+
+        // 10°F to go at 1°F/min = 10 min from now
+        $this->storeEsp32Reading(93.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+        $service->start(103.0);
+
+        $eta = $service->computeEta();
+
+        $this->assertNotNull($eta);
+        $etaTime = new \DateTimeImmutable($eta['eta_timestamp']);
+        $expectedTime = new \DateTimeImmutable('+10 minutes');
+        // Should be within 2 minutes of expected
+        $diffSeconds = abs($etaTime->getTimestamp() - $expectedTime->getTimestamp());
+        $this->assertLessThan(120, $diffSeconds);
+    }
 }

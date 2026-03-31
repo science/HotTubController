@@ -59,6 +59,11 @@ class TargetTemperatureController
     {
         $state = $this->service->getState();
 
+        $eta = $this->service->computeEta();
+        if ($eta !== null) {
+            $state['eta'] = $eta;
+        }
+
         return [
             'status' => 200,
             'body' => $state,
