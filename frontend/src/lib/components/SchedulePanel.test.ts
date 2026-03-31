@@ -48,6 +48,7 @@ vi.mock('$lib/config', () => ({
 vi.mock('$lib/stores/heatTargetSettings.svelte', () => ({
 	getEnabled: vi.fn(() => false),
 	getTargetTempF: vi.fn(() => 103),
+	getDynamicMode: vi.fn(() => false),
 	getTimezone: vi.fn(() => 'America/Los_Angeles')
 }));
 
