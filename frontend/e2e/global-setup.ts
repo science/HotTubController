@@ -80,8 +80,8 @@ function setupEsp32TestData(stateDir: string): void {
 	const tempData = {
 		device_id: 'TEST:AA:BB:CC:DD:EE',
 		sensors: [
-			{ address: waterAddress, temp_c: 38.5, temp_f: 101.3 },
-			{ address: ambientAddress, temp_c: 21.0, temp_f: 69.8 }
+			{ address: waterAddress, temp_c: 33.33, temp_f: 92.0 },
+			{ address: ambientAddress, temp_c: 12.78, temp_f: 55.0 }
 		],
 		uptime_seconds: 3600,
 		timestamp: new Date().toISOString(),
@@ -121,6 +121,25 @@ function resetHeatTargetSettings(stateDir: string): void {
 		updated_at: new Date().toISOString()
 	};
 	writeFileSync(settingsFile, JSON.stringify(defaultSettings, null, 4));
+}
+
+/**
+ * Seeds heating characteristics data for ETA computation tests.
+ */
+function setupHeatingCharacteristics(stateDir: string): void {
+	const charsFile = join(stateDir, 'heating-characteristics.json');
+	const chars = {
+		heating_velocity_f_per_min: 0.12,
+		startup_lag_minutes: 4.5,
+		overshoot_degrees_f: 0.3,
+		cooling_coefficient_k: 0.00015,
+		cooling_data_points: 50,
+		cooling_r_squared: 0.95,
+		max_cooling_k: 0.00025,
+		sessions_analyzed: 5,
+		generated_at: new Date().toISOString()
+	};
+	writeFileSync(charsFile, JSON.stringify(chars, null, 2));
 }
 
 /**
@@ -225,6 +244,9 @@ async function globalSetup(config: FullConfig) {
 
 	resetHeatTargetSettings(stateDir);
 	console.log(`[E2E Setup] Reset heat-target settings to defaults`);
+
+	setupHeatingCharacteristics(stateDir);
+	console.log(`[E2E Setup] Set up heating characteristics`);
 }
 
 export default globalSetup;

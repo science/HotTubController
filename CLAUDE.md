@@ -166,8 +166,9 @@ ESP32_API_KEY=your-api-key
   - `EnvLoader` - File-based `.env` configuration loading
   - `CronSchedulingService` - **Centralized cron scheduling with correct timezone handling** (see DRY Principles)
   - `SchedulerService` - Creates/lists/cancels cron jobs with Healthchecks.io monitoring
-  - `TargetTemperatureService` - Heat-to-target feature with automatic cron-based temperature checks
-  - `HeatTargetSettingsService` - Stores global heat-to-target enabled/target_temp settings
+  - `TargetTemperatureService` - Heat-to-target feature with automatic cron-based temperature checks, ETA computation
+  - `HeatTargetSettingsService` - Stores global heat-to-target enabled/target_temp/dynamic mode settings
+  - `DynamicTargetCalculator` - Piecewise linear interpolation for ambient-adjusted water target temperatures
   - `AuthService` - JWT token validation
   - `EquipmentStatusService` - Tracks heater/pump on/off state in JSON file
   - `RequestLogger` - API request logging in JSON Lines format

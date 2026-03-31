@@ -645,6 +645,66 @@ class TargetTemperatureService
             'eta_timestamp' => (new \DateTimeImmutable('@' . $etaTimestamp))->format('c'),
             'minutes_remaining' => round($heatingMinutes, 1),
             'heating_velocity' => $velocity,
+            'target_temp_f' => $targetTempF,
+            'projected' => false,
+        ];
+    }
+
+    /**
+     * Compute projected ETA as if heating started right now.
+     *
+     * Works without an active session. Uses configured target temp
+     * (dynamic if enabled, static otherwise) and full startup lag.
+     */
+    public function computeProjectedEta(): ?array
+    {
+        if ($this->heatTargetSettings === null || !$this->heatTargetSettings->isEnabled()) {
+            return null;
+        }
+
+        if ($this->heatingCharacteristicsFile === null || !file_exists($this->heatingCharacteristicsFile)) {
+            return null;
+        }
+        $chars = json_decode(file_get_contents($this->heatingCharacteristicsFile), true);
+        if (!is_array($chars) || empty($chars['heating_velocity_f_per_min'])) {
+            return null;
+        }
+
+        $currentTempF = $this->getCalibratedWaterTempF();
+        if ($currentTempF === null) {
+            return null;
+        }
+
+        // Determine target: dynamic (from ambient) or static
+        $targetTempF = $this->heatTargetSettings->getTargetTempF();
+        if ($this->heatTargetSettings->isDynamicMode()) {
+            $ambientTempF = $this->getCalibratedAmbientTempF();
+            if ($ambientTempF !== null) {
+                $result = DynamicTargetCalculator::calculate(
+                    $ambientTempF,
+                    $this->heatTargetSettings->getCalibrationPoints()
+                );
+                $targetTempF = $result['target_f'];
+            }
+        }
+
+        if ($currentTempF >= $targetTempF) {
+            return null;
+        }
+
+        $velocity = (float) $chars['heating_velocity_f_per_min'];
+        $startupLag = (float) ($chars['startup_lag_minutes'] ?? 0);
+
+        $heatingMinutes = ($targetTempF - $currentTempF) / $velocity + $startupLag;
+        $now = time();
+        $etaTimestamp = $now + (int) ceil($heatingMinutes * 60);
+
+        return [
+            'eta_timestamp' => (new \DateTimeImmutable('@' . $etaTimestamp))->format('c'),
+            'minutes_remaining' => round($heatingMinutes, 1),
+            'heating_velocity' => $velocity,
+            'target_temp_f' => $targetTempF,
+            'projected' => true,
         ];
     }
 

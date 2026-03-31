@@ -442,12 +442,8 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 	});
 
 	test.describe('ETA display', () => {
-		test('ETA is not visible when heater is not active', async ({ page }) => {
-			// Reset to known state
-			await page.request.put('/tub/backend/public/api/settings/heat-target', {
-				data: { enabled: true, target_temp_f: 103, dynamic_mode: false }
-			});
-
+		test('ETA is not visible when heat-to-target is disabled', async ({ page }) => {
+			// Login first so API calls are authenticated
 			await page.goto('/tub/login');
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
@@ -456,7 +452,19 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 				timeout: 10000
 			});
 
-			// ETA display should not exist
+			// Disable heat-to-target (must be after login for admin auth)
+			const response = await page.request.put('/tub/backend/public/api/settings/heat-target', {
+				data: { enabled: false, target_temp_f: 103, dynamic_mode: false }
+			});
+			expect(response.ok()).toBeTruthy();
+
+			// Reload to pick up the disabled setting
+			await page.reload();
+			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
+				timeout: 10000
+			});
+
+			// ETA display should not exist when feature is disabled
 			await expect(page.getByTestId('eta-display')).not.toBeVisible();
 		});
 	});

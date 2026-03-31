@@ -157,6 +157,8 @@ export interface TargetTemperatureState {
 		eta_timestamp: string;
 		minutes_remaining: number;
 		heating_velocity: number;
+		target_temp_f: number;
+		projected: boolean;
 	};
 }
 

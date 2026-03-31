@@ -59,28 +59,31 @@
 	let lastStallEvent = $derived(stallBannerDismissed ? null : getLastStallEvent());
 
 	// ETA tracking for heat-to-target
+	// ETA tracking for heat-to-target (active and projected)
 	let heatTargetEta = $state<TargetTemperatureState | null>(null);
 	let etaDisplay = $derived.by(() => {
-		if (!heatTargetEta?.active || !heatTargetEta.eta) return null;
+		if (!heatTargetEta?.eta) return null;
 		const eta = heatTargetEta.eta;
 		const etaDate = new Date(eta.eta_timestamp);
 		const timeStr = etaDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 		return {
-			targetTempF: heatTargetEta.target_temp_f,
+			targetTempF: eta.target_temp_f,
 			time: timeStr,
 			minutesRemaining: Math.round(eta.minutes_remaining),
+			projected: eta.projected,
 		};
 	});
 
-	// Poll heat-to-target status when heater is on and target mode is enabled
+	// Poll heat-to-target status whenever target mode is enabled.
+	// Reading heaterOn ensures the effect re-fires on heater state changes,
+	// so the ETA switches between projected/active immediately.
 	$effect(() => {
-		if (!heaterOn || !getTargetTempEnabled()) {
+		const _heaterState = heaterOn; // track as dependency
+		if (!getTargetTempEnabled()) {
 			heatTargetEta = null;
 			return;
 		}
-		// Fetch immediately
 		api.getTargetTempStatus().then(s => { heatTargetEta = s; }).catch(() => {});
-		// Poll every 60s
 		const interval = setInterval(() => {
 			api.getTargetTempStatus().then(s => { heatTargetEta = s; }).catch(() => {});
 		}, 60_000);
@@ -207,10 +210,17 @@
 
 		<!-- ETA: Estimated time to reach target temperature -->
 		{#if etaDisplay}
-			<div class="text-center text-sm text-orange-400/80 py-1" data-testid="eta-display">
-				Target {etaDisplay.targetTempF}°F by {etaDisplay.time}
-				<span class="text-slate-500 text-xs">({etaDisplay.minutesRemaining} min)</span>
-			</div>
+			{#if etaDisplay.projected}
+				<div class="text-center text-sm text-slate-400 py-1" data-testid="eta-display">
+					Heat now &rarr; {etaDisplay.targetTempF}°F by {etaDisplay.time}
+					<span class="text-slate-500 text-xs">({etaDisplay.minutesRemaining} min)</span>
+				</div>
+			{:else}
+				<div class="text-center text-sm text-orange-400/80 py-1" data-testid="eta-display">
+					Target {etaDisplay.targetTempF}°F by {etaDisplay.time}
+					<span class="text-slate-500 text-xs">({etaDisplay.minutesRemaining} min)</span>
+				</div>
+			{/if}
 		{/if}
 
 		<!-- Dining Room Blinds Controls (optional feature, half-height) -->

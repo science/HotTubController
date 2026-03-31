@@ -59,7 +59,8 @@ class TargetTemperatureController
     {
         $state = $this->service->getState();
 
-        $eta = $this->service->computeEta();
+        // Active session: use real-time ETA. Otherwise: projected ETA.
+        $eta = $this->service->computeEta() ?? $this->service->computeProjectedEta();
         if ($eta !== null) {
             $state['eta'] = $eta;
         }

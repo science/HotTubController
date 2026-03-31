@@ -1,13 +1,13 @@
 {
-    "device_id": "DEV:AA:BB:CC:DD:EE",
+    "device_id": "TEST:AA:BB:CC:DD:EE",
     "sensors": [
         {
-            "address": "28:AA:BB:CC:DD:EE:FF:00",
+            "address": "28:F6:DD:87:00:88:1E:E8",
             "temp_c": 33.33,
             "temp_f": 92.0
         },
         {
-            "address": "28:BB:CC:DD:EE:FF:00:11",
+            "address": "28:D5:AA:87:00:23:16:34",
             "temp_c": 12.78,
             "temp_f": 55.0
         }
