@@ -9,6 +9,7 @@
 	import {
 		getEnabled as getTargetTempEnabled,
 		getTargetTempF,
+		getDynamicMode,
 		getTimezone as getConfiguredTimezone
 	} from '$lib/stores/heatTargetSettings.svelte';
 	import { onDestroy } from 'svelte';
@@ -440,7 +441,8 @@
 
 	function getJobDisplayLabel(job: ScheduledJob): string {
 		if (job.action === 'heat-to-target' && job.params?.target_temp_f) {
-			const label = `Heat to ${job.params.target_temp_f}°F`;
+			const dynamic = getDynamicMode() ? ' ~' : '';
+			const label = `Heat to${dynamic} ${job.params.target_temp_f}°F`;
 			if (job.params?.ready_by_time) return `${label} (ready by)`;
 			return label;
 		}
