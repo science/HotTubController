@@ -47,6 +47,8 @@ The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it
 
 ### Heat-to-Target
 - **Automatic Temperature Control** - Set a target temperature (80-110°F) and the system manages the heater automatically
+- **Dynamic Target Mode** - Automatically adjusts water target based on ambient air temperature using a 3-point calibration curve (colder air → hotter water, warmer air → cooler water)
+- **ETA Display** - Shows estimated time to reach target temperature below the control buttons, both during active heating and as a "what if" projection when the heater is off
 - **Stall Detection** - Detects when water temperature stops rising (e.g., heater malfunction) and shuts down safely
 - **Configurable Stall Parameters** - Adjust grace period and timeout for stall detection
 
@@ -176,6 +178,15 @@ npm run dev    # Starts on http://localhost:5173
 ```
 
 Default login: `admin` / `password` (change in production!)
+
+### Dev Environment Setup
+
+Seed state files with fixture data so temperature display, ETA, and dynamic heat-to-target work without a real ESP32:
+
+```bash
+./scripts/dev-setup.sh          # Set up .env + seed fixture data
+./scripts/dev-setup.sh --force  # Overwrite existing state files (e.g., after E2E tests)
+```
 
 ### ESP32 Firmware Setup
 

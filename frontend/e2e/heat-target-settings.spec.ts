@@ -15,7 +15,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 		test.beforeEach(async ({ page }) => {
 			// Reset settings to known state before each test
 			await page.request.put('/tub/backend/public/api/settings/heat-target', {
-				data: { enabled: false, target_temp_f: 103 }
+				data: { enabled: false, target_temp_f: 103, dynamic_mode: false }
 			});
 
 			// Login as admin
@@ -51,7 +51,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 		test.beforeEach(async ({ page }) => {
 			// Reset settings to known state
 			await page.request.put('/tub/backend/public/api/settings/heat-target', {
-				data: { enabled: false, target_temp_f: 103 }
+				data: { enabled: false, target_temp_f: 103, dynamic_mode: false }
 			});
 
 			// Login as admin
@@ -170,7 +170,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 
 			// Reset to known state via API
 			const resetResponse = await page.request.put('/tub/backend/public/api/settings/heat-target', {
-				data: { enabled: false, target_temp_f: 103 }
+				data: { enabled: false, target_temp_f: 103, dynamic_mode: false }
 			});
 			expect(resetResponse.ok()).toBeTruthy();
 
@@ -281,7 +281,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 
 			// Ensure target temp is disabled via API
 			const response = await page.request.put('/tub/backend/public/api/settings/heat-target', {
-				data: { enabled: false, target_temp_f: 103 }
+				data: { enabled: false, target_temp_f: 103, dynamic_mode: false }
 			});
 			expect(response.ok()).toBeTruthy();
 
@@ -319,6 +319,153 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 
 			// Button should show "Heat to 104°F"
 			await expect(page.getByRole('button', { name: /Heat to 104/ })).toBeVisible({ timeout: 5000 });
+		});
+	});
+
+	test.describe('Dynamic mode', () => {
+		test.beforeEach(async ({ page }) => {
+			// Reset to known state with dynamic mode off
+			await page.request.put('/tub/backend/public/api/settings/heat-target', {
+				data: {
+					enabled: true,
+					target_temp_f: 103,
+					dynamic_mode: false,
+					calibration_points: {
+						cold:    { ambient_f: 45, water_target_f: 104 },
+						comfort: { ambient_f: 60, water_target_f: 102 },
+						hot:     { ambient_f: 75, water_target_f: 100.5 }
+					}
+				}
+			});
+
+			// Login as admin
+			await page.goto('/tub/login');
+			await page.fill('#username', 'admin');
+			await page.fill('#password', 'password');
+			await page.press('#password', 'Enter');
+			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
+				timeout: 10000
+			});
+		});
+
+		test('displays target mode radio buttons for admin', async ({ page }) => {
+			await expect(page.getByLabel('Static target')).toBeVisible({ timeout: 10000 });
+			await expect(page.getByLabel('Dynamic (ambient-adjusted)')).toBeVisible();
+		});
+
+		test('static mode is selected by default', async ({ page }) => {
+			const staticRadio = page.getByLabel('Static target');
+			await expect(staticRadio).toBeChecked({ timeout: 10000 });
+		});
+
+		test('switching to dynamic mode hides slider and shows calibration inputs', async ({ page }) => {
+			// Initially slider should be visible
+			await expect(page.getByLabel('Target temp', { exact: true })).toBeVisible({ timeout: 10000 });
+
+			// Switch to dynamic
+			await page.getByLabel('Dynamic (ambient-adjusted)').click();
+
+			// Slider should be hidden, calibration inputs should appear
+			await expect(page.getByLabel('Target temp', { exact: true })).not.toBeVisible();
+			await expect(page.getByLabel('Cold ambient temp')).toBeVisible();
+			await expect(page.getByLabel('Comfort ambient temp')).toBeVisible();
+			await expect(page.getByLabel('Hot ambient temp')).toBeVisible();
+		});
+
+		test('switching to dynamic mode marks settings as dirty', async ({ page }) => {
+			await expect(page.getByLabel('Static target')).toBeVisible({ timeout: 10000 });
+			await page.getByLabel('Dynamic (ambient-adjusted)').click();
+			await expect(page.getByRole('button', { name: 'Save Settings' })).toBeVisible();
+		});
+
+		test('dynamic mode persists after save and reload', async ({ page }) => {
+			await expect(page.getByLabel('Static target')).toBeVisible({ timeout: 10000 });
+
+			// Switch to dynamic and save
+			await page.getByLabel('Dynamic (ambient-adjusted)').click();
+			await page.getByRole('button', { name: 'Save Settings' }).click();
+
+			// Wait for save to complete (button disappears when not dirty)
+			await expect(page.getByRole('button', { name: 'Save Settings' })).not.toBeVisible({ timeout: 5000 });
+
+			// Reload and verify
+			await page.reload();
+			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
+				timeout: 10000
+			});
+			await expect(page.getByLabel('Dynamic (ambient-adjusted)')).toBeChecked({ timeout: 5000 });
+		});
+
+		test('calibration point values persist after save and reload', async ({ page }) => {
+			await expect(page.getByLabel('Static target')).toBeVisible({ timeout: 10000 });
+
+			// Enable dynamic mode via API with custom calibration
+			await page.request.put('/tub/backend/public/api/settings/heat-target', {
+				data: {
+					enabled: true,
+					target_temp_f: 103,
+					dynamic_mode: true,
+					calibration_points: {
+						cold:    { ambient_f: 40, water_target_f: 105 },
+						comfort: { ambient_f: 55, water_target_f: 103 },
+						hot:     { ambient_f: 70, water_target_f: 101 }
+					}
+				}
+			});
+
+			await page.reload();
+			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
+				timeout: 10000
+			});
+
+			// Verify dynamic mode is active
+			await expect(page.getByLabel('Dynamic (ambient-adjusted)')).toBeChecked({ timeout: 5000 });
+
+			// Verify calibration values loaded
+			await expect(page.getByLabel('Cold ambient temp')).toHaveValue('40');
+			await expect(page.getByLabel('Cold water target')).toHaveValue('105');
+		});
+
+		test('button shows "Heat (Dynamic)" when dynamic mode is enabled', async ({ page }) => {
+			// Enable dynamic mode via API
+			await page.request.put('/tub/backend/public/api/settings/heat-target', {
+				data: { enabled: true, target_temp_f: 103, dynamic_mode: true }
+			});
+
+			await page.reload();
+			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
+				timeout: 10000
+			});
+
+			await expect(page.getByRole('button', { name: 'Heat (Dynamic)' })).toBeVisible({ timeout: 5000 });
+		});
+	});
+
+	test.describe('ETA display', () => {
+		test('ETA is not visible when heat-to-target is disabled', async ({ page }) => {
+			// Login first so API calls are authenticated
+			await page.goto('/tub/login');
+			await page.fill('#username', 'admin');
+			await page.fill('#password', 'password');
+			await page.press('#password', 'Enter');
+			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
+				timeout: 10000
+			});
+
+			// Disable heat-to-target (must be after login for admin auth)
+			const response = await page.request.put('/tub/backend/public/api/settings/heat-target', {
+				data: { enabled: false, target_temp_f: 103, dynamic_mode: false }
+			});
+			expect(response.ok()).toBeTruthy();
+
+			// Reload to pick up the disabled setting
+			await page.reload();
+			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
+				timeout: 10000
+			});
+
+			// ETA display should not exist when feature is disabled
+			await expect(page.getByTestId('eta-display')).not.toBeVisible();
 		});
 	});
 });

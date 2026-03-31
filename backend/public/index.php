@@ -151,6 +151,7 @@ $stallEventFile = __DIR__ . '/../storage/state/last-stall-event.json';
 // Create target temperature service and controller
 // (for automated heating to target temperature)
 $targetTempStateFile = __DIR__ . '/../storage/state/target-temperature.json';
+$heatingCharacteristicsResultsFile = __DIR__ . '/../storage/state/heating-characteristics.json';
 $targetTemperatureService = new TargetTemperatureService(
     $targetTempStateFile,
     $iftttClient,
@@ -163,7 +164,8 @@ $targetTemperatureService = new TargetTemperatureService(
     null, // CronSchedulingService (auto-created from crontabAdapter)
     $heatTargetSettingsService,
     $stallEventFile,
-    $equipmentEventLogFile
+    $equipmentEventLogFile,
+    $heatingCharacteristicsResultsFile
 );
 $targetTemperatureController = new TargetTemperatureController($targetTemperatureService);
 
@@ -186,7 +188,6 @@ $schedulerService = new SchedulerService(
 );
 
 // Create DTDT (Dynamic Time to Desired Temperature) service
-$heatingCharacteristicsResultsFile = __DIR__ . '/../storage/state/heating-characteristics.json';
 $dtdtService = new DtdtService(
     $schedulerService,
     $targetTemperatureService,
@@ -251,6 +252,8 @@ $router->get('/api/health', function() use ($equipmentController, $blindsControl
         'schedule_mode' => $heatTargetSettingsService->getScheduleMode(),
         'stall_grace_period_minutes' => $heatTargetSettingsService->getStallGracePeriodMinutes(),
         'stall_timeout_minutes' => $heatTargetSettingsService->getStallTimeoutMinutes(),
+        'dynamic_mode' => $heatTargetSettingsService->isDynamicMode(),
+        'calibration_points' => $heatTargetSettingsService->getCalibrationPoints(),
     ];
     // Include last stall event if it exists
     if (file_exists($stallEventFile)) {

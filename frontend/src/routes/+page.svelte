@@ -18,7 +18,7 @@
 		getHeatButtonTooltip,
 		getLastStallEvent
 	} from '$lib/stores/heatTargetSettings.svelte';
-	import type { LastStallEvent } from '$lib/api';
+	import type { LastStallEvent, TargetTemperatureState } from '$lib/api';
 	import {
 		fetchStatus,
 		getHeaterOn,
@@ -57,6 +57,38 @@
 	let temperaturePanel = $state<{ loadTemperature: () => Promise<void> } | null>(null);
 	let stallBannerDismissed = $state(false);
 	let lastStallEvent = $derived(stallBannerDismissed ? null : getLastStallEvent());
+
+	// ETA tracking for heat-to-target
+	// ETA tracking for heat-to-target (active and projected)
+	let heatTargetEta = $state<TargetTemperatureState | null>(null);
+	let etaDisplay = $derived.by(() => {
+		if (!heatTargetEta?.eta) return null;
+		const eta = heatTargetEta.eta;
+		const etaDate = new Date(eta.eta_timestamp);
+		const timeStr = etaDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+		return {
+			targetTempF: eta.target_temp_f,
+			time: timeStr,
+			minutesRemaining: Math.round(eta.minutes_remaining),
+			projected: eta.projected,
+		};
+	});
+
+	// Poll heat-to-target status whenever target mode is enabled.
+	// Reading heaterOn ensures the effect re-fires on heater state changes,
+	// so the ETA switches between projected/active immediately.
+	$effect(() => {
+		const _heaterState = heaterOn; // track as dependency
+		if (!getTargetTempEnabled()) {
+			heatTargetEta = null;
+			return;
+		}
+		api.getTargetTempStatus().then(s => { heatTargetEta = s; }).catch(() => {});
+		const interval = setInterval(() => {
+			api.getTargetTempStatus().then(s => { heatTargetEta = s; }).catch(() => {});
+		}, 60_000);
+		return () => clearInterval(interval);
+	});
 
 	async function handleAction(
 		action: () => Promise<unknown>,
@@ -175,6 +207,21 @@
 				onClick={() => handleAction(api.pumpRun, 'Pump running for 2 hours', setPumpOn)}
 			/>
 		</div>
+
+		<!-- ETA: Estimated time to reach target temperature -->
+		{#if etaDisplay}
+			{#if etaDisplay.projected}
+				<div class="text-center text-sm text-slate-400 py-1" data-testid="eta-display">
+					Heat now &rarr; {etaDisplay.targetTempF}°F by {etaDisplay.time}
+					<span class="text-slate-500 text-xs">({etaDisplay.minutesRemaining} min)</span>
+				</div>
+			{:else}
+				<div class="text-center text-sm text-orange-400/80 py-1" data-testid="eta-display">
+					Target {etaDisplay.targetTempF}°F by {etaDisplay.time}
+					<span class="text-slate-500 text-xs">({etaDisplay.minutesRemaining} min)</span>
+				</div>
+			{/if}
+		{/if}
 
 		<!-- Dining Room Blinds Controls (optional feature, half-height) -->
 		{#if blindsEnabled}

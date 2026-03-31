@@ -414,4 +414,160 @@ class HeatTargetSettingsServiceTest extends TestCase
         $this->assertEquals(20, $this->service->getStallGracePeriodMinutes());
         $this->assertEquals(10, $this->service->getStallTimeoutMinutes());
     }
+
+    // ==================== Dynamic Mode Tests ====================
+
+    /**
+     * @test
+     */
+    public function dynamicModeDefaultsToFalse(): void
+    {
+        $this->assertFalse($this->service->isDynamicMode());
+    }
+
+    /**
+     * @test
+     */
+    public function getSettingsIncludesDynamicModeDefault(): void
+    {
+        $settings = $this->service->getSettings();
+        $this->assertArrayHasKey('dynamic_mode', $settings);
+        $this->assertFalse($settings['dynamic_mode']);
+    }
+
+    /**
+     * @test
+     */
+    public function calibrationPointsReturnDefaults(): void
+    {
+        $points = $this->service->getCalibrationPoints();
+
+        $this->assertArrayHasKey('cold', $points);
+        $this->assertArrayHasKey('comfort', $points);
+        $this->assertArrayHasKey('hot', $points);
+        $this->assertEquals(45.0, $points['cold']['ambient_f']);
+        $this->assertEquals(104.0, $points['cold']['water_target_f']);
+        $this->assertEquals(60.0, $points['comfort']['ambient_f']);
+        $this->assertEquals(102.0, $points['comfort']['water_target_f']);
+        $this->assertEquals(75.0, $points['hot']['ambient_f']);
+        $this->assertEquals(100.5, $points['hot']['water_target_f']);
+    }
+
+    /**
+     * @test
+     */
+    public function getSettingsIncludesCalibrationPointsDefault(): void
+    {
+        $settings = $this->service->getSettings();
+        $this->assertArrayHasKey('calibration_points', $settings);
+        $this->assertArrayHasKey('cold', $settings['calibration_points']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateDynamicSettingsStoresValues(): void
+    {
+        $points = [
+            'cold'    => ['ambient_f' => 40.0, 'water_target_f' => 105.0],
+            'comfort' => ['ambient_f' => 55.0, 'water_target_f' => 103.0],
+            'hot'     => ['ambient_f' => 70.0, 'water_target_f' => 101.0],
+        ];
+
+        $this->service->updateDynamicSettings(true, $points);
+
+        $this->assertTrue($this->service->isDynamicMode());
+        $stored = $this->service->getCalibrationPoints();
+        $this->assertEquals(40.0, $stored['cold']['ambient_f']);
+        $this->assertEquals(105.0, $stored['cold']['water_target_f']);
+        $this->assertEquals(55.0, $stored['comfort']['ambient_f']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateDynamicSettingsPersistsAcrossInstances(): void
+    {
+        $points = [
+            'cold'    => ['ambient_f' => 40.0, 'water_target_f' => 105.0],
+            'comfort' => ['ambient_f' => 55.0, 'water_target_f' => 103.0],
+            'hot'     => ['ambient_f' => 70.0, 'water_target_f' => 101.0],
+        ];
+
+        $this->service->updateDynamicSettings(true, $points);
+
+        $newService = new HeatTargetSettingsService($this->settingsFile);
+        $this->assertTrue($newService->isDynamicMode());
+        $stored = $newService->getCalibrationPoints();
+        $this->assertEquals(40.0, $stored['cold']['ambient_f']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateDynamicSettingsRejectsUnorderedAmbientTemps(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        $points = [
+            'cold'    => ['ambient_f' => 60.0, 'water_target_f' => 104.0],
+            'comfort' => ['ambient_f' => 45.0, 'water_target_f' => 102.0],
+            'hot'     => ['ambient_f' => 75.0, 'water_target_f' => 100.5],
+        ];
+
+        $this->service->updateDynamicSettings(true, $points);
+    }
+
+    /**
+     * @test
+     */
+    public function updateDynamicSettingsRejectsOutOfRangeWaterTargets(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        $points = [
+            'cold'    => ['ambient_f' => 45.0, 'water_target_f' => 115.0],
+            'comfort' => ['ambient_f' => 60.0, 'water_target_f' => 102.0],
+            'hot'     => ['ambient_f' => 75.0, 'water_target_f' => 100.5],
+        ];
+
+        $this->service->updateDynamicSettings(true, $points);
+    }
+
+    /**
+     * @test
+     */
+    public function updateSettingsPreservesDynamicSettings(): void
+    {
+        $points = [
+            'cold'    => ['ambient_f' => 40.0, 'water_target_f' => 105.0],
+            'comfort' => ['ambient_f' => 55.0, 'water_target_f' => 103.0],
+            'hot'     => ['ambient_f' => 70.0, 'water_target_f' => 101.0],
+        ];
+
+        $this->service->updateDynamicSettings(true, $points);
+        $this->service->updateSettings(true, 105.0);
+
+        $this->assertTrue($this->service->isDynamicMode());
+        $stored = $this->service->getCalibrationPoints();
+        $this->assertEquals(40.0, $stored['cold']['ambient_f']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateDynamicSettingsCanDisableDynamicMode(): void
+    {
+        $points = [
+            'cold'    => ['ambient_f' => 45.0, 'water_target_f' => 104.0],
+            'comfort' => ['ambient_f' => 60.0, 'water_target_f' => 102.0],
+            'hot'     => ['ambient_f' => 75.0, 'water_target_f' => 100.5],
+        ];
+
+        $this->service->updateDynamicSettings(true, $points);
+        $this->assertTrue($this->service->isDynamicMode());
+
+        $this->service->updateDynamicSettings(false, $points);
+        $this->assertFalse($this->service->isDynamicMode());
+    }
 }

@@ -28,6 +28,7 @@ class TargetTemperatureService
     private ?HeatTargetSettingsService $heatTargetSettings;
     private ?string $stallEventFile;
     private ?string $equipmentEventLogFile;
+    private ?string $heatingCharacteristicsFile;
 
     public function __construct(
         string $stateFile,
@@ -41,7 +42,8 @@ class TargetTemperatureService
         ?CronSchedulingService $cronSchedulingService = null,
         ?HeatTargetSettingsService $heatTargetSettings = null,
         ?string $stallEventFile = null,
-        ?string $equipmentEventLogFile = null
+        ?string $equipmentEventLogFile = null,
+        ?string $heatingCharacteristicsFile = null
     ) {
         $this->stateFile = $stateFile;
         $this->iftttClient = $iftttClient;
@@ -54,6 +56,7 @@ class TargetTemperatureService
         $this->heatTargetSettings = $heatTargetSettings;
         $this->stallEventFile = $stallEventFile;
         $this->equipmentEventLogFile = $equipmentEventLogFile;
+        $this->heatingCharacteristicsFile = $heatingCharacteristicsFile;
         // Use provided CronSchedulingService, or create one if crontabAdapter is available
         $this->cronSchedulingService = $cronSchedulingService
             ?? ($crontabAdapter !== null ? new CronSchedulingService($crontabAdapter) : null);
@@ -120,11 +123,25 @@ class TargetTemperatureService
                 throw new \RuntimeException('Heat-to-target is already active');
             }
 
+            // Resolve dynamic target if enabled
+            $dynamicResult = $this->resolveDynamicTarget($targetTempF);
+            $effectiveTargetF = $dynamicResult['target_f'];
+
             $state = [
                 'active' => true,
-                'target_temp_f' => $targetTempF,
+                'target_temp_f' => $effectiveTargetF,
                 'started_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c'),
             ];
+
+            if ($dynamicResult['dynamic_target_info'] !== null) {
+                $state['dynamic_target_info'] = $dynamicResult['dynamic_target_info'];
+
+                // Log the dynamic target decision
+                $calibrationPoints = $this->heatTargetSettings !== null
+                    ? $this->heatTargetSettings->getCalibrationPoints()
+                    : [];
+                $this->logDynamicTargetEvent($dynamicResult['dynamic_target_info'], $calibrationPoints);
+            }
 
             $this->saveState($state);
 
@@ -579,6 +596,119 @@ class TargetTemperatureService
     }
 
     /**
+     * Compute estimated time of arrival at target temperature.
+     *
+     * Returns null if not actively heating, no characteristics data,
+     * no temperature data, or target already reached.
+     */
+    public function computeEta(): ?array
+    {
+        $state = $this->getState();
+        if (!($state['active'] ?? false)) {
+            return null;
+        }
+
+        // Load heating characteristics
+        if ($this->heatingCharacteristicsFile === null || !file_exists($this->heatingCharacteristicsFile)) {
+            return null;
+        }
+        $chars = json_decode(file_get_contents($this->heatingCharacteristicsFile), true);
+        if (!is_array($chars) || empty($chars['heating_velocity_f_per_min'])) {
+            return null;
+        }
+
+        $currentTempF = $this->getCalibratedWaterTempF();
+        if ($currentTempF === null) {
+            return null;
+        }
+
+        $targetTempF = (float) $state['target_temp_f'];
+        if ($currentTempF >= $targetTempF) {
+            return null;
+        }
+
+        $velocity = (float) $chars['heating_velocity_f_per_min'];
+        $startupLag = (float) ($chars['startup_lag_minutes'] ?? 0);
+
+        // Calculate remaining startup lag based on elapsed time
+        $now = time();
+        $startedAt = isset($state['started_at'])
+            ? (new \DateTimeImmutable($state['started_at']))->getTimestamp()
+            : $now;
+        $elapsedMinutes = ($now - $startedAt) / 60.0;
+        $remainingLag = max(0.0, $startupLag - $elapsedMinutes);
+
+        $heatingMinutes = ($targetTempF - $currentTempF) / $velocity + $remainingLag;
+        $etaTimestamp = $now + (int) ceil($heatingMinutes * 60);
+
+        return [
+            'eta_timestamp' => (new \DateTimeImmutable('@' . $etaTimestamp))->format('c'),
+            'minutes_remaining' => round($heatingMinutes, 1),
+            'heating_velocity' => $velocity,
+            'target_temp_f' => $targetTempF,
+            'projected' => false,
+        ];
+    }
+
+    /**
+     * Compute projected ETA as if heating started right now.
+     *
+     * Works without an active session. Uses configured target temp
+     * (dynamic if enabled, static otherwise) and full startup lag.
+     */
+    public function computeProjectedEta(): ?array
+    {
+        if ($this->heatTargetSettings === null || !$this->heatTargetSettings->isEnabled()) {
+            return null;
+        }
+
+        if ($this->heatingCharacteristicsFile === null || !file_exists($this->heatingCharacteristicsFile)) {
+            return null;
+        }
+        $chars = json_decode(file_get_contents($this->heatingCharacteristicsFile), true);
+        if (!is_array($chars) || empty($chars['heating_velocity_f_per_min'])) {
+            return null;
+        }
+
+        $currentTempF = $this->getCalibratedWaterTempF();
+        if ($currentTempF === null) {
+            return null;
+        }
+
+        // Determine target: dynamic (from ambient) or static
+        $targetTempF = $this->heatTargetSettings->getTargetTempF();
+        if ($this->heatTargetSettings->isDynamicMode()) {
+            $ambientTempF = $this->getCalibratedAmbientTempF();
+            if ($ambientTempF !== null) {
+                $result = DynamicTargetCalculator::calculate(
+                    $ambientTempF,
+                    $this->heatTargetSettings->getCalibrationPoints()
+                );
+                $targetTempF = $result['target_f'];
+            }
+        }
+
+        if ($currentTempF >= $targetTempF) {
+            return null;
+        }
+
+        $velocity = (float) $chars['heating_velocity_f_per_min'];
+        $startupLag = (float) ($chars['startup_lag_minutes'] ?? 0);
+
+        $heatingMinutes = ($targetTempF - $currentTempF) / $velocity + $startupLag;
+        $now = time();
+        $etaTimestamp = $now + (int) ceil($heatingMinutes * 60);
+
+        return [
+            'eta_timestamp' => (new \DateTimeImmutable('@' . $etaTimestamp))->format('c'),
+            'minutes_remaining' => round($heatingMinutes, 1),
+            'heating_velocity' => $velocity,
+            'target_temp_f' => $targetTempF,
+            'projected' => true,
+        ];
+    }
+
+    /**
      * Get the calibrated water temperature in Fahrenheit.
      *
      * Uses sensor config to find the water sensor and apply calibration offset.
@@ -619,5 +749,120 @@ class TargetTemperatureService
     private function celsiusToFahrenheit(float $celsius): float
     {
         return $celsius * 9.0 / 5.0 + 32.0;
+    }
+
+    /**
+     * Get the calibrated ambient temperature in Fahrenheit.
+     *
+     * Mirrors getCalibratedWaterTempF() but for the ambient sensor role.
+     */
+    private function getCalibratedAmbientTempF(): ?float
+    {
+        $latest = $this->esp32Temp?->getLatest();
+        if ($latest === null || $this->esp32Config === null) {
+            return null;
+        }
+
+        $ambientAddress = $this->esp32Config->getSensorByRole('ambient');
+        if ($ambientAddress === null) {
+            return null;
+        }
+
+        foreach ($latest['sensors'] as $sensor) {
+            if ($sensor['address'] === $ambientAddress) {
+                $rawTempC = (float) $sensor['temp_c'];
+                $calibratedTempC = $this->esp32Config->getCalibratedTemperature($ambientAddress, $rawTempC);
+                return $this->celsiusToFahrenheit($calibratedTempC);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve the effective target temperature, applying dynamic calculation if enabled.
+     *
+     * @param float $staticTargetF The static target temperature passed by the caller
+     * @return array{target_f: float, dynamic_target_info: ?array}
+     */
+    private function resolveDynamicTarget(float $staticTargetF): array
+    {
+        if ($this->heatTargetSettings === null || !$this->heatTargetSettings->isDynamicMode()) {
+            return ['target_f' => $staticTargetF, 'dynamic_target_info' => null];
+        }
+
+        $ambientTempF = $this->getCalibratedAmbientTempF();
+        $calibrationPoints = $this->heatTargetSettings->getCalibrationPoints();
+
+        if ($ambientTempF === null) {
+            // Fallback to static target
+            return [
+                'target_f' => $staticTargetF,
+                'dynamic_target_info' => [
+                    'dynamic_mode' => true,
+                    'ambient_temp_f' => null,
+                    'computed_target_f' => $staticTargetF,
+                    'static_target_f' => $staticTargetF,
+                    'clamped' => false,
+                    'fallback' => true,
+                    'fallback_reason' => 'ambient_sensor_unavailable',
+                ],
+            ];
+        }
+
+        $result = DynamicTargetCalculator::calculate($ambientTempF, $calibrationPoints);
+
+        return [
+            'target_f' => $result['target_f'],
+            'dynamic_target_info' => [
+                'dynamic_mode' => true,
+                'ambient_temp_f' => $ambientTempF,
+                'computed_target_f' => $result['target_f'],
+                'static_target_f' => $staticTargetF,
+                'segment' => $result['segment'],
+                'clamped' => $result['clamped'],
+                'fallback' => false,
+            ],
+        ];
+    }
+
+    /**
+     * Log dynamic target decision to the equipment event log.
+     */
+    private function logDynamicTargetEvent(array $dynamicTargetInfo, array $calibrationPoints): void
+    {
+        if ($this->equipmentEventLogFile === null) {
+            return;
+        }
+
+        $action = $dynamicTargetInfo['fallback']
+            ? 'dynamic_heat_target_fallback'
+            : 'dynamic_heat_target_start';
+
+        $logEntry = [
+            'timestamp' => date('c'),
+            'equipment' => 'heater',
+            'action' => $action,
+            'ambient_temp_f' => $dynamicTargetInfo['ambient_temp_f'],
+            'computed_target_f' => $dynamicTargetInfo['computed_target_f'],
+            'static_target_f' => $dynamicTargetInfo['static_target_f'],
+            'calibration_points' => $calibrationPoints,
+            'clamped' => $dynamicTargetInfo['clamped'],
+            'fallback' => $dynamicTargetInfo['fallback'],
+        ];
+
+        if ($dynamicTargetInfo['fallback'] && isset($dynamicTargetInfo['fallback_reason'])) {
+            $logEntry['fallback_reason'] = $dynamicTargetInfo['fallback_reason'];
+        }
+
+        $dir = dirname($this->equipmentEventLogFile);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        file_put_contents(
+            $this->equipmentEventLogFile,
+            json_encode($logEntry) . "\n",
+            FILE_APPEND | LOCK_EX
+        );
     }
 }

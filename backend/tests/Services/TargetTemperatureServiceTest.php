@@ -9,6 +9,7 @@ use HotTub\Contracts\IftttClientInterface;
 use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\Esp32TemperatureService;
 use HotTub\Services\Esp32SensorConfigService;
+use HotTub\Services\HeatTargetSettingsService;
 use HotTub\Services\TargetTemperatureService;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -47,6 +48,7 @@ class TargetTemperatureServiceTest extends TestCase
                 unlink($file);
             }
         }
+        $this->tearDownDynamicFiles();
     }
 
     private function createService(): TargetTemperatureService
@@ -838,5 +840,512 @@ class TargetTemperatureServiceTest extends TestCase
         fclose($fp);
 
         $this->assertTrue($locked, 'Lock should be released after checkAndAdjust completes');
+    }
+
+    // ==================== Dynamic Target Tests ====================
+
+    private function createServiceWithDynamic(
+        HeatTargetSettingsService $heatTargetSettings,
+        ?string $equipmentEventLogFile = null
+    ): TargetTemperatureService {
+        return new TargetTemperatureService(
+            $this->stateFile,
+            $this->mockIfttt,
+            $this->equipmentStatus,
+            $this->esp32Temp,
+            $this->mockCrontab,
+            '/path/to/cron-runner.sh',
+            'https://example.com/api',
+            $this->esp32Config,
+            null, // cronSchedulingService
+            $heatTargetSettings,
+            null, // stallEventFile
+            $equipmentEventLogFile
+        );
+    }
+
+    private function storeEsp32ReadingWithAmbient(float $waterTempF, float $ambientTempF): void
+    {
+        $waterTempC = ($waterTempF - 32) * 5 / 9;
+        $ambientTempC = ($ambientTempF - 32) * 5 / 9;
+
+        $this->esp32Temp->store([
+            'device_id' => 'TEST:AA:BB:CC:DD:EE',
+            'sensors' => [
+                ['address' => '28:AA:BB:CC:DD:EE:FF:00', 'temp_c' => $waterTempC, 'temp_f' => $waterTempF],
+                ['address' => '28:BB:CC:DD:EE:FF:00:11', 'temp_c' => $ambientTempC, 'temp_f' => $ambientTempF],
+            ],
+            'uptime_seconds' => 3600,
+        ]);
+
+        // Configure sensor roles
+        $this->esp32Config->setSensorRole('28:AA:BB:CC:DD:EE:FF:00', 'water');
+        $this->esp32Config->setSensorRole('28:BB:CC:DD:EE:FF:00:11', 'ambient');
+    }
+
+    private function createDynamicHeatTargetSettings(
+        bool $dynamicMode = true,
+        ?array $calibrationPoints = null
+    ): HeatTargetSettingsService {
+        $settingsFile = sys_get_temp_dir() . '/test_dynamic_settings_' . uniqid() . '.json';
+        $this->dynamicSettingsFiles[] = $settingsFile;
+        $service = new HeatTargetSettingsService($settingsFile);
+        $points = $calibrationPoints ?? [
+            'cold'    => ['ambient_f' => 45.0, 'water_target_f' => 104.0],
+            'comfort' => ['ambient_f' => 60.0, 'water_target_f' => 102.0],
+            'hot'     => ['ambient_f' => 75.0, 'water_target_f' => 100.5],
+        ];
+        $service->updateDynamicSettings($dynamicMode, $points);
+        $service->updateSettings(true, 102.0); // static target as fallback
+        return $service;
+    }
+
+    /** @var string[] Temp files created by dynamic tests, cleaned up in tearDown */
+    private array $dynamicSettingsFiles = [];
+
+    public function testStartWithDynamicModeComputesCorrectTarget(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+
+        // Ambient at comfort point (60F) → water target 102.0F
+        $this->storeEsp32ReadingWithAmbient(90.0, 60.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $result = $service->start(102.0);
+
+        $state = $service->getState();
+        $this->assertTrue($state['active']);
+        $this->assertEqualsWithDelta(102.0, $state['target_temp_f'], 0.01);
+        $this->assertArrayHasKey('dynamic_target_info', $state);
+        $this->assertTrue($state['dynamic_target_info']['dynamic_mode']);
+        $this->assertEqualsWithDelta(60.0, $state['dynamic_target_info']['ambient_temp_f'], 0.1);
+        $this->assertFalse($state['dynamic_target_info']['fallback']);
+    }
+
+    public function testStartWithDynamicModeInterpolatesColdSegment(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+
+        // Ambient at 52.5F (midpoint of cold segment) → water target 103.0F
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $result = $service->start(102.0);
+
+        $state = $service->getState();
+        $this->assertEqualsWithDelta(103.0, $state['target_temp_f'], 0.01);
+        $this->assertEqualsWithDelta(103.0, $state['dynamic_target_info']['computed_target_f'], 0.01);
+    }
+
+    public function testStartWithDynamicModeClampsBelowCold(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+
+        // Ambient at 30F (below cold point 45F) → clamp to 104.0F
+        $this->storeEsp32ReadingWithAmbient(90.0, 30.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $result = $service->start(102.0);
+
+        $state = $service->getState();
+        $this->assertEqualsWithDelta(104.0, $state['target_temp_f'], 0.01);
+        $this->assertTrue($state['dynamic_target_info']['clamped']);
+    }
+
+    public function testStartWithDynamicModeFallsBackWhenNoAmbient(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+
+        // Only water sensor, no ambient
+        $this->storeEsp32Reading(90.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $result = $service->start(102.0);
+
+        $state = $service->getState();
+        // Falls back to static target
+        $this->assertEqualsWithDelta(102.0, $state['target_temp_f'], 0.01);
+        $this->assertTrue($state['dynamic_target_info']['fallback']);
+    }
+
+    public function testStartWithDynamicModeDisabledUsesStaticTarget(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(false);
+        $service = $this->createServiceWithDynamic($heatSettings);
+
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $result = $service->start(102.0);
+
+        $state = $service->getState();
+        // Should use the passed-in target, not dynamic
+        $this->assertEqualsWithDelta(102.0, $state['target_temp_f'], 0.01);
+        $this->assertArrayNotHasKey('dynamic_target_info', $state);
+    }
+
+    public function testDynamicStartLogsDecisionContext(): void
+    {
+        $logFile = sys_get_temp_dir() . '/test_equip_events_' . uniqid() . '.log';
+        $this->dynamicSettingsFiles[] = $logFile;
+
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings, $logFile);
+
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $service->start(102.0);
+
+        $this->assertFileExists($logFile);
+        $content = file_get_contents($logFile);
+        $lines = array_filter(explode("\n", trim($content)));
+
+        // Find the dynamic_heat_target_start log entry
+        $dynamicLogEntry = null;
+        foreach ($lines as $line) {
+            $entry = json_decode($line, true);
+            if ($entry && ($entry['action'] ?? '') === 'dynamic_heat_target_start') {
+                $dynamicLogEntry = $entry;
+                break;
+            }
+        }
+
+        $this->assertNotNull($dynamicLogEntry, 'Should log dynamic_heat_target_start event');
+        $this->assertEquals('heater', $dynamicLogEntry['equipment']);
+        $this->assertEqualsWithDelta(52.5, $dynamicLogEntry['ambient_temp_f'], 0.1);
+        $this->assertEqualsWithDelta(103.0, $dynamicLogEntry['computed_target_f'], 0.01);
+        $this->assertEqualsWithDelta(102.0, $dynamicLogEntry['static_target_f'], 0.01);
+        $this->assertArrayHasKey('calibration_points', $dynamicLogEntry);
+        $this->assertFalse($dynamicLogEntry['clamped']);
+        $this->assertFalse($dynamicLogEntry['fallback']);
+    }
+
+    public function testDynamicFallbackLogsCorrectAction(): void
+    {
+        $logFile = sys_get_temp_dir() . '/test_equip_events_' . uniqid() . '.log';
+        $this->dynamicSettingsFiles[] = $logFile;
+
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings, $logFile);
+
+        // Only water sensor, no ambient
+        $this->storeEsp32Reading(90.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $service->start(102.0);
+
+        $content = file_get_contents($logFile);
+        $lines = array_filter(explode("\n", trim($content)));
+
+        $fallbackEntry = null;
+        foreach ($lines as $line) {
+            $entry = json_decode($line, true);
+            if ($entry && ($entry['action'] ?? '') === 'dynamic_heat_target_fallback') {
+                $fallbackEntry = $entry;
+                break;
+            }
+        }
+
+        $this->assertNotNull($fallbackEntry, 'Should log dynamic_heat_target_fallback event');
+        $this->assertTrue($fallbackEntry['fallback']);
+        $this->assertArrayHasKey('fallback_reason', $fallbackEntry);
+    }
+
+    protected function tearDownDynamicFiles(): void
+    {
+        foreach ($this->dynamicSettingsFiles as $file) {
+            if (file_exists($file)) {
+                unlink($file);
+            }
+        }
+        $this->dynamicSettingsFiles = [];
+    }
+
+    // ==================== ETA Computation Tests ====================
+
+    private function createHeatingCharacteristicsFile(
+        float $velocity = 0.1,
+        float $startupLag = 5.0
+    ): string {
+        $file = sys_get_temp_dir() . '/test_heating_chars_' . uniqid() . '.json';
+        $this->dynamicSettingsFiles[] = $file;
+        file_put_contents($file, json_encode([
+            'heating_velocity_f_per_min' => $velocity,
+            'startup_lag_minutes' => $startupLag,
+            'overshoot_degrees_f' => 0.5,
+            'sessions_analyzed' => 3,
+            'generated_at' => date('c'),
+        ]));
+        return $file;
+    }
+
+    private function createServiceWithEta(
+        ?string $heatingCharsFile = null
+    ): TargetTemperatureService {
+        return new TargetTemperatureService(
+            $this->stateFile,
+            $this->mockIfttt,
+            $this->equipmentStatus,
+            $this->esp32Temp,
+            $this->mockCrontab,
+            '/path/to/cron-runner.sh',
+            'https://example.com/api',
+            $this->esp32Config,
+            null, // cronSchedulingService
+            null, // heatTargetSettings
+            null, // stallEventFile
+            null, // equipmentEventLogFile
+            $heatingCharsFile
+        );
+    }
+
+    public function testComputeEtaReturnsNullWhenNotActive(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile();
+        $service = $this->createServiceWithEta($charsFile);
+
+        $this->assertNull($service->computeEta());
+    }
+
+    public function testComputeEtaReturnsNullWhenNoCharacteristics(): void
+    {
+        $service = $this->createServiceWithEta(null);
+
+        // Start a session
+        $this->storeEsp32Reading(90.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+        $service->start(103.0);
+
+        $this->assertNull($service->computeEta());
+    }
+
+    public function testComputeEtaReturnsNullWhenCharacteristicsFileMissing(): void
+    {
+        $service = $this->createServiceWithEta('/tmp/nonexistent_chars.json');
+
+        $this->storeEsp32Reading(90.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+        $service->start(103.0);
+
+        $this->assertNull($service->computeEta());
+    }
+
+    public function testComputeEtaCalculatesCorrectly(): void
+    {
+        // 0.1°F/min velocity, 5 min startup lag
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $service = $this->createServiceWithEta($charsFile);
+
+        // Water at 93°F, target 103°F → 10°F to go at 0.1°F/min = 100 min
+        $this->storeEsp32Reading(93.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+        $service->start(103.0);
+
+        $eta = $service->computeEta();
+
+        $this->assertNotNull($eta);
+        $this->assertArrayHasKey('eta_timestamp', $eta);
+        $this->assertArrayHasKey('minutes_remaining', $eta);
+        $this->assertArrayHasKey('heating_velocity', $eta);
+        // Just started → full startup lag applies: 100 + 5 = 105 min
+        $this->assertEqualsWithDelta(105.0, $eta['minutes_remaining'], 1.0);
+        $this->assertEqualsWithDelta(0.1, $eta['heating_velocity'], 0.001);
+    }
+
+    public function testComputeEtaSkipsStartupLagWhenPastLagWindow(): void
+    {
+        // 0.1°F/min velocity, 5 min startup lag
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $service = $this->createServiceWithEta($charsFile);
+
+        // Simulate a session started 10 minutes ago (past the 5-min lag)
+        $this->storeEsp32Reading(93.0);
+        $startedAt = (new \DateTimeImmutable('-10 minutes', new \DateTimeZone('UTC')))->format('c');
+        $state = [
+            'active' => true,
+            'target_temp_f' => 103.0,
+            'started_at' => $startedAt,
+        ];
+        file_put_contents($this->stateFile, json_encode($state));
+
+        $eta = $service->computeEta();
+
+        $this->assertNotNull($eta);
+        // 10°F at 0.1°F/min = 100 min, no lag since past window
+        $this->assertEqualsWithDelta(100.0, $eta['minutes_remaining'], 1.0);
+    }
+
+    public function testComputeEtaIncludesPartialStartupLag(): void
+    {
+        // 0.1°F/min velocity, 10 min startup lag
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 10.0);
+        $service = $this->createServiceWithEta($charsFile);
+
+        // Session started 3 minutes ago (7 min of lag remaining)
+        $this->storeEsp32Reading(93.0);
+        $startedAt = (new \DateTimeImmutable('-3 minutes', new \DateTimeZone('UTC')))->format('c');
+        $state = [
+            'active' => true,
+            'target_temp_f' => 103.0,
+            'started_at' => $startedAt,
+        ];
+        file_put_contents($this->stateFile, json_encode($state));
+
+        $eta = $service->computeEta();
+
+        $this->assertNotNull($eta);
+        // 10°F at 0.1°F/min = 100 min + 7 min remaining lag = 107 min
+        $this->assertEqualsWithDelta(107.0, $eta['minutes_remaining'], 1.5);
+    }
+
+    public function testComputeEtaReturnsNullWhenTargetReached(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $service = $this->createServiceWithEta($charsFile);
+
+        // Water already at target
+        $this->storeEsp32Reading(103.0);
+        $state = [
+            'active' => true,
+            'target_temp_f' => 103.0,
+            'started_at' => date('c'),
+        ];
+        file_put_contents($this->stateFile, json_encode($state));
+
+        $eta = $service->computeEta();
+
+        $this->assertNull($eta);
+    }
+
+    public function testComputeEtaIncludesEtaTimestamp(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile(1.0, 0.0);
+        $service = $this->createServiceWithEta($charsFile);
+
+        // 10°F to go at 1°F/min = 10 min from now
+        $this->storeEsp32Reading(93.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+        $service->start(103.0);
+
+        $eta = $service->computeEta();
+
+        $this->assertNotNull($eta);
+        $etaTime = new \DateTimeImmutable($eta['eta_timestamp']);
+        $expectedTime = new \DateTimeImmutable('+10 minutes');
+        // Should be within 2 minutes of expected
+        $diffSeconds = abs($etaTime->getTimestamp() - $expectedTime->getTimestamp());
+        $this->assertLessThan(120, $diffSeconds);
+    }
+
+    // ==================== Projected ETA Tests ====================
+
+    private function createServiceWithProjectedEta(
+        HeatTargetSettingsService $heatSettings,
+        ?string $heatingCharsFile = null
+    ): TargetTemperatureService {
+        return new TargetTemperatureService(
+            $this->stateFile,
+            $this->mockIfttt,
+            $this->equipmentStatus,
+            $this->esp32Temp,
+            $this->mockCrontab,
+            '/path/to/cron-runner.sh',
+            'https://example.com/api',
+            $this->esp32Config,
+            null, // cronSchedulingService
+            $heatSettings,
+            null, // stallEventFile
+            null, // equipmentEventLogFile
+            $heatingCharsFile
+        );
+    }
+
+    private function createStaticHeatTargetSettings(
+        bool $enabled = true,
+        float $targetTempF = 103.0
+    ): HeatTargetSettingsService {
+        $file = sys_get_temp_dir() . '/test_static_settings_' . uniqid() . '.json';
+        $this->dynamicSettingsFiles[] = $file;
+        $service = new HeatTargetSettingsService($file);
+        $service->updateSettings($enabled, $targetTempF);
+        return $service;
+    }
+
+    public function testComputeProjectedEtaWhenHeaterOff(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $settings = $this->createStaticHeatTargetSettings(true, 103.0);
+        $service = $this->createServiceWithProjectedEta($settings, $charsFile);
+
+        // Water at 92°F, no active session
+        $this->storeEsp32Reading(92.0);
+
+        $eta = $service->computeProjectedEta();
+
+        $this->assertNotNull($eta);
+        // 11°F at 0.1°F/min = 110 min + 5 min full startup lag = 115 min
+        $this->assertEqualsWithDelta(115.0, $eta['minutes_remaining'], 1.0);
+        $this->assertTrue($eta['projected']);
+        $this->assertEqualsWithDelta(103.0, $eta['target_temp_f'], 0.1);
+    }
+
+    public function testComputeProjectedEtaUsesDynamicTarget(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $settings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithProjectedEta($settings, $charsFile);
+
+        // Water at 92°F, ambient at 52.5°F → dynamic target ~103°F (midpoint cold segment)
+        $this->storeEsp32ReadingWithAmbient(92.0, 52.5);
+
+        $eta = $service->computeProjectedEta();
+
+        $this->assertNotNull($eta);
+        $this->assertTrue($eta['projected']);
+        // Dynamic target should be ~103°F, so ~110 min + 5 lag = 115
+        $this->assertEqualsWithDelta(103.0, $eta['target_temp_f'], 0.5);
+    }
+
+    public function testComputeProjectedEtaReturnsNullWhenDisabled(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $settings = $this->createStaticHeatTargetSettings(false, 103.0);
+        $service = $this->createServiceWithProjectedEta($settings, $charsFile);
+
+        $this->storeEsp32Reading(92.0);
+
+        $this->assertNull($service->computeProjectedEta());
+    }
+
+    public function testComputeProjectedEtaReturnsNullWhenAtTarget(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $settings = $this->createStaticHeatTargetSettings(true, 103.0);
+        $service = $this->createServiceWithProjectedEta($settings, $charsFile);
+
+        $this->storeEsp32Reading(103.5);
+
+        $this->assertNull($service->computeProjectedEta());
+    }
+
+    public function testComputeProjectedEtaDynamicFallsBackWithoutAmbient(): void
+    {
+        $charsFile = $this->createHeatingCharacteristicsFile(0.1, 5.0);
+        $settings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithProjectedEta($settings, $charsFile);
+
+        // Only water sensor, no ambient → falls back to static target
+        $this->storeEsp32Reading(92.0);
+
+        $eta = $service->computeProjectedEta();
+
+        $this->assertNotNull($eta);
+        // Falls back to static target (102.0 from createDynamicHeatTargetSettings)
+        $this->assertEqualsWithDelta(102.0, $eta['target_temp_f'], 0.1);
     }
 }

@@ -1,0 +1,11 @@
+{
+    "heating_velocity_f_per_min": 0.12,
+    "startup_lag_minutes": 4.5,
+    "overshoot_degrees_f": 0.3,
+    "cooling_coefficient_k": 0.00015,
+    "cooling_data_points": 50,
+    "cooling_r_squared": 0.95,
+    "max_cooling_k": 0.00025,
+    "sessions_analyzed": 5,
+    "generated_at": "2026-03-30T00:00:00+00:00"
+}

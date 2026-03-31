@@ -24,6 +24,12 @@ vi.mock('$lib/stores/heatTargetSettings.svelte', () => ({
 	getScheduleMode: vi.fn(() => 'start_at'),
 	getStallGracePeriodMinutes: vi.fn(() => 15),
 	getStallTimeoutMinutes: vi.fn(() => 5),
+	getDynamicMode: vi.fn(() => false),
+	getCalibrationPoints: vi.fn(() => ({
+		cold:    { ambient_f: 45, water_target_f: 104 },
+		comfort: { ambient_f: 60, water_target_f: 102 },
+		hot:     { ambient_f: 75, water_target_f: 100.5 }
+	})),
 	getMinTempF: vi.fn(() => 80),
 	getMaxTempF: vi.fn(() => 110),
 	updateSettings: vi.fn(),

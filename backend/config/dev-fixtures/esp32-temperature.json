@@ -1,0 +1,18 @@
+{
+    "device_id": "TEST:AA:BB:CC:DD:EE",
+    "sensors": [
+        {
+            "address": "28:F6:DD:87:00:88:1E:E8",
+            "temp_c": 33.33,
+            "temp_f": 92.0
+        },
+        {
+            "address": "28:D5:AA:87:00:23:16:34",
+            "temp_c": 12.78,
+            "temp_f": 55.0
+        }
+    ],
+    "uptime_seconds": 3600,
+    "timestamp": "2026-03-30T00:00:00.000Z",
+    "received_at": 1774857600
+}

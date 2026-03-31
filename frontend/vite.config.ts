@@ -40,6 +40,8 @@ export default defineConfig({
 		})
 	],
 	server: {
+		host: '0.0.0.0',
+		allowedHosts: ['dev-1', 'dev-2'],
 		proxy: {
 			'/tub/backend/public/api': {
 				target: 'http://localhost:8080',
