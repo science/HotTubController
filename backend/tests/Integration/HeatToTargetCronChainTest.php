@@ -7,6 +7,7 @@ namespace HotTub\Tests\Integration;
 use HotTub\Services\CrontabAdapter;
 use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\Esp32TemperatureService;
+use HotTub\Services\HeaterControlService;
 use HotTub\Services\SchedulerService;
 use HotTub\Services\TargetTemperatureService;
 use HotTub\Tests\Fixtures\HeatingCycleFixture;
@@ -142,9 +143,10 @@ class HeatToTargetCronChainTest extends TestCase
             $cronEntries[] = $entry;
         });
 
+        $heaterControl = new HeaterControlService($mockIfttt, $this->equipmentStatus);
         $service = new TargetTemperatureService(
             $this->targetTempFile,
-            $mockIfttt,
+            $heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             $mockCrontab,
@@ -254,9 +256,10 @@ class HeatToTargetCronChainTest extends TestCase
         $mockIfttt = $this->createMock(\HotTub\Contracts\IftttClientInterface::class);
         $mockIfttt->method('trigger')->willReturn(true);
 
+        $heaterControl = new HeaterControlService($mockIfttt, $this->equipmentStatus);
         $service = new TargetTemperatureService(
             $this->targetTempFile,
-            $mockIfttt,
+            $heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             $mockCrontab,
@@ -310,9 +313,10 @@ class HeatToTargetCronChainTest extends TestCase
         $mockIfttt = $this->createMock(\HotTub\Contracts\IftttClientInterface::class);
         $mockIfttt->method('trigger')->willReturn(true);
 
+        $heaterControl = new HeaterControlService($mockIfttt, $this->equipmentStatus);
         $service = new TargetTemperatureService(
             $this->targetTempFile,
-            $mockIfttt,
+            $heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             $mockCrontab,
@@ -499,9 +503,10 @@ class HeatToTargetCronChainTest extends TestCase
         $mockIfttt = $this->createMock(\HotTub\Contracts\IftttClientInterface::class);
         $mockIfttt->method('trigger')->willReturn(true);
 
+        $heaterControl = new HeaterControlService($mockIfttt, $this->equipmentStatus);
         $service = new TargetTemperatureService(
             $this->targetTempFile,
-            $mockIfttt,
+            $heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             $mockCrontab,

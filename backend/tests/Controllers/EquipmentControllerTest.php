@@ -7,6 +7,7 @@ namespace HotTub\Tests\Controllers;
 use PHPUnit\Framework\TestCase;
 use HotTub\Controllers\EquipmentController;
 use HotTub\Services\EquipmentStatusService;
+use HotTub\Services\HeaterControlService;
 use HotTub\Services\TargetTemperatureService;
 use HotTub\Contracts\IftttClientInterface;
 use HotTub\Contracts\CrontabAdapterInterface;
@@ -22,6 +23,7 @@ class EquipmentControllerTest extends TestCase
     private string $statusFile;
     private IftttClientInterface $mockIftttClient;
     private EquipmentStatusService $statusService;
+    private HeaterControlService $heaterControl;
 
     protected function setUp(): void
     {
@@ -30,6 +32,7 @@ class EquipmentControllerTest extends TestCase
 
         $this->mockIftttClient = $this->createMock(IftttClientInterface::class);
         $this->statusService = new EquipmentStatusService($this->statusFile);
+        $this->heaterControl = new HeaterControlService($this->mockIftttClient, $this->statusService);
     }
 
     protected function tearDown(): void
@@ -50,7 +53,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 
@@ -71,7 +74,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 
@@ -89,7 +92,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 
@@ -107,7 +110,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 
@@ -124,7 +127,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 
@@ -146,7 +149,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 
@@ -166,7 +169,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 
@@ -191,7 +194,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 
@@ -213,7 +216,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 
@@ -253,7 +256,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService,
             $targetTempService
         );
@@ -303,7 +306,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService,
             $targetTempService
         );
@@ -331,7 +334,7 @@ class EquipmentControllerTest extends TestCase
         // Create controller WITHOUT TargetTemperatureService
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
             // No targetTempService - should still work
         );
@@ -340,6 +343,74 @@ class EquipmentControllerTest extends TestCase
 
         $status = $this->statusService->getStatus();
         $this->assertFalse($status['heater']['on'], 'Heater should be off even without TargetTemperatureService');
+    }
+
+    // ========== Watchdog Source Tests ==========
+
+    public function testWatchdogHeaterOffLogsHeaterWasOn(): void
+    {
+        $this->mockIftttClient->method('trigger')->willReturn(true);
+        $this->mockIftttClient->method('getMode')->willReturn('stub');
+
+        // Heater is on (watchdog firing = something went wrong)
+        $this->statusService->setHeaterOn();
+
+        $controller = new EquipmentController(
+            $this->logFile,
+            $this->heaterControl,
+            $this->statusService
+        );
+
+        $response = $controller->heaterOff('watchdog');
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals('watchdog', $response['body']['source']);
+
+        // Check event log for watchdog entry with heater_was_on
+        $logContents = file_get_contents($this->logFile);
+        $this->assertStringContainsString('watchdog_heater_off', $logContents);
+        $this->assertStringContainsString('"heater_was_on":true', $logContents);
+    }
+
+    public function testWatchdogHeaterOffLogsHeaterWasOff(): void
+    {
+        $this->mockIftttClient->method('trigger')->willReturn(true);
+        $this->mockIftttClient->method('getMode')->willReturn('stub');
+
+        // Heater is already off (normal case — session completed before watchdog fired)
+        $controller = new EquipmentController(
+            $this->logFile,
+            $this->heaterControl,
+            $this->statusService
+        );
+
+        $response = $controller->heaterOff('watchdog');
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals('watchdog', $response['body']['source']);
+
+        $logContents = file_get_contents($this->logFile);
+        $this->assertStringContainsString('watchdog_heater_off', $logContents);
+        $this->assertStringContainsString('"heater_was_on":false', $logContents);
+    }
+
+    public function testNormalHeaterOffDoesNotIncludeWatchdogSource(): void
+    {
+        $this->mockIftttClient->method('trigger')->willReturn(true);
+        $this->mockIftttClient->method('getMode')->willReturn('stub');
+
+        $controller = new EquipmentController(
+            $this->logFile,
+            $this->heaterControl,
+            $this->statusService
+        );
+
+        $response = $controller->heaterOff();
+
+        $this->assertArrayNotHasKey('source', $response['body']);
+
+        $logContents = file_get_contents($this->logFile);
+        $this->assertStringNotContainsString('watchdog_heater_off', $logContents);
     }
 
     // ========== Pump Run Tests ==========
@@ -351,7 +422,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 
@@ -368,7 +439,7 @@ class EquipmentControllerTest extends TestCase
 
         $controller = new EquipmentController(
             $this->logFile,
-            $this->mockIftttClient,
+            $this->heaterControl,
             $this->statusService
         );
 

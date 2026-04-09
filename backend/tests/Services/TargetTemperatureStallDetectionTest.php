@@ -8,6 +8,7 @@ use HotTub\Contracts\CrontabAdapterInterface;
 use HotTub\Contracts\IftttClientInterface;
 use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\Esp32TemperatureService;
+use HotTub\Services\HeaterControlService;
 use HotTub\Services\HeatTargetSettingsService;
 use HotTub\Services\TargetTemperatureService;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -24,6 +25,7 @@ class TargetTemperatureStallDetectionTest extends TestCase
     private MockObject&IftttClientInterface $mockIfttt;
     private MockObject&CrontabAdapterInterface $mockCrontab;
     private EquipmentStatusService $equipmentStatus;
+    private HeaterControlService $heaterControl;
     private Esp32TemperatureService $esp32Temp;
     private HeatTargetSettingsService $heatTargetSettings;
 
@@ -45,6 +47,7 @@ class TargetTemperatureStallDetectionTest extends TestCase
         $this->mockIfttt = $this->createMock(IftttClientInterface::class);
         $this->mockCrontab = $this->createMock(CrontabAdapterInterface::class);
         $this->equipmentStatus = new EquipmentStatusService($this->equipmentStatusFile);
+        $this->heaterControl = new HeaterControlService($this->mockIfttt, $this->equipmentStatus);
         $this->esp32Temp = new Esp32TemperatureService($this->esp32TempFile, $this->equipmentStatus);
         $this->heatTargetSettings = new HeatTargetSettingsService($this->settingsFile);
     }
@@ -78,7 +81,7 @@ class TargetTemperatureStallDetectionTest extends TestCase
     {
         return new TargetTemperatureService(
             $this->stateFile,
-            $this->mockIfttt,
+            $this->heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             $this->mockCrontab,

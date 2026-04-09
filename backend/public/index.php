@@ -26,6 +26,7 @@ use HotTub\Services\ScheduledJobsCleanupService;
 use HotTub\Services\EnvLoader;
 use HotTub\Services\CookieHelper;
 use HotTub\Services\EquipmentStatusService;
+use HotTub\Services\HeaterControlService;
 use HotTub\Services\IftttClientFactory;
 use HotTub\Services\AuthService;
 use HotTub\Services\UserRepositoryFactory;
@@ -148,13 +149,18 @@ $crontabAdapter = new CrontabAdapter($crontabBackupService);
 // Path for stall event file (used by health endpoint and target temperature service)
 $stallEventFile = __DIR__ . '/../storage/state/last-stall-event.json';
 
+// Unified hardware control: single point for all IFTTT triggers
+// Includes crontab access for watchdog cron cleanup on heater-on events
+$scheduledJobsDir = __DIR__ . '/../storage/scheduled-jobs';
+$heaterControlService = new HeaterControlService($iftttClient, $equipmentStatusService, $crontabAdapter, $scheduledJobsDir);
+
 // Create target temperature service and controller
 // (for automated heating to target temperature)
 $targetTempStateFile = __DIR__ . '/../storage/state/target-temperature.json';
 $heatingCharacteristicsResultsFile = __DIR__ . '/../storage/state/heating-characteristics.json';
 $targetTemperatureService = new TargetTemperatureService(
     $targetTempStateFile,
-    $iftttClient,
+    $heaterControlService,
     $equipmentStatusService,
     $esp32TemperatureService,
     $crontabAdapter,
@@ -172,7 +178,7 @@ $targetTemperatureController = new TargetTemperatureController($targetTemperatur
 // Create equipment controller with IFTTT client, status service, and target temp service
 // Note: TargetTemperatureService is passed so heaterOff() can cancel heat-to-target
 // (manual user action should override automation)
-$equipmentController = new EquipmentController($logFile, $iftttClient, $equipmentStatusService, $targetTemperatureService);
+$equipmentController = new EquipmentController($logFile, $heaterControlService, $equipmentStatusService, $targetTemperatureService);
 
 // Create Healthchecks.io client for job monitoring (feature flag: disabled if no API key)
 $healthchecksFactory = new HealthchecksClientFactory($config);
@@ -272,7 +278,7 @@ $router->get('/api/auth/me', fn() => handleMe($authController, $headers, $cookie
 
 // Protected equipment routes (with auth middleware)
 $router->post('/api/equipment/heater/on', fn() => $equipmentController->heaterOn(), $requireAuth);
-$router->post('/api/equipment/heater/off', fn() => $equipmentController->heaterOff(), $requireAuth);
+$router->post('/api/equipment/heater/off', fn() => $equipmentController->heaterOff($_GET['source'] ?? null), $requireAuth);
 $router->post('/api/equipment/pump/run', fn() => $equipmentController->pumpRun(), $requireAuth);
 
 // Target temperature routes (heat to specific temperature)

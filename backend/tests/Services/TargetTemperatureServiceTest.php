@@ -9,6 +9,7 @@ use HotTub\Contracts\IftttClientInterface;
 use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\Esp32TemperatureService;
 use HotTub\Services\Esp32SensorConfigService;
+use HotTub\Services\HeaterControlService;
 use HotTub\Services\HeatTargetSettingsService;
 use HotTub\Services\CronSchedulingService;
 use HotTub\Services\TargetTemperatureService;
@@ -24,6 +25,7 @@ class TargetTemperatureServiceTest extends TestCase
     private MockObject&IftttClientInterface $mockIfttt;
     private MockObject&CrontabAdapterInterface $mockCrontab;
     private EquipmentStatusService $equipmentStatus;
+    private HeaterControlService $heaterControl;
     private Esp32TemperatureService $esp32Temp;
     private Esp32SensorConfigService $esp32Config;
 
@@ -37,6 +39,7 @@ class TargetTemperatureServiceTest extends TestCase
         $this->mockIfttt = $this->createMock(IftttClientInterface::class);
         $this->mockCrontab = $this->createMock(CrontabAdapterInterface::class);
         $this->equipmentStatus = new EquipmentStatusService($this->equipmentStatusFile);
+        $this->heaterControl = new HeaterControlService($this->mockIfttt, $this->equipmentStatus);
         $this->esp32Temp = new Esp32TemperatureService($this->esp32TempFile, $this->equipmentStatus);
         $this->esp32Config = new Esp32SensorConfigService($this->esp32ConfigFile);
     }
@@ -56,7 +59,7 @@ class TargetTemperatureServiceTest extends TestCase
     {
         return new TargetTemperatureService(
             $this->stateFile,
-            $this->mockIfttt,
+            $this->heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp
         );
@@ -66,7 +69,7 @@ class TargetTemperatureServiceTest extends TestCase
     {
         return new TargetTemperatureService(
             $this->stateFile,
-            $this->mockIfttt,
+            $this->heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             $this->mockCrontab,
@@ -759,7 +762,7 @@ class TargetTemperatureServiceTest extends TestCase
     {
         return new TargetTemperatureService(
             $this->stateFile,
-            $this->mockIfttt,
+            $this->heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             null, // crontab
@@ -851,7 +854,7 @@ class TargetTemperatureServiceTest extends TestCase
     ): TargetTemperatureService {
         return new TargetTemperatureService(
             $this->stateFile,
-            $this->mockIfttt,
+            $this->heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             $this->mockCrontab,
@@ -1090,7 +1093,7 @@ class TargetTemperatureServiceTest extends TestCase
     ): TargetTemperatureService {
         return new TargetTemperatureService(
             $this->stateFile,
-            $this->mockIfttt,
+            $this->heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             $this->mockCrontab,
@@ -1251,7 +1254,7 @@ class TargetTemperatureServiceTest extends TestCase
     ): TargetTemperatureService {
         return new TargetTemperatureService(
             $this->stateFile,
-            $this->mockIfttt,
+            $this->heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             $this->mockCrontab,
@@ -1373,7 +1376,7 @@ class TargetTemperatureServiceTest extends TestCase
 
         return new TargetTemperatureService(
             $this->stateFile,
-            $this->mockIfttt,
+            $this->heaterControl,
             $this->equipmentStatus,
             $this->esp32Temp,
             $this->mockCrontab,
@@ -1399,10 +1402,10 @@ class TargetTemperatureServiceTest extends TestCase
 
         $service->start(102.0);
 
-        // Should have exactly 1 cron entry (the approach check)
-        $this->assertCount(1, $capturedTimestamps, 'Expected exactly 1 cron entry (approach check)');
+        // Should have 2 cron entries: approach check + watchdog
+        $this->assertCount(2, $capturedTimestamps, 'Expected approach check + watchdog');
 
-        // The cron should be scheduled ~30 min from now, not ~1 min
+        // The first cron (approach) should be scheduled ~30 min from now, not ~1 min
         $diffMinutes = ($capturedTimestamps[0] - time()) / 60;
         $this->assertGreaterThanOrEqual(25, $diffMinutes, 'Approach check should be ~30 min out, not 1 min');
         $this->assertLessThanOrEqual(35, $diffMinutes, 'Approach check should be ~30 min out');
@@ -1426,6 +1429,7 @@ class TargetTemperatureServiceTest extends TestCase
 
         $this->assertNotEmpty($capturedTimestamps);
 
+        // First entry is the approach check
         $diffMinutes = ($capturedTimestamps[0] - time()) / 60;
         // Must be closer to 30 than to 35 (lag should NOT be included)
         $this->assertLessThanOrEqual(33, $diffMinutes, 'Approach check should exclude startup lag');
@@ -1498,5 +1502,192 @@ class TargetTemperatureServiceTest extends TestCase
         // Should be 1-2 min from now (minute chain), not a far-future approach
         $diffMinutes = ($capturedTimestamps[0] - time()) / 60;
         $this->assertLessThanOrEqual(3, $diffMinutes, 'After approach fired, should use 1-min scheduling');
+    }
+
+    // ========================================================================
+    // Watchdog Cron Tests
+    // ========================================================================
+
+    /**
+     * Helper: create a service with smart scheduling that captures both
+     * timestamps and cron comments, so we can distinguish approach vs watchdog entries.
+     *
+     * @param array<int, array{timestamp: int, comment: string}> &$capturedEntries
+     */
+    private function createServiceWithWatchdogTracking(
+        ?string $heatingCharsFile,
+        array &$capturedEntries
+    ): TargetTemperatureService {
+        $mockCronScheduling = $this->createMock(CronSchedulingService::class);
+        $mockCronScheduling->method('scheduleAt')
+            ->willReturnCallback(function (int $timestamp, string $command, string $comment) use (&$capturedEntries) {
+                $capturedEntries[] = ['timestamp' => $timestamp, 'comment' => $comment];
+                return '0 0 * * *';
+            });
+
+        return new TargetTemperatureService(
+            $this->stateFile,
+            $this->heaterControl,
+            $this->equipmentStatus,
+            $this->esp32Temp,
+            $this->mockCrontab,
+            '/path/to/cron-runner.sh',
+            'https://example.com/api',
+            $this->esp32Config,
+            $mockCronScheduling,
+            null, // heatTargetSettings
+            null, // stallEventFile
+            null, // equipmentEventLogFile
+            $heatingCharsFile
+        );
+    }
+
+    public function testWatchdogScheduledWithSmartApproach(): void
+    {
+        // velocity=0.4 F/min, lag=5 min. Current=90, target=102.
+        // Approach time = (102-90)/0.4 = 30 min (no lag)
+        // Watchdog time = 30 + 5 (lag) + 10 (margin) = 45 min
+        $charsFile = $this->createHeatingCharacteristicsFile(0.4, 5.0);
+        $capturedEntries = [];
+        $service = $this->createServiceWithWatchdogTracking($charsFile, $capturedEntries);
+        $this->storeEsp32Reading(90.0);
+
+        $service->start(102.0);
+
+        // Should have 2 cron entries: approach check + watchdog
+        $this->assertCount(2, $capturedEntries, 'Expected approach check + watchdog');
+
+        // Find the watchdog entry by comment pattern
+        $watchdogEntries = array_filter($capturedEntries, fn($e) => str_contains($e['comment'], 'WATCHDOG'));
+        $this->assertCount(1, $watchdogEntries, 'Expected exactly 1 watchdog entry');
+
+        $watchdog = array_values($watchdogEntries)[0];
+
+        // Watchdog should be ~45 min from now (approach 30 + lag 5 + margin 10)
+        $diffMinutes = ($watchdog['timestamp'] - time()) / 60;
+        $this->assertGreaterThanOrEqual(40, $diffMinutes, 'Watchdog should be ~45 min out');
+        $this->assertLessThanOrEqual(50, $diffMinutes, 'Watchdog should be ~45 min out');
+
+        // Comment should use watchdog prefix
+        $this->assertStringContainsString('HOTTUB:watchdog-', $watchdog['comment']);
+    }
+
+    public function testWatchdogNotScheduledWithoutSmartApproach(): void
+    {
+        // No characteristics → no smart approach → no watchdog
+        $capturedEntries = [];
+        $service = $this->createServiceWithWatchdogTracking(null, $capturedEntries);
+        $this->storeEsp32Reading(90.0);
+
+        $service->start(102.0);
+
+        // Should have only legacy 1-min check, no watchdog
+        $watchdogEntries = array_filter($capturedEntries, fn($e) => str_contains($e['comment'], 'WATCHDOG'));
+        $this->assertCount(0, $watchdogEntries, 'No watchdog without smart approach');
+    }
+
+    public function testWatchdogJobFileHasHeaterOffEndpoint(): void
+    {
+        // Set up directory structure for job files
+        $tempDir = sys_get_temp_dir() . '/watchdog-jobfile-test-' . uniqid();
+        $stateDir = $tempDir . '/state';
+        $jobsDir = $tempDir . '/scheduled-jobs';
+        mkdir($stateDir, 0755, true);
+        mkdir($jobsDir, 0755, true);
+
+        $stateFile = $stateDir . '/target-temperature.json';
+        $charsFile = $this->createHeatingCharacteristicsFile(0.4, 5.0);
+
+        $mockCronScheduling = $this->createMock(CronSchedulingService::class);
+        $mockCronScheduling->method('scheduleAt')->willReturn('0 0 * * *');
+
+        $service = new TargetTemperatureService(
+            $stateFile,
+            $this->heaterControl,
+            $this->equipmentStatus,
+            $this->esp32Temp,
+            $this->mockCrontab,
+            '/path/to/cron-runner.sh',
+            'https://example.com/api',
+            $this->esp32Config,
+            $mockCronScheduling,
+            null, null, null,
+            $charsFile
+        );
+
+        $this->storeEsp32Reading(90.0);
+        $service->start(102.0);
+
+        // Find watchdog job file
+        $watchdogFiles = glob($jobsDir . '/watchdog-*.json');
+        $this->assertNotEmpty($watchdogFiles, 'Watchdog job file should be created');
+
+        $jobData = json_decode(file_get_contents($watchdogFiles[0]), true);
+        $this->assertEquals('/api/equipment/heater/off?source=watchdog', $jobData['endpoint']);
+
+        // Cleanup
+        foreach (glob($jobsDir . '/*.json') as $f) { unlink($f); }
+        // Clean up lock file if exists
+        $lockFile = $stateDir . '/target-temperature.lock';
+        if (file_exists($lockFile)) { unlink($lockFile); }
+        if (file_exists($stateFile)) { unlink($stateFile); }
+        rmdir($jobsDir);
+        rmdir($stateDir);
+        rmdir($tempDir);
+    }
+
+    public function testStopDoesNotCleanUpWatchdogCrons(): void
+    {
+        // stop() should only clean heat-target crons, NOT watchdog crons
+        $this->mockCrontab->expects($this->atLeastOnce())
+            ->method('removeByPattern')
+            ->with($this->callback(function (string $pattern) {
+                // Should only be called with heat-target pattern, never watchdog
+                $this->assertStringContainsString('heat-target', $pattern);
+                $this->assertStringNotContainsString('watchdog', $pattern);
+                return true;
+            }));
+
+        $service = $this->createServiceWithCron();
+        $service->start(103.5);
+        $service->stop();
+    }
+
+    public function testStopDoesNotCleanUpWatchdogJobFiles(): void
+    {
+        // Set up directory structure
+        $tempDir = sys_get_temp_dir() . '/watchdog-stop-test-' . uniqid();
+        $stateDir = $tempDir . '/state';
+        $jobsDir = $tempDir . '/scheduled-jobs';
+        mkdir($stateDir, 0755, true);
+        mkdir($jobsDir, 0755, true);
+
+        $stateFile = $stateDir . '/target-temperature.json';
+
+        // Create a watchdog job file (simulates one created during start)
+        $watchdogJobFile = $jobsDir . '/watchdog-abc12345.json';
+        file_put_contents($watchdogJobFile, json_encode(['jobId' => 'watchdog-abc12345']));
+
+        // Also create a heat-target job file (should be cleaned)
+        $heatTargetJobFile = $jobsDir . '/heat-target-def67890.json';
+        file_put_contents($heatTargetJobFile, json_encode(['jobId' => 'heat-target-def67890']));
+
+        $service = new TargetTemperatureService($stateFile);
+        $service->start(103.5);
+        $service->stop();
+
+        // Watchdog job file should survive stop()
+        $this->assertFileExists($watchdogJobFile, 'Watchdog job file should NOT be deleted by stop()');
+        // Heat-target job file should be cleaned
+        $this->assertFileDoesNotExist($heatTargetJobFile, 'Heat-target job file should be deleted');
+
+        // Cleanup
+        if (file_exists($watchdogJobFile)) { unlink($watchdogJobFile); }
+        $lockFile = $stateDir . '/target-temperature.lock';
+        if (file_exists($lockFile)) { unlink($lockFile); }
+        if (file_exists($stateFile)) { unlink($stateFile); }
+        rmdir($jobsDir);
+        rmdir($stateDir);
+        rmdir($tempDir);
     }
 }

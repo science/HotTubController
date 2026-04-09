@@ -5,19 +5,20 @@ declare(strict_types=1);
 namespace HotTub\Services;
 
 use HotTub\Contracts\CrontabAdapterInterface;
-use HotTub\Contracts\IftttClientInterface;
 
 class TargetTemperatureService
 {
     public const MIN_TARGET_TEMP_F = 80.0;
     public const MAX_TARGET_TEMP_F = 110.0;
     public const CRON_JOB_PREFIX = 'heat-target';
+    public const WATCHDOG_JOB_PREFIX = 'watchdog';
+    public const WATCHDOG_MARGIN_MINUTES = 10;
     // Temperature tolerance for floating-point comparison (0.1°F)
     // This accounts for C→F conversion precision and sensor accuracy
     private const TEMP_TOLERANCE_F = 0.1;
 
     private string $stateFile;
-    private ?IftttClientInterface $iftttClient;
+    private ?HeaterControlService $heaterControl;
     private ?EquipmentStatusService $equipmentStatus;
     private ?Esp32TemperatureService $esp32Temp;
     private ?CrontabAdapterInterface $crontabAdapter;
@@ -32,7 +33,7 @@ class TargetTemperatureService
 
     public function __construct(
         string $stateFile,
-        ?IftttClientInterface $iftttClient = null,
+        ?HeaterControlService $heaterControl = null,
         ?EquipmentStatusService $equipmentStatus = null,
         ?Esp32TemperatureService $esp32Temp = null,
         ?CrontabAdapterInterface $crontabAdapter = null,
@@ -46,7 +47,7 @@ class TargetTemperatureService
         ?string $heatingCharacteristicsFile = null
     ) {
         $this->stateFile = $stateFile;
-        $this->iftttClient = $iftttClient;
+        $this->heaterControl = $heaterControl;
         $this->equipmentStatus = $equipmentStatus;
         $this->esp32Temp = $esp32Temp;
         $this->crontabAdapter = $crontabAdapter;
@@ -161,8 +162,7 @@ class TargetTemperatureService
         // Turn off heater if it's currently on
         $equipmentState = $this->equipmentStatus?->getStatus() ?? ['heater' => ['on' => false]];
         if ($equipmentState['heater']['on'] === true) {
-            $this->iftttClient?->trigger('hot-tub-heat-off');
-            $this->equipmentStatus?->setHeaterOff();
+            $this->heaterControl?->heaterOff();
         }
 
         // Delete the state file FIRST - this prevents any concurrent cron job
@@ -306,8 +306,7 @@ class TargetTemperatureService
 
             if (!$heaterIsOn) {
                 // Turn heater on
-                $this->iftttClient?->trigger('hot-tub-heat-on');
-                $this->equipmentStatus?->setHeaterOn();
+                $this->heaterControl?->heaterOn();
                 $heaterTurnedOn = true;
             }
 
@@ -331,8 +330,7 @@ class TargetTemperatureService
 
         if ($heaterIsOn) {
             // Turn heater off
-            $this->iftttClient?->trigger('hot-tub-heat-off');
-            $this->equipmentStatus?->setHeaterOff();
+            $this->heaterControl?->heaterOff();
             $heaterTurnedOff = true;
         }
 
@@ -578,6 +576,14 @@ class TargetTemperatureService
             return false;
         }
 
+        // Schedule watchdog: approach + startup lag + margin
+        $startupLag = (float) ($chars['startup_lag_minutes'] ?? 0);
+        $watchdogMinutes = $approachMinutes + $startupLag + self::WATCHDOG_MARGIN_MINUTES;
+        $watchdogTimestamp = $this->roundToMinuteBoundary(
+            time() + (int) ($watchdogMinutes * 60)
+        );
+        $this->scheduleWatchdog($watchdogTimestamp);
+
         // Record in state so subsequent checks use 1-minute scheduling
         $state['approach_check_at'] = (new \DateTimeImmutable(
             '@' . $approachTimestamp
@@ -673,6 +679,73 @@ class TargetTemperatureService
     public function cleanupCronJobs(): void
     {
         $this->crontabAdapter?->removeByPattern('HOTTUB:' . self::CRON_JOB_PREFIX);
+    }
+
+    /**
+     * Schedule a watchdog cron that will turn off the heater if the normal
+     * check chain fails. Uses the full /api/equipment/heater/off endpoint
+     * for logging and status updates.
+     *
+     * The watchdog is NOT cleaned up by stop() — it intentionally survives
+     * normal session completion as a second IFTTT off attempt. It IS cleaned
+     * up by HeaterControlService::heaterOn() (any new heater-on event).
+     */
+    private function scheduleWatchdog(int $timestamp): void
+    {
+        if ($this->cronSchedulingService === null || $this->cronRunnerPath === null || $this->apiBaseUrl === null) {
+            return;
+        }
+
+        $jobId = self::WATCHDOG_JOB_PREFIX . '-' . bin2hex(random_bytes(4));
+
+        $this->createWatchdogJobFile($jobId);
+
+        $command = sprintf(
+            '%s %s',
+            escapeshellarg($this->cronRunnerPath),
+            escapeshellarg($jobId)
+        );
+        $comment = sprintf('HOTTUB:%s:%s:ONCE', $jobId, 'WATCHDOG');
+
+        $this->cronSchedulingService->scheduleAt($timestamp, $command, $comment);
+    }
+
+    /**
+     * Create a watchdog job file that calls the heater-off endpoint.
+     */
+    private function createWatchdogJobFile(string $jobId): void
+    {
+        $jobsDir = dirname(dirname($this->stateFile)) . '/scheduled-jobs';
+        if (!is_dir($jobsDir)) {
+            mkdir($jobsDir, 0755, true);
+        }
+
+        $jobData = [
+            'jobId' => $jobId,
+            'endpoint' => '/api/equipment/heater/off?source=watchdog',
+            'apiBaseUrl' => rtrim($this->apiBaseUrl, '/'),
+            'recurring' => false,
+            'createdAt' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c'),
+        ];
+
+        $jobFile = $jobsDir . '/' . $jobId . '.json';
+        file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Remove all watchdog cron jobs and job files.
+     * Called by HeaterControlService::heaterOn() to clear watchdogs
+     * when a new heater-on event occurs.
+     */
+    public static function cleanupWatchdogCrons(CrontabAdapterInterface $crontabAdapter, ?string $jobsDir = null): void
+    {
+        $crontabAdapter->removeByPattern('HOTTUB:' . self::WATCHDOG_JOB_PREFIX);
+
+        if ($jobsDir !== null && is_dir($jobsDir)) {
+            foreach (glob($jobsDir . '/' . self::WATCHDOG_JOB_PREFIX . '-*.json') as $jobFile) {
+                unlink($jobFile);
+            }
+        }
     }
 
     /**
