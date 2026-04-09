@@ -10,6 +10,7 @@ use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\Esp32TemperatureService;
 use HotTub\Services\Esp32SensorConfigService;
 use HotTub\Services\HeatTargetSettingsService;
+use HotTub\Services\CronSchedulingService;
 use HotTub\Services\TargetTemperatureService;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -1347,5 +1348,155 @@ class TargetTemperatureServiceTest extends TestCase
         $this->assertNotNull($eta);
         // Falls back to static target (102.0 from createDynamicHeatTargetSettings)
         $this->assertEqualsWithDelta(102.0, $eta['target_temp_f'], 0.1);
+    }
+
+    // ========================================================================
+    // Smart Approach Scheduling Tests
+    // ========================================================================
+
+    /**
+     * Helper: create a service with a mock CronSchedulingService to capture
+     * the Unix timestamps passed to scheduleAt().
+     *
+     * @param array<int, int> &$capturedTimestamps Receives timestamps from scheduleAt() calls
+     */
+    private function createServiceWithSmartScheduling(
+        ?string $heatingCharsFile,
+        array &$capturedTimestamps
+    ): TargetTemperatureService {
+        $mockCronScheduling = $this->createMock(CronSchedulingService::class);
+        $mockCronScheduling->method('scheduleAt')
+            ->willReturnCallback(function (int $timestamp, string $command, string $comment) use (&$capturedTimestamps) {
+                $capturedTimestamps[] = $timestamp;
+                return '0 0 * * *'; // dummy cron expression
+            });
+
+        return new TargetTemperatureService(
+            $this->stateFile,
+            $this->mockIfttt,
+            $this->equipmentStatus,
+            $this->esp32Temp,
+            $this->mockCrontab,
+            '/path/to/cron-runner.sh',
+            'https://example.com/api',
+            $this->esp32Config,
+            $mockCronScheduling,
+            null, // heatTargetSettings
+            null, // stallEventFile
+            null, // equipmentEventLogFile
+            $heatingCharsFile
+        );
+    }
+
+    public function testStartSchedulesApproachCheckWhenCharacteristicsAvailable(): void
+    {
+        // velocity=0.4 F/min, lag=5 min. Current=90, target=102.
+        // Approach time = (102-90)/0.4 = 30 min from now (no lag).
+        $charsFile = $this->createHeatingCharacteristicsFile(0.4, 5.0);
+        $capturedTimestamps = [];
+        $service = $this->createServiceWithSmartScheduling($charsFile, $capturedTimestamps);
+        $this->storeEsp32Reading(90.0);
+
+        $service->start(102.0);
+
+        // Should have exactly 1 cron entry (the approach check)
+        $this->assertCount(1, $capturedTimestamps, 'Expected exactly 1 cron entry (approach check)');
+
+        // The cron should be scheduled ~30 min from now, not ~1 min
+        $diffMinutes = ($capturedTimestamps[0] - time()) / 60;
+        $this->assertGreaterThanOrEqual(25, $diffMinutes, 'Approach check should be ~30 min out, not 1 min');
+        $this->assertLessThanOrEqual(35, $diffMinutes, 'Approach check should be ~30 min out');
+
+        // State should have approach_check_at
+        $state = $service->getState();
+        $this->assertArrayHasKey('approach_check_at', $state);
+    }
+
+    public function testApproachCheckExcludesStartupLag(): void
+    {
+        // velocity=0.4 F/min, lag=5 min. Current=90, target=102.
+        // Without lag: 30 min. With lag: 35 min.
+        // Approach should be ~30 min, not ~35.
+        $charsFile = $this->createHeatingCharacteristicsFile(0.4, 5.0);
+        $capturedTimestamps = [];
+        $service = $this->createServiceWithSmartScheduling($charsFile, $capturedTimestamps);
+        $this->storeEsp32Reading(90.0);
+
+        $service->start(102.0);
+
+        $this->assertNotEmpty($capturedTimestamps);
+
+        $diffMinutes = ($capturedTimestamps[0] - time()) / 60;
+        // Must be closer to 30 than to 35 (lag should NOT be included)
+        $this->assertLessThanOrEqual(33, $diffMinutes, 'Approach check should exclude startup lag');
+    }
+
+    public function testFallsBackToLegacyWhenNoCharacteristics(): void
+    {
+        // No characteristics file → should schedule at next minute (legacy)
+        $capturedTimestamps = [];
+        $service = $this->createServiceWithSmartScheduling(null, $capturedTimestamps);
+        $this->storeEsp32Reading(90.0);
+
+        $service->start(102.0);
+
+        $this->assertNotEmpty($capturedTimestamps);
+
+        // Legacy: should be 1-2 minutes from now
+        $diffMinutes = ($capturedTimestamps[0] - time()) / 60;
+        $this->assertLessThanOrEqual(3, $diffMinutes, 'Without characteristics, should use 1-min scheduling');
+
+        // State should NOT have approach_check_at
+        $state = $service->getState();
+        $this->assertArrayNotHasKey('approach_check_at', $state);
+    }
+
+    public function testFallsBackToLegacyWhenTempDeltaSmall(): void
+    {
+        // velocity=0.4, current=101.5, target=102 → (0.5/0.4)=1.25 min < 3 min threshold
+        $charsFile = $this->createHeatingCharacteristicsFile(0.4, 5.0);
+        $capturedTimestamps = [];
+        $service = $this->createServiceWithSmartScheduling($charsFile, $capturedTimestamps);
+        $this->storeEsp32Reading(101.5);
+
+        $service->start(102.0);
+
+        $this->assertNotEmpty($capturedTimestamps);
+
+        // Should be 1-2 min (legacy), not using smart scheduling
+        $diffMinutes = ($capturedTimestamps[0] - time()) / 60;
+        $this->assertLessThanOrEqual(3, $diffMinutes, 'Small delta should use 1-min scheduling');
+
+        $state = $service->getState();
+        $this->assertArrayNotHasKey('approach_check_at', $state);
+    }
+
+    public function testSubsequentChecksUseMinuteScheduling(): void
+    {
+        // Simulate: approach already fired (approach_check_at is set in state).
+        // Next checkAndAdjust should schedule at next minute, not another approach.
+        $charsFile = $this->createHeatingCharacteristicsFile(0.4, 5.0);
+        $capturedTimestamps = [];
+        $service = $this->createServiceWithSmartScheduling($charsFile, $capturedTimestamps);
+
+        // Manually write state with approach_check_at already set
+        file_put_contents($this->stateFile, json_encode([
+            'active' => true,
+            'target_temp_f' => 102.0,
+            'started_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c'),
+            'approach_check_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c'),
+        ]));
+
+        $this->storeEsp32Reading(99.0); // below target, still heating
+        $this->equipmentStatus->setHeaterOn();
+
+        $result = $service->checkAndAdjust();
+
+        $this->assertTrue($result['heating']);
+        $this->assertNotEmpty($capturedTimestamps);
+
+        // Should be 1-2 min from now (minute chain), not a far-future approach
+        $diffMinutes = ($capturedTimestamps[0] - time()) / 60;
+        $this->assertLessThanOrEqual(3, $diffMinutes, 'After approach fired, should use 1-min scheduling');
     }
 }

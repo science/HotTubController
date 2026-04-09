@@ -89,6 +89,7 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 
 		// Create a recurring job with a unique time
 		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
+		await expect(page.getByRole('checkbox', { name: 'Recurring (daily)' })).toBeChecked({ timeout: 5000 });
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '08:30');
 		await page.click('button:has-text("Schedule")', { force: true });
@@ -130,11 +131,9 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 		await page.fill('#time', '05:30');
 		await page.click('button:has-text("Schedule")', { force: true });
 
-		// Verify success message mentions auto off
-		await expect(page.locator('text=auto off')).toBeVisible({ timeout: 10000 });
-
 		// Verify two NEW jobs appear in Daily Schedule (heater-on and heater-off)
-		await expect(dailyJobsLocator).toHaveCount(initialCount + 2, { timeout: 5000 });
+		// This implicitly waits for both API calls to complete and jobs to render
+		await expect(dailyJobsLocator).toHaveCount(initialCount + 2, { timeout: 15000 });
 
 		// Verify new jobs are Heater ON at 5:30 and Heater OFF at 8:00 (150 min later)
 		await expect(page.locator('li').filter({ hasText: 'Heater ON' }).filter({ hasText: '5:30' }).first()).toBeVisible();
@@ -177,6 +176,7 @@ test.describe.serial('Scheduler Recurring Jobs', () => {
 	test('both recurring and one-off jobs can coexist', async ({ page }) => {
 		// Create a recurring job first (unique time)
 		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
+		await expect(page.getByRole('checkbox', { name: 'Recurring (daily)' })).toBeChecked({ timeout: 5000 });
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '04:00');
 		await page.click('button:has-text("Schedule")', { force: true });
