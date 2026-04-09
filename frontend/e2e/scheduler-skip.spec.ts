@@ -38,6 +38,7 @@ test.describe.serial('Scheduler Skip Next Occurrence', () => {
 	test('recurring job shows "Skip next" button', async ({ page }) => {
 		// Create a recurring job
 		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
+		await expect(page.getByRole('checkbox', { name: 'Recurring (daily)' })).toBeChecked({ timeout: 5000 });
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '07:00');
 		await page.click('button:has-text("Schedule")', { force: true });
@@ -52,6 +53,7 @@ test.describe.serial('Scheduler Skip Next Occurrence', () => {
 	test('clicking "Skip next" changes to amber/skipped state with Unskip button', async ({ page }) => {
 		// Create a recurring job
 		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
+		await expect(page.getByRole('checkbox', { name: 'Recurring (daily)' })).toBeChecked({ timeout: 5000 });
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '07:15');
 		await page.click('button:has-text("Schedule")', { force: true });
@@ -79,6 +81,7 @@ test.describe.serial('Scheduler Skip Next Occurrence', () => {
 	test('clicking "Unskip" restores normal purple state', async ({ page }) => {
 		// Create and skip a recurring job
 		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
+		await expect(page.getByRole('checkbox', { name: 'Recurring (daily)' })).toBeChecked({ timeout: 5000 });
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '07:30');
 		await page.click('button:has-text("Schedule")', { force: true });
@@ -106,6 +109,7 @@ test.describe.serial('Scheduler Skip Next Occurrence', () => {
 	test('cancel works on skipped jobs', async ({ page }) => {
 		// Create and skip a recurring job
 		await page.locator('label:has-text("Recurring (daily)")').click({ force: true });
+		await expect(page.getByRole('checkbox', { name: 'Recurring (daily)' })).toBeChecked({ timeout: 5000 });
 		await page.selectOption('#action', 'heater-on');
 		await page.fill('#time', '07:45');
 		await page.click('button:has-text("Schedule")', { force: true });

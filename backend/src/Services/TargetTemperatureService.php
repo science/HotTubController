@@ -311,8 +311,9 @@ class TargetTemperatureService
                 $heaterTurnedOn = true;
             }
 
-            // Schedule next check
-            $cronScheduled = $this->scheduleNextCheck();
+            // Schedule next check — use smart approach scheduling on first check
+            $cronScheduled = $this->scheduleApproachCheckIfEligible($state, $currentTempF, $targetTempF)
+                ?: $this->scheduleNextCheck();
 
             return [
                 'active' => true,
@@ -496,6 +497,7 @@ class TargetTemperatureService
     }
 
     private const CRON_SAFETY_MARGIN_SECONDS = 5;
+    private const MIN_SMART_SCHEDULING_MINUTES = 3;
 
     /**
      * Calculate when the next check should occur.
@@ -531,19 +533,97 @@ class TargetTemperatureService
     }
 
     /**
-     * Schedule the next temperature check via cron.
+     * On the first check of a session, schedule a single approach check near
+     * the predicted target arrival time instead of starting 1-minute checks
+     * immediately. This reduces cron count from ~30 to ~10 per session.
+     *
+     * Returns true if an approach check was scheduled, false to fall through
+     * to legacy 1-minute scheduling.
+     */
+    private function scheduleApproachCheckIfEligible(array &$state, float $currentTempF, float $targetTempF): bool
+    {
+        // Only on the first check (approach not yet scheduled)
+        if (isset($state['approach_check_at'])) {
+            return false;
+        }
+
+        // Need heating characteristics for prediction
+        if ($this->heatingCharacteristicsFile === null || !file_exists($this->heatingCharacteristicsFile)) {
+            return false;
+        }
+        $chars = json_decode(file_get_contents($this->heatingCharacteristicsFile), true);
+        if (!is_array($chars) || empty($chars['heating_velocity_f_per_min'])) {
+            return false;
+        }
+
+        $velocity = (float) $chars['heating_velocity_f_per_min'];
+        if ($velocity <= 0) {
+            return false;
+        }
+
+        // Calculate approach time WITHOUT startup lag — this is the earliest
+        // the tub could reach target (if hot water is already in pipes)
+        $approachMinutes = ($targetTempF - $currentTempF) / $velocity;
+
+        if ($approachMinutes < self::MIN_SMART_SCHEDULING_MINUTES) {
+            return false;
+        }
+
+        $approachTimestamp = $this->roundToMinuteBoundary(
+            time() + (int) ($approachMinutes * 60)
+        );
+
+        $scheduled = $this->scheduleCheckAt($approachTimestamp);
+        if (!$scheduled) {
+            return false;
+        }
+
+        // Record in state so subsequent checks use 1-minute scheduling
+        $state['approach_check_at'] = (new \DateTimeImmutable(
+            '@' . $approachTimestamp
+        ))->format('c');
+        $this->saveState($state);
+
+        return true;
+    }
+
+    /**
+     * Round a Unix timestamp up to the next minute boundary with safety margin.
+     */
+    private function roundToMinuteBoundary(int $timestamp): int
+    {
+        $boundary = (int) ceil($timestamp / 60) * 60;
+
+        if (($boundary - time()) < self::CRON_SAFETY_MARGIN_SECONDS) {
+            $boundary += 60;
+        }
+
+        return $boundary;
+    }
+
+    /**
+     * Schedule the next temperature check at the next available minute.
+     */
+    private function scheduleNextCheck(): bool
+    {
+        return $this->scheduleCheckAt($this->calculateNextCheckTime());
+    }
+
+    /**
+     * Schedule a temperature check at a specific time.
      *
      * Uses CronSchedulingService to ensure correct timezone handling.
      * Creates a job file and crontab entry that uses cron-runner.sh for
      * proper JWT authentication.
+     *
+     * @param int $timestamp Unix timestamp for when the check should fire
      */
-    private function scheduleNextCheck(): bool
+    private function scheduleCheckAt(int $timestamp): bool
     {
         if ($this->cronSchedulingService === null || $this->cronRunnerPath === null || $this->apiBaseUrl === null) {
             return false;
         }
 
-        $checkTime = $this->calculateNextCheckTime();
         $jobId = self::CRON_JOB_PREFIX . '-' . bin2hex(random_bytes(4));
 
         // Create job file for cron-runner.sh to read
@@ -559,7 +639,7 @@ class TargetTemperatureService
 
         // Use CronSchedulingService for correct timezone handling
         // This ensures cron fires at the right time regardless of PHP timezone
-        $this->cronSchedulingService->scheduleAt($checkTime, $command, $comment);
+        $this->cronSchedulingService->scheduleAt($timestamp, $command, $comment);
 
         return true;
     }

@@ -151,8 +151,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 
 			// Verify UI reflects the settings
 			const checkbox = page.getByLabel('Enable heat to target');
-			await expect(checkbox).toBeVisible({ timeout: 10000 });
-			expect(await checkbox.isChecked()).toBe(true);
+			await expect(checkbox).toBeChecked({ timeout: 10000 });
 
 			const input = page.getByLabel('Target temp input');
 			await expect(input).toHaveValue('105');
@@ -210,8 +209,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 
 			// Verify settings persisted
 			const checkboxAfter = page.getByLabel('Enable heat to target');
-			await expect(checkboxAfter).toBeVisible({ timeout: 10000 });
-			expect(await checkboxAfter.isChecked()).toBe(true);
+			await expect(checkboxAfter).toBeChecked({ timeout: 10000 });
 
 			const inputAfter = page.getByLabel('Target temp input');
 			await expect(inputAfter).toHaveValue('107');
