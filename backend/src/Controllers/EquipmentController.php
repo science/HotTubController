@@ -6,14 +6,16 @@ namespace HotTub\Controllers;
 
 use HotTub\Services\EventLogger;
 use HotTub\Services\EquipmentStatusService;
+use HotTub\Services\HeaterControlService;
 use HotTub\Services\TargetTemperatureService;
-use HotTub\Contracts\IftttClientInterface;
 
 /**
  * Controller for hot tub equipment operations.
  *
- * All equipment control operations trigger IFTTT webhooks,
- * log events for audit purposes, and update equipment status.
+ * All equipment control operations go through HeaterControlService for
+ * consistent IFTTT triggering, success checking, and status updates.
+ * This controller adds API response formatting, request-level logging,
+ * and heat-to-target cancellation on manual heater-off.
  */
 class EquipmentController
 {
@@ -21,7 +23,7 @@ class EquipmentController
 
     public function __construct(
         string $logFile,
-        private IftttClientInterface $iftttClient,
+        private HeaterControlService $heaterControl,
         private ?EquipmentStatusService $statusService = null,
         private ?TargetTemperatureService $targetTempService = null
     ) {
@@ -37,7 +39,7 @@ class EquipmentController
     {
         $body = [
             'status' => 'ok',
-            'ifttt_mode' => $this->iftttClient->getMode(),
+            'ifttt_mode' => $this->heaterControl->getMode(),
         ];
 
         if ($this->statusService !== null) {
@@ -61,15 +63,11 @@ class EquipmentController
     public function heaterOn(): array
     {
         $timestamp = date('c');
-        $success = $this->iftttClient->trigger('hot-tub-heat-on');
-
-        if ($success && $this->statusService !== null) {
-            $this->statusService->setHeaterOn();
-        }
+        $success = $this->heaterControl->heaterOn();
 
         $this->logger->log('heater_on', [
             'ifttt_success' => $success,
-            'ifttt_mode' => $this->iftttClient->getMode(),
+            'ifttt_mode' => $this->heaterControl->getMode(),
         ]);
 
         return [
@@ -97,15 +95,20 @@ class EquipmentController
      * confusing UX where the heater turns back on 60 seconds later.
      * Manual user action should override automation.
      */
-    public function heaterOff(): array
+    public function heaterOff(?string $source = null): array
     {
         $timestamp = date('c');
-        $success = $this->iftttClient->trigger('hot-tub-heat-off');
 
-        if ($success && $this->statusService !== null) {
-            $this->statusService->setHeaterOff();
-            $this->statusService->setPumpOff();
+        // Watchdog: check equipment state before issuing heater-off
+        // so we can log whether the heater was unexpectedly still on.
+        if ($source === 'watchdog') {
+            $heaterWasOn = $this->statusService?->getStatus()['heater']['on'] ?? false;
+            $this->logger->log('watchdog_heater_off', [
+                'heater_was_on' => $heaterWasOn,
+            ]);
         }
+
+        $success = $this->heaterControl->heaterOff();
 
         // Cancel heat-to-target if active (manual action overrides automation)
         $heatToTargetCanceled = false;
@@ -119,18 +122,24 @@ class EquipmentController
 
         $this->logger->log('heater_off', [
             'ifttt_success' => $success,
-            'ifttt_mode' => $this->iftttClient->getMode(),
+            'ifttt_mode' => $this->heaterControl->getMode(),
             'heat_to_target_canceled' => $heatToTargetCanceled,
         ]);
 
+        $body = [
+            'success' => $success,
+            'action' => 'heater_off',
+            'timestamp' => $timestamp,
+            'heat_to_target_canceled' => $heatToTargetCanceled,
+        ];
+
+        if ($source !== null) {
+            $body['source'] = $source;
+        }
+
         return [
             'status' => $success ? 200 : 500,
-            'body' => [
-                'success' => $success,
-                'action' => 'heater_off',
-                'timestamp' => $timestamp,
-                'heat_to_target_canceled' => $heatToTargetCanceled,
-            ],
+            'body' => $body,
         ];
     }
 
@@ -144,16 +153,12 @@ class EquipmentController
     {
         $timestamp = date('c');
         $duration = 7200; // 2 hours in seconds
-        $success = $this->iftttClient->trigger('cycle_hot_tub_ionizer');
-
-        if ($success && $this->statusService !== null) {
-            $this->statusService->setPumpOn();
-        }
+        $success = $this->heaterControl->pumpRun();
 
         $this->logger->log('pump_run', [
             'duration' => $duration,
             'ifttt_success' => $success,
-            'ifttt_mode' => $this->iftttClient->getMode(),
+            'ifttt_mode' => $this->heaterControl->getMode(),
         ]);
 
         return [

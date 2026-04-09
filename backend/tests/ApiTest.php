@@ -7,6 +7,8 @@ namespace HotTub\Tests;
 use PHPUnit\Framework\TestCase;
 use HotTub\Controllers\EquipmentController;
 use HotTub\Contracts\IftttClientInterface;
+use HotTub\Services\EquipmentStatusService;
+use HotTub\Services\HeaterControlService;
 use HotTub\Services\IftttClient;
 use HotTub\Services\StubHttpClient;
 use HotTub\Services\ConsoleLogger;
@@ -32,9 +34,12 @@ class ApiTest extends TestCase
             new EventLogger($this->testLogFile)
         );
 
+        $statusFile = sys_get_temp_dir() . '/hot-tub-api-test-status-' . uniqid() . '.json';
+        $statusService = new EquipmentStatusService($statusFile);
+        $heaterControl = new HeaterControlService($this->iftttClient, $statusService);
         $this->controller = new EquipmentController(
             $this->testLogFile,
-            $this->iftttClient
+            $heaterControl
         );
     }
 
