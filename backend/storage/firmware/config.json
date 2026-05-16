@@ -1,6 +1,6 @@
 {
-    "version": "1.5.1",
-    "filename": "firmware-1.5.1.bin",
-    "updated_at": "2026-01-27T20:13:00-08:00",
-    "notes": "Fix alignment drift caused by API latency - anchor interval to alignment second"
+    "version": "1.5.2",
+    "filename": "firmware-1.5.2.bin",
+    "updated_at": "2026-05-16T14:44:00-07:00",
+    "notes": "Migrate to misuse_iot SSID with runtime fallback to misuse"
 }
