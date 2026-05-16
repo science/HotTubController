@@ -11,7 +11,12 @@
 #include <report_scheduler.h>
 
 // Firmware version - increment this with each release
-#define FIRMWARE_VERSION "1.5.1"
+#define FIRMWARE_VERSION "1.5.2"
+
+// Build-time guard: ensure WIFI_SSID_FALLBACK is defined in esp32/.env
+#ifndef WIFI_SSID_FALLBACK
+#error "WIFI_SSID_FALLBACK must be defined in esp32/.env (set to a secondary SSID using the same WIFI_PASSWORD)"
+#endif
 
 // Hardware pins
 #define ONE_WIRE_BUS 4
@@ -139,29 +144,44 @@ void performHttpOtaUpdate(const char* firmwareUrl, const char* newVersion) {
     http.end();
 }
 
-void connectWiFi() {
-    Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
-
-    // Set max TX power for better range (default is ~13dBm, max is 20.5dBm)
-    WiFi.setTxPower(WIFI_POWER_19_5dBm);
-    Serial.println("WiFi TX power set to 19.5 dBm (max)");
-
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
+// Try to associate with one SSID. Returns true on success.
+static bool tryConnectSSID(const char* ssid, const char* password, int maxAttempts) {
+    Serial.printf("Connecting to WiFi: %s\n", ssid);
+    WiFi.disconnect(true);
+    delay(200);
+    WiFi.begin(ssid, password);
     int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+    while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
         delay(500);
         Serial.print(".");
         attempts++;
     }
+    Serial.println();
+    return WiFi.status() == WL_CONNECTED;
+}
 
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println();
-        Serial.printf("Connected! IP: %s\n", WiFi.localIP().toString().c_str());
-    } else {
-        Serial.println();
-        Serial.println("WiFi connection FAILED");
+void connectWiFi() {
+    // Set max TX power for better range (default is ~13dBm, max is 20.5dBm)
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    Serial.println("WiFi TX power set to 19.5 dBm (max)");
+
+    // Try primary SSID
+    if (tryConnectSSID(WIFI_SSID, WIFI_PASSWORD, 30)) {
+        Serial.printf("Connected (primary SSID '%s')! IP: %s\n",
+                      WIFI_SSID, WiFi.localIP().toString().c_str());
+        return;
     }
+
+    // Primary failed — try fallback SSID with same password
+    Serial.printf("Primary SSID '%s' did not associate; trying fallback '%s'\n",
+                  WIFI_SSID, WIFI_SSID_FALLBACK);
+    if (tryConnectSSID(WIFI_SSID_FALLBACK, WIFI_PASSWORD, 30)) {
+        Serial.printf("Connected (fallback SSID '%s')! IP: %s\n",
+                      WIFI_SSID_FALLBACK, WiFi.localIP().toString().c_str());
+        return;
+    }
+
+    Serial.println("WiFi connection FAILED on both primary and fallback SSIDs");
 }
 
 /**
