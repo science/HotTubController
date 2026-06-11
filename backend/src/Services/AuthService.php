@@ -46,9 +46,26 @@ class AuthService
     {
         try {
             $decoded = JWT::decode($token, new Key($this->jwtSecret, 'HS256'));
-            return (array) $decoded;
+            $claims = (array) $decoded;
         } catch (\Exception $e) {
             throw new \RuntimeException('Invalid token: ' . $e->getMessage());
         }
+
+        // DB-backed validation: the token's subject must still resolve to a
+        // user, and its claimed role must match that user's current role. This
+        // makes the user store authoritative — deleting a user (or changing its
+        // role) immediately invalidates its outstanding tokens, even tokens the
+        // backend was never told were minted.
+        $user = $this->userRepository->findByUsername($claims['sub'] ?? '');
+
+        if ($user === null) {
+            throw new \RuntimeException('Invalid token: unknown subject');
+        }
+
+        if (($user['role'] ?? null) !== ($claims['role'] ?? null)) {
+            throw new \RuntimeException('Invalid token: role mismatch');
+        }
+
+        return $claims;
     }
 }

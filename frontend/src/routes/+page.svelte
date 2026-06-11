@@ -35,6 +35,10 @@
 	// Check if user has basic role (simplified UI)
 	const isBasicUser = $derived(data.user?.role === 'basic');
 
+	// Read-only users (e.g. Home Assistant) can view data but not control hardware.
+	// The backend enforces this; hiding the controls keeps the UI honest.
+	const isReadOnly = $derived(data.user?.role === 'readonly');
+
 	// Reactive equipment status
 	let heaterOn = $derived(getHeaterOn());
 	let pumpOn = $derived(getPumpOn());
@@ -180,7 +184,8 @@
 	</header>
 
 	<main class="flex-1 flex flex-col gap-3 max-w-md mx-auto w-full">
-		<!-- Compact Primary Controls -->
+		<!-- Compact Primary Controls (hidden for read-only users) -->
+		{#if !isReadOnly}
 		<div class="grid grid-cols-3 gap-2">
 			<CompactControlButton
 				label={getHeatButtonLabel()}
@@ -207,6 +212,7 @@
 				onClick={() => handleAction(api.pumpRun, 'Pump running for 2 hours', setPumpOn)}
 			/>
 		</div>
+		{/if}
 
 		<!-- ETA: Estimated time to reach target temperature -->
 		{#if etaDisplay}
@@ -224,7 +230,7 @@
 		{/if}
 
 		<!-- Dining Room Blinds Controls (optional feature, half-height) -->
-		{#if blindsEnabled}
+		{#if blindsEnabled && !isReadOnly}
 			<div class="grid grid-cols-2 gap-2">
 				<CompactControlButton
 					label="Blinds Up"
@@ -272,21 +278,21 @@
 			</div>
 		{/if}
 
-		<!-- Quick Schedule Buttons (hidden for basic users) -->
-		{#if !isBasicUser}
+		<!-- Quick Schedule Buttons (hidden for basic and read-only users) -->
+		{#if !isBasicUser && !isReadOnly}
 			<QuickSchedulePanel onScheduled={handleQuickScheduled} />
 		{/if}
 
 		<!-- Temperature Display -->
 		<TemperaturePanel bind:this={temperaturePanel} />
 
-		<!-- Full Schedule Panel (hidden for basic users) -->
-		{#if !isBasicUser}
+		<!-- Full Schedule Panel (hidden for basic and read-only users) -->
+		{#if !isBasicUser && !isReadOnly}
 			<SchedulePanel bind:this={schedulePanel} onHeaterOffCompleted={handleHeaterOffCompleted} />
 		{/if}
 
-		<!-- Settings Panel (hidden for basic users) -->
-		{#if !isBasicUser}
+		<!-- Settings Panel (hidden for basic and read-only users) -->
+		{#if !isBasicUser && !isReadOnly}
 			<SettingsPanel isAdmin={data.user?.role === 'admin'} />
 		{/if}
 

@@ -8,6 +8,13 @@ use HotTub\Services\AuthService;
 
 class AuthMiddleware
 {
+    /**
+     * Roles permitted to perform mutating (write) operations. Any other role
+     * (notably 'readonly') is denied write access. Layer-1 validation in
+     * AuthService guarantees this role matches the user's current DB role.
+     */
+    private const WRITE_ROLES = ['admin', 'user', 'basic'];
+
     public function __construct(
         private AuthService $authService
     ) {
@@ -62,6 +69,31 @@ class AuthMiddleware
                 'status' => 403,
                 'body' => [
                     'error' => 'Admin access required',
+                ],
+            ];
+        }
+
+        return null;
+    }
+
+    public function requireWrite(array $headers, array $cookies): ?array
+    {
+        $user = $this->authenticate($headers, $cookies);
+
+        if ($user === null) {
+            return [
+                'status' => 401,
+                'body' => [
+                    'error' => 'Authentication required',
+                ],
+            ];
+        }
+
+        if (!in_array($user['role'] ?? '', self::WRITE_ROLES, true)) {
+            return [
+                'status' => 403,
+                'body' => [
+                    'error' => 'Write access required',
                 ],
             ];
         }

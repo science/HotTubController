@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTub\Tests\Services;
 
 use PHPUnit\Framework\TestCase;
+use Firebase\JWT\JWT;
 use HotTub\Services\AuthService;
 use HotTub\Contracts\UserRepositoryInterface;
 
@@ -183,5 +184,68 @@ class AuthServiceTest extends TestCase
 
         $this->assertEquals('boss', $claims['sub']);
         $this->assertEquals('admin', $claims['role']);
+    }
+
+    // --- Layer 1: DB-backed token validation ---
+
+    private function mintToken(string $sub, string $role): string
+    {
+        return JWT::encode([
+            'iat' => time(),
+            'exp' => time() + 3600,
+            'sub' => $sub,
+            'role' => $role,
+        ], $this->config['JWT_SECRET'], 'HS256');
+    }
+
+    public function testValidateTokenRejectsUnknownSubject(): void
+    {
+        // Subject does not resolve to any user (e.g. its account was deleted, or
+        // the token was minted out-of-band for a never-provisioned identity).
+        $mock = $this->createMock(UserRepositoryInterface::class);
+        $mock->method('findByUsername')->willReturn(null);
+        $authService = new AuthService($mock, $this->config);
+
+        $token = $this->mintToken('ghost', 'admin');
+
+        $this->expectException(\RuntimeException::class);
+        $authService->validateToken($token);
+    }
+
+    public function testValidateTokenRejectsRoleMismatch(): void
+    {
+        // Token claims 'basic' but the DB user is 'readonly' → reject. This is the
+        // auto-revoke guarantee: changing a user's role invalidates its old tokens.
+        $mock = $this->createMock(UserRepositoryInterface::class);
+        $mock->method('findByUsername')->willReturn([
+            'username' => 'homeassistant',
+            'role' => 'readonly',
+            'password_hash' => '*',
+            'created_at' => date('c'),
+        ]);
+        $authService = new AuthService($mock, $this->config);
+
+        $token = $this->mintToken('homeassistant', 'basic');
+
+        $this->expectException(\RuntimeException::class);
+        $authService->validateToken($token);
+    }
+
+    public function testValidateTokenAcceptsMatchingSubjectAndRole(): void
+    {
+        $mock = $this->createMock(UserRepositoryInterface::class);
+        $mock->method('findByUsername')->willReturn([
+            'username' => 'homeassistant',
+            'role' => 'readonly',
+            'password_hash' => '*',
+            'created_at' => date('c'),
+        ]);
+        $authService = new AuthService($mock, $this->config);
+
+        $token = $this->mintToken('homeassistant', 'readonly');
+        $claims = $authService->validateToken($token);
+
+        $this->assertSame('homeassistant', $claims['sub']);
+        $this->assertSame('readonly', $claims['role']);
     }
 }

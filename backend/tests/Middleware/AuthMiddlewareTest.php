@@ -176,6 +176,54 @@ class AuthMiddlewareTest extends TestCase
         $this->assertEquals('Admin access required', $response['body']['error']);
     }
 
+    // --- requireWrite (Layer 2a) ---
+
+    public function testRequireWriteReturns401WhenNotAuthenticated(): void
+    {
+        $response = $this->middleware->requireWrite([], []);
+
+        $this->assertNotNull($response);
+        $this->assertEquals(401, $response['status']);
+        $this->assertEquals('Authentication required', $response['body']['error']);
+    }
+
+    public function testRequireWriteReturnsNullForAdminUser(): void
+    {
+        $token = TestAuthHelper::getValidToken(); // admin
+        $headers = ['Authorization' => 'Bearer ' . $token];
+
+        $this->assertNull($this->middleware->requireWrite($headers, []));
+    }
+
+    public function testRequireWriteReturnsNullForBasicUser(): void
+    {
+        $userRepo = TestAuthHelper::getUserRepository();
+        if ($userRepo->findByUsername('writebasic') === null) {
+            $userRepo->create('writebasic', 'password', 'basic');
+        }
+        $token = TestAuthHelper::getAuthService()->login('writebasic', 'password');
+        $headers = ['Authorization' => 'Bearer ' . $token];
+
+        // basic is a write role (e.g. vickie controls hardware) — must pass.
+        $this->assertNull($this->middleware->requireWrite($headers, []));
+    }
+
+    public function testRequireWriteReturns403ForReadonlyUser(): void
+    {
+        $userRepo = TestAuthHelper::getUserRepository();
+        if ($userRepo->findByUsername('readonlyuser') === null) {
+            $userRepo->create('readonlyuser', 'password', 'readonly');
+        }
+        $token = TestAuthHelper::getAuthService()->login('readonlyuser', 'password');
+        $headers = ['Authorization' => 'Bearer ' . $token];
+
+        $response = $this->middleware->requireWrite($headers, []);
+
+        $this->assertNotNull($response);
+        $this->assertEquals(403, $response['status']);
+        $this->assertEquals('Write access required', $response['body']['error']);
+    }
+
     public function testBasicUserTokenHasCorrectRole(): void
     {
         // Create a basic user and verify the token contains the correct role

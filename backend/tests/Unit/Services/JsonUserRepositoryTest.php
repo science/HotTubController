@@ -271,4 +271,29 @@ class JsonUserRepositoryTest extends TestCase
         $found = $repo->findByUsername('basic_user');
         $this->assertEquals('basic', $found['role']);
     }
+
+    public function testReadonlyRoleIsAccepted(): void
+    {
+        $repo = new JsonUserRepository($this->usersFile);
+
+        $readonlyUser = $repo->create('ha', 'pass', 'readonly');
+
+        $this->assertEquals('readonly', $readonlyUser['role']);
+        $this->assertEquals('readonly', $repo->findByUsername('ha')['role']);
+    }
+
+    public function testCreateSystemAccountDisablesPasswordLogin(): void
+    {
+        $repo = new JsonUserRepository($this->usersFile);
+
+        $account = $repo->createSystemAccount('cron-system', 'admin');
+
+        $this->assertEquals('admin', $account['role']);
+        // The account exists and has its role...
+        $this->assertEquals('admin', $repo->findByUsername('cron-system')['role']);
+        // ...but no password can authenticate it (login disabled).
+        $this->assertFalse($repo->verifyPassword('cron-system', ''));
+        $this->assertFalse($repo->verifyPassword('cron-system', 'admin'));
+        $this->assertFalse($repo->verifyPassword('cron-system', 'password'));
+    }
 }

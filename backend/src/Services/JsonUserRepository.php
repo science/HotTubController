@@ -14,7 +14,15 @@ use HotTub\Contracts\UserRepositoryInterface;
  */
 class JsonUserRepository implements UserRepositoryInterface
 {
-    private const VALID_ROLES = ['admin', 'user', 'basic'];
+    private const VALID_ROLES = ['admin', 'user', 'basic', 'readonly'];
+
+    /**
+     * Sentinel password hash for system accounts (cron, integrations) that
+     * authenticate via a minted token, never a password. It can never be
+     * produced by password_hash(), so verifyPassword() always rejects it.
+     */
+    private const LOCKED_PASSWORD_HASH = '*';
+
     private string $filePath;
 
     public function __construct(string $filePath)
@@ -57,6 +65,21 @@ class JsonUserRepository implements UserRepositoryInterface
 
     public function create(string $username, string $password, string $role = 'user'): array
     {
+        return $this->insert($username, password_hash($password, PASSWORD_BCRYPT), $role);
+    }
+
+    public function createSystemAccount(string $username, string $role = 'admin'): array
+    {
+        // System accounts authenticate via a minted token, so they get a locked
+        // password hash that no password can satisfy (login disabled).
+        return $this->insert($username, self::LOCKED_PASSWORD_HASH, $role);
+    }
+
+    /**
+     * Insert a new user with an already-prepared password hash.
+     */
+    private function insert(string $username, string $passwordHash, string $role): array
+    {
         $data = $this->load();
 
         if (isset($data['users'][$username])) {
@@ -70,7 +93,7 @@ class JsonUserRepository implements UserRepositoryInterface
 
         $createdAt = date('c');
         $data['users'][$username] = [
-            'password_hash' => password_hash($password, PASSWORD_BCRYPT),
+            'password_hash' => $passwordHash,
             'role' => $role,
             'created_at' => $createdAt,
         ];
@@ -116,7 +139,14 @@ class JsonUserRepository implements UserRepositoryInterface
             return false;
         }
 
-        return password_verify($password, $user['password_hash']);
+        // Locked/system accounts have a sentinel hash that is not a real hash;
+        // reject without calling password_verify (which would just return false).
+        $hash = $user['password_hash'];
+        if (!is_string($hash) || !str_starts_with($hash, '$')) {
+            return false;
+        }
+
+        return password_verify($password, $hash);
     }
 
     /**

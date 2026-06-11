@@ -243,6 +243,7 @@ $cookies = $_COOKIE;
 // Auth middleware for protected routes
 $requireAuth = fn() => $authMiddleware->requireAuth($headers, $cookies);
 $requireAdmin = fn() => $authMiddleware->requireAdmin($headers, $cookies);
+$requireWrite = fn() => $authMiddleware->requireWrite($headers, $cookies);
 
 // Configure routes
 $router = new Router();
@@ -276,19 +277,19 @@ $router->post('/api/auth/login', fn() => handleLogin($authController, $config, $
 $router->post('/api/auth/logout', fn() => handleLogout($authController, $cookieHelper));
 $router->get('/api/auth/me', fn() => handleMe($authController, $headers, $cookies));
 
-// Protected equipment routes (with auth middleware)
-$router->post('/api/equipment/heater/on', fn() => $equipmentController->heaterOn(), $requireAuth);
-$router->post('/api/equipment/heater/off', fn() => $equipmentController->heaterOff($_GET['source'] ?? null), $requireAuth);
-$router->post('/api/equipment/pump/run', fn() => $equipmentController->pumpRun(), $requireAuth);
+// Protected equipment routes (mutating → requireWrite; readonly tokens are denied)
+$router->post('/api/equipment/heater/on', fn() => $equipmentController->heaterOn(), $requireWrite);
+$router->post('/api/equipment/heater/off', fn() => $equipmentController->heaterOff($_GET['source'] ?? null), $requireWrite);
+$router->post('/api/equipment/pump/run', fn() => $equipmentController->pumpRun(), $requireWrite);
 
 // Target temperature routes (heat to specific temperature)
-$router->post('/api/equipment/heat-to-target', fn() => handleHeatToTarget($targetTemperatureController), $requireAuth);
+$router->post('/api/equipment/heat-to-target', fn() => handleHeatToTarget($targetTemperatureController), $requireWrite);
 $router->get('/api/equipment/heat-to-target', fn() => $targetTemperatureController->status(), $requireAuth);
-$router->delete('/api/equipment/heat-to-target', fn() => $targetTemperatureController->cancel(), $requireAuth);
+$router->delete('/api/equipment/heat-to-target', fn() => $targetTemperatureController->cancel(), $requireWrite);
 
 // Protected blinds routes (optional feature - returns 404 if not enabled)
-$router->post('/api/blinds/open', fn() => $blindsController->open(), $requireAuth);
-$router->post('/api/blinds/close', fn() => $blindsController->close(), $requireAuth);
+$router->post('/api/blinds/open', fn() => $blindsController->open(), $requireWrite);
+$router->post('/api/blinds/close', fn() => $blindsController->close(), $requireWrite);
 
 // Protected temperature routes (with auth middleware)
 $router->get('/api/temperature', fn() => $temperatureController->get(), $requireAuth);
@@ -299,19 +300,19 @@ $router->get('/api/temperature/all', fn() => $temperatureController->getAll(), $
 
 // ESP32 sensor configuration endpoints (require auth)
 $router->get('/api/esp32/sensors', fn() => $esp32SensorConfigController->list(), $requireAuth);
-$router->put('/api/esp32/sensors/{address}', fn($params) => handleEsp32SensorUpdate($esp32SensorConfigController, $params['address']), $requireAuth);
+$router->put('/api/esp32/sensors/{address}', fn($params) => handleEsp32SensorUpdate($esp32SensorConfigController, $params['address']), $requireWrite);
 
 // Heat-target settings endpoints
 $router->get('/api/settings/heat-target', fn() => $heatTargetSettingsController->get(), $requireAuth);
 $router->put('/api/settings/heat-target', fn() => handleHeatTargetSettingsUpdate($heatTargetSettingsController), $requireAdmin);
 
-// Protected schedule routes (with auth middleware)
-$router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireAuth);
+// Protected schedule routes (reads → requireAuth; mutations → requireWrite)
+$router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireWrite);
 $router->get('/api/schedule', fn() => $scheduleController->list(), $requireAuth);
-$router->delete('/api/schedule/{id}', fn($params) => $scheduleController->cancel($params['id']), $requireAuth);
-$router->put('/api/schedule/{id}/target-temp', fn($params) => handleScheduleUpdateTargetTemp($scheduleController, $params['id']), $requireAuth);
-$router->post('/api/schedule/{id}/skip', fn($params) => $scheduleController->skip($params['id']), $requireAuth);
-$router->delete('/api/schedule/{id}/skip', fn($params) => $scheduleController->unskip($params['id']), $requireAuth);
+$router->delete('/api/schedule/{id}', fn($params) => $scheduleController->cancel($params['id']), $requireWrite);
+$router->put('/api/schedule/{id}/target-temp', fn($params) => handleScheduleUpdateTargetTemp($scheduleController, $params['id']), $requireWrite);
+$router->post('/api/schedule/{id}/skip', fn($params) => $scheduleController->skip($params['id']), $requireWrite);
+$router->delete('/api/schedule/{id}/skip', fn($params) => $scheduleController->unskip($params['id']), $requireWrite);
 
 // Admin-only user management routes
 $router->get('/api/users', fn() => $userController->list(), $requireAdmin);
@@ -344,14 +345,24 @@ $router->get('/api/admin/crontab', fn() => [
 
 // Protected maintenance routes (called by cron with CRON_JWT)
 // Note: /api/cron/health bypasses framework via .htaccess -> cron-health.php
-$router->post('/api/maintenance/logs/rotate', fn() => $maintenanceController->rotateLogs(), $requireAuth);
-$router->post('/api/maintenance/jobs/cleanup', fn() => $maintenanceController->cleanupOrphanedJobs(), $requireAuth);
-$router->post('/api/maintenance/all', fn() => $maintenanceController->runAll(), $requireAuth);
-$router->post('/api/maintenance/heat-target-check', fn() => $targetTemperatureController->check(), $requireAuth);
-$router->post('/api/maintenance/dtdt-wakeup', fn() => handleDtdtWakeUp($dtdtService), $requireAuth);
+$router->post('/api/maintenance/logs/rotate', fn() => $maintenanceController->rotateLogs(), $requireWrite);
+$router->post('/api/maintenance/jobs/cleanup', fn() => $maintenanceController->cleanupOrphanedJobs(), $requireWrite);
+$router->post('/api/maintenance/all', fn() => $maintenanceController->runAll(), $requireWrite);
+$router->post('/api/maintenance/heat-target-check', fn() => $targetTemperatureController->check(), $requireWrite);
+$router->post('/api/maintenance/dtdt-wakeup', fn() => handleDtdtWakeUp($dtdtService), $requireWrite);
+
+// Global read-only enforcement (belt-and-suspenders to the per-route requireWrite
+// guard): a 'readonly' token may only issue safe (non-mutating) HTTP methods. This
+// also covers any future mutating route that forgets to use $requireWrite.
+$guardUser = $authMiddleware->authenticate($headers, $cookies);
+$readonlyBlocked = $guardUser !== null
+    && ($guardUser['role'] ?? '') === 'readonly'
+    && !in_array($method, ['GET', 'HEAD', 'OPTIONS'], true);
 
 // Dispatch request
-$response = $router->dispatch($method, $uri);
+$response = $readonlyBlocked
+    ? ['status' => 403, 'body' => ['error' => 'Read-only access: write operations are not permitted']]
+    : $router->dispatch($method, $uri);
 
 http_response_code($response['status']);
 echo json_encode($response['body']);
