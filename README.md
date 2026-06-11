@@ -75,9 +75,11 @@ The system uses IFTTT webhooks to control SmartLife/Tuya smart relays, making it
 
 ### Users & Authentication
 - **JWT Authentication** - Secure login with httpOnly cookie support
-- **Three User Roles** - Admin (full access), User (controls + scheduling), Basic (controls + temperature only)
+- **DB-backed token validation** - A token is valid only if its subject is an existing user and its claimed role matches the stored role. Deleting a user (or changing its role) immediately revokes that user's tokens — there is no separate denylist.
+- **Four User Roles** - Admin (full access), User (controls + scheduling), Basic (controls + simplified UI), Readonly (view only — for integrations like Home Assistant; blocked from all writes)
 - **User Management** - Admin interface for creating, managing, and deleting users
 - **Password Management** - Admin can reset user passwords
+- **Token minting** - `backend/bin/mint-jwt.php --sub <name> --role <role> --years <n>` issues a long-lived token for a provisioned user (e.g. a read-only Home Assistant integration)
 
 ### Monitoring & Maintenance
 - **Healthchecks.io Integration** - Optional monitoring for cron job alerts

@@ -169,7 +169,9 @@ ESP32_API_KEY=your-api-key
   - `TargetTemperatureService` - Heat-to-target feature with automatic cron-based temperature checks, ETA computation
   - `HeatTargetSettingsService` - Stores global heat-to-target enabled/target_temp/dynamic mode settings
   - `DynamicTargetCalculator` - Piecewise linear interpolation for ambient-adjusted water target temperatures
-  - `AuthService` - JWT token validation
+  - `AuthService` - JWT issuance + **DB-backed token validation** (subject must exist as a user and claimed role must match the stored role — see Authentication & Roles)
+  - `AuthMiddleware` - Authorization guards: `requireAuth` / `requireAdmin` / `requireWrite`
+  - `JsonUserRepository` / `UserRepositoryFactory` - User store; factory self-heals system accounts (`cron-system`) on boot
   - `EquipmentStatusService` - Tracks heater/pump on/off state in JSON file
   - `RequestLogger` - API request logging in JSON Lines format
   - `LogRotationService` - Compresses and deletes old log files
@@ -191,6 +193,37 @@ ESP32_API_KEY=your-api-key
   - `NullHealthchecksClient` - No-op client (stub mode or no API key)
 - **Factory**: `HealthchecksClientFactory` - Creates client based on EXTERNAL_API_MODE
 
+### Authentication & Roles
+
+**DB-backed token validation.** JWTs are validated against the user store, not just the
+signature. `AuthService::validateToken()` requires the token's `sub` to resolve to an
+existing user **and** the claimed `role` to equal that user's current stored role —
+otherwise 401. Consequences:
+- **Revoke a token by deleting/renaming its user or changing its role.** The user store is
+  the source of truth; there is no separate denylist. This also rejects tokens that were
+  minted out-of-band for a subject the backend was never told about.
+- Mint a long-lived token with `php backend/bin/mint-jwt.php --sub <name> --role <role> --years <n>`.
+  The subject must already exist as a user with that role, or the token is rejected.
+
+**Roles** (`JsonUserRepository::VALID_ROLES`): `admin`, `user`, `basic`, `readonly`.
+- `admin` — full access including user management and global settings.
+- `user` — full hardware/scheduling control, but no admin-only endpoints.
+- `basic` — **a write role**: simplified UI, but can still control hardware. NOT read-only.
+- `readonly` — read (GET) only; blocked from every mutation. Used by integrations like
+  Home Assistant.
+
+**Authorization guards** (`AuthMiddleware`): `requireAuth` (any valid token), `requireAdmin`
+(role `admin`), and `requireWrite` (role ∈ admin/user/basic — `readonly` → 403) on every
+mutating route. A global guard in `index.php` additionally 403s any non-GET request from a
+`readonly` token (defense-in-depth).
+
+**System accounts.** Non-human identities (the cron runner uses `sub=cron-system`,
+`role=admin`) are real user rows with password login disabled (`createSystemAccount` stores
+a sentinel hash). `UserRepositoryFactory` self-heals `cron-system` on every boot, so
+deploying DB-backed validation never breaks cron and needs no manual provisioning. Revoke a
+system identity by rotating its token (e.g. `bin/generate-cron-jwt.php`), not by deleting
+the self-healing row.
+
 ### Frontend
 - **Framework**: SvelteKit with Svelte 5 runes (`$state`, `$effect`)
 - **Styling**: Tailwind CSS v4
@@ -210,26 +243,30 @@ ESP32_API_KEY=your-api-key
   - `SensorConfigPanel.svelte` - ESP32 sensor role/calibration configuration (admin only)
 
 ### API Endpoints
-- `GET /api/health` - Health check with equipment status and heat-target settings
+
+Auth levels (see Authentication & Roles): **public** (none) · **auth** (any valid token) ·
+**write** (admin/user/basic — `readonly` is blocked) · **admin** (admin only).
+
+- `GET /api/health` - Health check with equipment status and heat-target settings (public)
 - `POST /api/auth/login` - Login (sets httpOnly cookie)
 - `POST /api/auth/logout` - Logout (clears cookie)
 - `GET /api/auth/me` - Get current user info
-- `POST /api/equipment/heater/on` - Trigger IFTTT `hot-tub-heat-on` (auth required)
-- `POST /api/equipment/heater/off` - Trigger IFTTT `hot-tub-heat-off` (auth required)
-- `POST /api/equipment/pump/run` - Trigger IFTTT `cycle_hot_tub_ionizer` (auth required)
-- `GET /api/temperature` - Get current temperatures from ESP32
+- `POST /api/equipment/heater/on` - Trigger IFTTT `hot-tub-heat-on` (write)
+- `POST /api/equipment/heater/off` - Trigger IFTTT `hot-tub-heat-off` (write)
+- `POST /api/equipment/pump/run` - Trigger IFTTT `cycle_hot_tub_ionizer` (write)
+- `GET /api/temperature` - Get current temperatures from ESP32 (auth)
 - `POST /api/esp32/temperature` - Receive temperature data from ESP32 (API key auth)
-- `GET /api/esp32/sensors` - List ESP32 sensors with config (admin only)
-- `PUT /api/esp32/sensors/{address}` - Update sensor role/calibration (admin only)
-- `GET /api/settings/heat-target` - Get heat-to-target settings (auth required)
+- `GET /api/esp32/sensors` - List ESP32 sensors with config (auth)
+- `PUT /api/esp32/sensors/{address}` - Update sensor role/calibration (write)
+- `GET /api/settings/heat-target` - Get heat-to-target settings (auth)
 - `PUT /api/settings/heat-target` - Update heat-to-target settings (admin only)
-- `POST /api/schedule` - Schedule a future action (auth required)
-- `GET /api/schedule` - List scheduled jobs (auth required)
-- `DELETE /api/schedule/{id}` - Cancel scheduled job (auth required)
+- `POST /api/schedule` - Schedule a future action (write)
+- `GET /api/schedule` - List scheduled jobs (auth)
+- `DELETE /api/schedule/{id}` - Cancel scheduled job (write)
 - `GET /api/users` - List users (admin only)
-- `POST /api/users` - Create user (admin only)
-- `DELETE /api/users/{username}` - Delete user (admin only)
-- `POST /api/maintenance/logs/rotate` - Rotate log files (cron auth)
+- `POST /api/users` - Create user, optionally `role: readonly` (admin only)
+- `DELETE /api/users/{username}` - Delete user; also revokes that user's tokens (admin only)
+- `POST /api/maintenance/logs/rotate` - Rotate log files (write; called by cron as `cron-system`)
 
 ## DRY Principles
 
