@@ -120,6 +120,48 @@ class UserRepositoryFactoryTest extends TestCase
         $factory->create();
     }
 
+    public function testProvisionsCronSystemAccountOnBootstrap(): void
+    {
+        $config = [
+            'AUTH_ADMIN_USERNAME' => 'admin',
+            'AUTH_ADMIN_PASSWORD' => 'password',
+        ];
+
+        $factory = new UserRepositoryFactory($this->usersFile, $config);
+        $repo = $factory->create();
+
+        // The cron identity must exist as an admin user (DB-backed validation needs it)...
+        $cron = $repo->findByUsername('cron-system');
+        $this->assertNotNull($cron);
+        $this->assertEquals('admin', $cron['role']);
+        // ...with password login disabled.
+        $this->assertFalse($repo->verifyPassword('cron-system', 'password'));
+    }
+
+    public function testSelfHealsCronSystemAccountWhenFileExistsWithoutIt(): void
+    {
+        // Existing users.json from before DB-backed validation: no cron-system row.
+        $existingData = [
+            'version' => 1,
+            'users' => [
+                'admin' => [
+                    'password_hash' => password_hash('existingpass', PASSWORD_BCRYPT),
+                    'role' => 'admin',
+                    'created_at' => date('c'),
+                ],
+            ],
+        ];
+        file_put_contents($this->usersFile, json_encode($existingData, JSON_PRETTY_PRINT));
+
+        $factory = new UserRepositoryFactory($this->usersFile, []);
+        $repo = $factory->create();
+
+        // cron-system should be added on boot even though the file already existed.
+        $this->assertNotNull($repo->findByUsername('cron-system'));
+        // Existing admin is untouched.
+        $this->assertTrue($repo->verifyPassword('admin', 'existingpass'));
+    }
+
     public function testDoesNotThrowForMissingCredentialsWhenFileExists(): void
     {
         // Pre-create the file

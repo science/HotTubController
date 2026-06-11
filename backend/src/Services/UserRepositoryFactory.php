@@ -14,6 +14,13 @@ use HotTub\Contracts\UserRepositoryInterface;
  */
 class UserRepositoryFactory
 {
+    /**
+     * Username of the cron runner's identity. The cron JWT is minted with
+     * sub=cron-system / role=admin (see bin/generate-cron-jwt.php); DB-backed
+     * token validation requires this subject to exist as a user.
+     */
+    private const CRON_SYSTEM_USERNAME = 'cron-system';
+
     private string $filePath;
     private array $config;
 
@@ -38,7 +45,23 @@ class UserRepositoryFactory
             $this->bootstrap($repo);
         }
 
+        // Self-heal required system accounts on every boot (idempotent).
+        // This guarantees the cron identity exists once DB-backed token
+        // validation is active, with no manual provisioning step on deploy.
+        $this->ensureSystemAccounts($repo);
+
         return $repo;
+    }
+
+    /**
+     * Ensure non-human system accounts exist. Idempotent: only creates what's
+     * missing. System accounts have password login disabled.
+     */
+    private function ensureSystemAccounts(JsonUserRepository $repo): void
+    {
+        if ($repo->findByUsername(self::CRON_SYSTEM_USERNAME) === null) {
+            $repo->createSystemAccount(self::CRON_SYSTEM_USERNAME, 'admin');
+        }
     }
 
     /**

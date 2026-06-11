@@ -38,6 +38,19 @@ interface UserRepositoryInterface
     public function create(string $username, string $password, string $role = 'user'): array;
 
     /**
+     * Create a system account with password login disabled.
+     *
+     * Used for non-human identities (cron runner, integrations) that
+     * authenticate with a minted token rather than a password.
+     *
+     * @param string $username Username (must be unique)
+     * @param string $role User role (e.g. 'admin', 'readonly')
+     * @return array Created user data
+     * @throws \InvalidArgumentException If username already exists
+     */
+    public function createSystemAccount(string $username, string $role = 'admin'): array;
+
+    /**
      * Delete a user.
      *
      * @param string $username Username to delete

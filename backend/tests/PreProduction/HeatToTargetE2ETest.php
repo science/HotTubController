@@ -101,7 +101,9 @@ class HeatToTargetE2ETest extends TestCase
         $payload = $this->base64UrlEncode(json_encode([
             'iat' => time(),
             'exp' => time() + 3600,
-            'sub' => 'e2e-test',
+            // DB-backed validation requires sub to resolve to a real user; the
+            // server self-provisions 'cron-system' (admin) on boot.
+            'sub' => 'cron-system',
             'role' => 'admin',
         ]));
         $signature = $this->base64UrlEncode(hash_hmac('sha256', "$header.$payload", $secret, true));
