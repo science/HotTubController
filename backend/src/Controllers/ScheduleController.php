@@ -234,4 +234,90 @@ class ScheduleController
             ];
         }
     }
+
+    /**
+     * POST /api/schedule/{id}/override-next — change just the next run of a recurring job.
+     *
+     * Atomically skips the recurring job's next occurrence and (re)creates a single
+     * one-off override for that date at the new time/temp, inheriting the parent's
+     * ready-by vs start-at mode. Idempotent: repeated calls replace the same override.
+     *
+     * @param array{scheduledTime?: string, target_temp_f?: float} $data HH:MM time + temp
+     */
+    public function overrideNext(string $jobId, array $data): array
+    {
+        if (empty($data['scheduledTime'])) {
+            return ['status' => 400, 'body' => ['error' => 'Missing required field: scheduledTime']];
+        }
+        if (!isset($data['target_temp_f']) || !is_numeric($data['target_temp_f'])) {
+            return ['status' => 400, 'body' => ['error' => 'Missing or invalid target_temp_f']];
+        }
+
+        $newTime = (string) $data['scheduledTime']; // HH:MM
+        $newTempF = (float) $data['target_temp_f'];
+        if ($newTempF < 80.0 || $newTempF > 110.0) {
+            return ['status' => 400, 'body' => ['error' => 'Target temperature must be between 80.0°F and 110.0°F']];
+        }
+
+        $parent = $this->scheduler->getJob($jobId);
+        if ($parent === null) {
+            return ['status' => 404, 'body' => ['error' => 'Job not found: ' . $jobId]];
+        }
+        if (!($parent['recurring'] ?? false)) {
+            return ['status' => 400, 'body' => ['error' => 'Can only override recurring jobs']];
+        }
+
+        try {
+            // Skip the parent's next occurrence (idempotent — leave an existing skip in place).
+            if (!$this->scheduler->isSkipped($jobId)) {
+                $this->scheduler->skipNextOccurrence($jobId);
+            }
+            $skip = $this->scheduler->getSkipData($jobId);
+            $overrideDate = $skip['skip_date']; // Y-m-d (system timezone)
+
+            // Replace any prior override for this parent.
+            $this->scheduler->cancelOverrideFor($jobId);
+
+            $timezone = $parent['params']['timezone'] ?? $parent['timezone'] ?? $this->settings?->getTimezone();
+            $overrideParams = ['target_temp_f' => $newTempF, 'override_of' => $jobId];
+
+            if (isset($parent['params']['ready_by_time']) && $this->dtdtService !== null) {
+                $job = $this->dtdtService->createReadyByOverride($overrideDate, $newTime, $overrideParams, $timezone);
+            } else {
+                $dt = new \DateTime("{$overrideDate} {$newTime}:00", new \DateTimeZone($timezone ?? 'UTC'));
+                $job = $this->scheduler->scheduleJob(
+                    'heat-to-target',
+                    $dt->format(\DateTime::ATOM),
+                    recurring: false,
+                    params: $overrideParams
+                );
+            }
+
+            return ['status' => 200, 'body' => ['success' => true, 'override' => $job]];
+        } catch (InvalidArgumentException $e) {
+            return ['status' => 400, 'body' => ['error' => $e->getMessage()]];
+        } catch (\RuntimeException $e) {
+            return ['status' => 400, 'body' => ['error' => $e->getMessage()]];
+        }
+    }
+
+    /**
+     * DELETE /api/schedule/{id}/override-next — undo the override, back to the daily default.
+     *
+     * Cancels the override one-off and unskips the parent's next occurrence.
+     */
+    public function clearOverride(string $jobId): array
+    {
+        $parent = $this->scheduler->getJob($jobId);
+        if ($parent === null) {
+            return ['status' => 404, 'body' => ['error' => 'Job not found: ' . $jobId]];
+        }
+
+        $this->scheduler->cancelOverrideFor($jobId);
+        if ($this->scheduler->isSkipped($jobId)) {
+            $this->scheduler->unskipNextOccurrence($jobId);
+        }
+
+        return ['status' => 200, 'body' => ['success' => true, 'message' => 'Override cleared']];
+    }
 }

@@ -316,6 +316,10 @@ $router->delete('/api/schedule/{id}', fn($params) => $scheduleController->cancel
 $router->put('/api/schedule/{id}/target-temp', fn($params) => handleScheduleUpdateTargetTemp($scheduleController, $params['id']), $requireWrite);
 $router->post('/api/schedule/{id}/skip', fn($params) => $scheduleController->skip($params['id']), $requireWrite);
 $router->delete('/api/schedule/{id}/skip', fn($params) => $scheduleController->unskip($params['id']), $requireWrite);
+// "Adjust just the next run": skip the recurring + a mode-aware one-off override (POST);
+// undo back to the daily default (DELETE).
+$router->post('/api/schedule/{id}/override-next', fn($params) => handleScheduleOverrideNext($scheduleController, $params['id']), $requireWrite);
+$router->delete('/api/schedule/{id}/override-next', fn($params) => $scheduleController->clearOverride($params['id']), $requireWrite);
 
 // Admin-only user management routes
 $router->get('/api/users', fn() => $userController->list(), $requireAdmin);
@@ -495,6 +499,12 @@ function handleScheduleUpdateTargetTemp(ScheduleController $controller, string $
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->updateTargetTemp($jobId, $input);
+}
+
+function handleScheduleOverrideNext(ScheduleController $controller, string $jobId): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->overrideNext($jobId, $input);
 }
 
 function handleDtdtWakeUp(DtdtService $dtdtService): array

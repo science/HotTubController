@@ -9,6 +9,7 @@ use HotTub\Controllers\ScheduleController;
 use HotTub\Services\SchedulerService;
 use HotTub\Services\DtdtService;
 use HotTub\Services\HeatTargetSettingsService;
+use HotTub\Services\TimeConverter;
 use PHPUnit\Framework\TestCase;
 
 class ScheduleControllerTest extends TestCase
@@ -476,6 +477,152 @@ class ScheduleControllerTest extends TestCase
         // Cleanup
         @unlink($settingsFile);
         @unlink($charsFile);
+    }
+
+    // ========== override-next ("adjust just the next run") Tests ==========
+
+    /** Build a controller wired with DTDT + settings (chars under baseDir, auto-cleaned). */
+    private function dtdtController(): array
+    {
+        $settingsFile = $this->baseDir . '/ht-' . uniqid() . '.json';
+        $settings = new HeatTargetSettingsService($settingsFile);
+
+        $charsFile = $this->baseDir . '/chars-' . uniqid() . '.json';
+        file_put_contents($charsFile, json_encode([
+            'heating_velocity_f_per_min' => 0.3,
+            'startup_lag_minutes' => 10.0,
+            'cooling_coefficient_k' => 0.0002,
+            'max_cooling_k' => 0.001,
+        ]));
+
+        $dtdt = new DtdtService($this->scheduler, null, null, $charsFile);
+        return [new ScheduleController($this->scheduler, $dtdt, $settings), $settings];
+    }
+
+    /**
+     * A recurring heat-to-target parent at the current minute in the SYSTEM timezone
+     * (the tz skipNextOccurrence uses), so the skip deterministically lands tomorrow
+     * and the override one-off is always in the future.
+     */
+    private function createRecurringParent(ScheduleController $controller): string
+    {
+        $sysTz = TimeConverter::getSystemTimezone();
+        $nowMinute = (new \DateTime('now', new \DateTimeZone($sysTz)))->format('H:i');
+        $resp = $controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => $nowMinute,
+            'recurring' => true,
+            'target_temp_f' => 102,
+            'timezone' => $sysTz,
+        ]);
+        return $resp['body']['jobId'];
+    }
+
+    /** Find override one-off jobs for a parent by scanning the jobs dir. */
+    private function findOverrides(string $parentId): array
+    {
+        $out = [];
+        foreach (glob($this->jobsDir . '/job-*.json') ?: [] as $f) {
+            $d = json_decode(file_get_contents($f), true);
+            if (is_array($d) && (($d['params']['override_of'] ?? null) === $parentId)) {
+                $out[] = $d;
+            }
+        }
+        return $out;
+    }
+
+    public function testOverrideNextSkipsParentAndCreatesStartAtOverride(): void
+    {
+        [$controller] = $this->dtdtController();
+        $parentId = $this->createRecurringParent($controller);
+
+        $resp = $controller->overrideNext($parentId, ['scheduledTime' => '08:00', 'target_temp_f' => 104]);
+        $this->assertEquals(200, $resp['status']);
+
+        // Parent's next occurrence is skipped.
+        $this->assertTrue($this->scheduler->isSkipped($parentId));
+
+        // Exactly one override one-off, pointing back at the parent, at 104°F, start-at endpoint.
+        $overrides = $this->findOverrides($parentId);
+        $this->assertCount(1, $overrides);
+        $this->assertEquals(104.0, $overrides[0]['params']['target_temp_f']);
+        $this->assertFalse($overrides[0]['recurring']);
+        $this->assertEquals('/api/equipment/heat-to-target', $overrides[0]['endpoint']);
+    }
+
+    public function testOverrideNextIsIdempotentReplace(): void
+    {
+        [$controller] = $this->dtdtController();
+        $parentId = $this->createRecurringParent($controller);
+
+        $controller->overrideNext($parentId, ['scheduledTime' => '08:00', 'target_temp_f' => 104]);
+        $controller->overrideNext($parentId, ['scheduledTime' => '09:00', 'target_temp_f' => 105]);
+
+        $overrides = $this->findOverrides($parentId);
+        $this->assertCount(1, $overrides); // replaced, not duplicated
+        $this->assertEquals(105.0, $overrides[0]['params']['target_temp_f']);
+    }
+
+    public function testOverrideNextReadyByInheritsWakeupMode(): void
+    {
+        [$controller, $settings] = $this->dtdtController();
+        $settings->updateScheduleMode('ready_by');
+        $parentId = $this->createRecurringParent($controller);
+
+        // Parent is a ready-by job (fires the wakeup endpoint).
+        $this->assertArrayHasKey('ready_by_time', $this->scheduler->getJob($parentId)['params']);
+
+        $resp = $controller->overrideNext($parentId, ['scheduledTime' => '08:00', 'target_temp_f' => 103]);
+        $this->assertEquals(200, $resp['status']);
+
+        $overrides = $this->findOverrides($parentId);
+        $this->assertCount(1, $overrides);
+        // Override inherits ready-by: fires the wakeup endpoint with the new ready_by_time.
+        $this->assertEquals('/api/maintenance/dtdt-wakeup', $overrides[0]['endpoint']);
+        $this->assertEquals('08:00', $overrides[0]['params']['ready_by_time']);
+    }
+
+    public function testOverrideNextRejectsNonRecurring(): void
+    {
+        [$controller] = $this->dtdtController();
+        $oneOff = $controller->create([
+            'action' => 'heater-on',
+            'scheduledTime' => (new \DateTime('+2 hours'))->format(\DateTime::ATOM),
+        ])['body']['jobId'];
+
+        $resp = $controller->overrideNext($oneOff, ['scheduledTime' => '08:00', 'target_temp_f' => 104]);
+        $this->assertEquals(400, $resp['status']);
+    }
+
+    public function testOverrideNextRejectsBadTemp(): void
+    {
+        [$controller] = $this->dtdtController();
+        $parentId = $this->createRecurringParent($controller);
+
+        $resp = $controller->overrideNext($parentId, ['scheduledTime' => '08:00', 'target_temp_f' => 120]);
+        $this->assertEquals(400, $resp['status']);
+    }
+
+    public function testOverrideNextReturns404ForMissingJob(): void
+    {
+        [$controller] = $this->dtdtController();
+        $resp = $controller->overrideNext('rec-doesnotexist', ['scheduledTime' => '08:00', 'target_temp_f' => 104]);
+        $this->assertEquals(404, $resp['status']);
+    }
+
+    public function testClearOverrideRemovesOneOffAndUnskips(): void
+    {
+        [$controller] = $this->dtdtController();
+        $parentId = $this->createRecurringParent($controller);
+
+        $controller->overrideNext($parentId, ['scheduledTime' => '08:00', 'target_temp_f' => 104]);
+        $this->assertCount(1, $this->findOverrides($parentId));
+        $this->assertTrue($this->scheduler->isSkipped($parentId));
+
+        $resp = $controller->clearOverride($parentId);
+        $this->assertEquals(200, $resp['status']);
+        $this->assertCount(0, $this->findOverrides($parentId)); // override gone
+        $this->assertFalse($this->scheduler->isSkipped($parentId)); // back to normal daily
     }
 }
 

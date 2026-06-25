@@ -546,6 +546,36 @@ class SchedulerService
     }
 
     /**
+     * Read a single job's stored data, or null if it does not exist.
+     */
+    public function getJob(string $jobId): ?array
+    {
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+        if (!file_exists($jobFile)) {
+            return null;
+        }
+        $data = json_decode(file_get_contents($jobFile), true);
+        return is_array($data) ? $data : null;
+    }
+
+    /**
+     * Cancel the one-off "override" job created for a recurring parent — a one-off
+     * whose params.override_of equals $parentJobId. Used to replace a prior
+     * next-occurrence override idempotently. Returns the cancelled job id, or null.
+     */
+    public function cancelOverrideFor(string $parentJobId): ?string
+    {
+        foreach (glob($this->jobsDir . '/job-*.json') ?: [] as $file) {
+            $data = json_decode(file_get_contents($file), true);
+            if (is_array($data) && (($data['params']['override_of'] ?? null) === $parentJobId)) {
+                $this->cancelJob($data['jobId']);
+                return $data['jobId'];
+            }
+        }
+        return null;
+    }
+
+    /**
      * Update the target temperature for a heat-to-target job.
      *
      * @param string $jobId The job ID to update
