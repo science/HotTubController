@@ -38,6 +38,42 @@ test.describe('v2 Home (MVP)', () => {
 		await expect(page.getByText('Heater and pump off')).toBeVisible({ timeout: 10000 });
 	});
 
+	test.describe('Home Next-up', () => {
+		let jobId = '';
+
+		test.afterEach(async ({ page }) => {
+			if (jobId) {
+				await page.request.delete(`/tub/backend/public/api/schedule/${jobId}`).catch(() => {});
+			}
+			jobId = '';
+		});
+
+		test('shows upcoming scheduled events', async ({ page }) => {
+			// Clear leftover jobs so our event is the only thing upcoming.
+			const list = await (await page.request.get('/tub/backend/public/api/schedule')).json();
+			for (const j of list.jobs ?? []) {
+				await page.request.delete(`/tub/backend/public/api/schedule/${j.jobId}`);
+			}
+
+			const res = await page.request.post('/tub/backend/public/api/schedule', {
+				data: {
+					action: 'heat-to-target',
+					scheduledTime: '06:30',
+					recurring: true,
+					target_temp_f: 101.5,
+					timezone: 'America/Los_Angeles'
+				}
+			});
+			expect(res.ok()).toBeTruthy();
+			jobId = (await res.json()).jobId;
+
+			await page.reload();
+			const nextUp = page.getByTestId('v2-next-up');
+			await expect(nextUp).toBeVisible({ timeout: 15000 });
+			await expect(nextUp.getByText(/Heat to 101\.5/)).toBeVisible();
+		});
+	});
+
 	test.describe('Heat-now target dial', () => {
 		test.beforeEach(async ({ page }) => {
 			// The dial only shows in heat-to-target mode; enable it (admin) and clear sessions.

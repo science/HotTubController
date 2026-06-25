@@ -5,8 +5,10 @@
 	import CompactControlButton from '$lib/components/CompactControlButton.svelte';
 	import EquipmentStatusBar from '$lib/components/EquipmentStatusBar.svelte';
 	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
-	import { api, type TargetTemperatureState } from '$lib/api';
+	import EventCard from '$lib/components/EventCard.svelte';
+	import { api, type TargetTemperatureState, type ScheduledJob } from '$lib/api';
 	import { canControl } from '$lib/roles';
+	import { getNextOccurrence } from '$lib/scheduleUtils';
 	import {
 		fetchStatus,
 		getHeaterOn,
@@ -79,6 +81,15 @@
 	let pumpOn = $derived(getPumpOn());
 	let blindsEnabled = $derived(getBlindsEnabled());
 
+	// Upcoming scheduled events — a read-only peek (the next few). Full control lives
+	// on the Schedule tab; the "adjust just the next run" controls arrive with override-next.
+	let scheduledJobs = $state<ScheduledJob[]>([]);
+	const upcoming = $derived(
+		[...scheduledJobs]
+			.sort((a, b) => getNextOccurrence(a).getTime() - getNextOccurrence(b).getTime())
+			.slice(0, 3)
+	);
+
 	let status = $state<{ message: string; type: 'success' | 'error' } | null>(null);
 	let stallBannerDismissed = $state(false);
 	let lastStallEvent = $derived(stallBannerDismissed ? null : getLastStallEvent());
@@ -100,6 +111,10 @@
 
 	onMount(() => {
 		fetchStatus();
+		api
+			.listScheduledJobs()
+			.then((r) => (scheduledJobs = r.jobs))
+			.catch(() => {});
 	});
 
 	// Poll heat-to-target status while target mode is enabled. Reading heaterOn makes the
@@ -256,6 +271,16 @@
 				onClick={() => handleAction(api.blindsClose, 'Blinds closing')}
 			/>
 		</div>
+	{/if}
+
+	<!-- Next up: a read-only peek at upcoming events (manage on the Schedule tab) -->
+	{#if upcoming.length > 0}
+		<section class="flex flex-col gap-2" data-testid="v2-next-up">
+			<h2 class="text-xs uppercase tracking-wide text-slate-400">Next up</h2>
+			{#each upcoming as job (job.jobId)}
+				<EventCard {job} compact />
+			{/each}
+		</section>
 	{/if}
 
 	<!-- Equipment status -->
