@@ -74,6 +74,53 @@ test.describe('v2 Home (MVP)', () => {
 		});
 	});
 
+	test.describe('Home adjust next run', () => {
+		test.afterEach(async ({ page }) => {
+			const list = await (await page.request.get('/tub/backend/public/api/schedule')).json();
+			for (const j of list.jobs ?? []) {
+				await page.request.delete(`/tub/backend/public/api/schedule/${j.jobId}`).catch(() => {});
+			}
+		});
+
+		test('nudging the next run creates an override; reset returns to the daily default', async ({
+			page
+		}) => {
+			// Clear leftovers, then create a daily event whose time has already passed today
+			// (so the skip + override land tomorrow and are always in the future).
+			const list = await (await page.request.get('/tub/backend/public/api/schedule')).json();
+			for (const j of list.jobs ?? []) {
+				await page.request.delete(`/tub/backend/public/api/schedule/${j.jobId}`);
+			}
+			const tz = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+			const past = new Date(Date.now() - 2 * 3600 * 1000);
+			const hhmm = `${String(past.getHours()).padStart(2, '0')}:${String(past.getMinutes()).padStart(2, '0')}`;
+			const res = await page.request.post('/tub/backend/public/api/schedule', {
+				data: {
+					action: 'heat-to-target',
+					scheduledTime: hhmm,
+					recurring: true,
+					target_temp_f: 102,
+					timezone: tz
+				}
+			});
+			expect(res.ok()).toBeTruthy();
+
+			await page.reload();
+			const adjust = page.getByTestId('next-adjust');
+			await expect(adjust).toBeVisible({ timeout: 15000 });
+			// Daily event — not yet overridden.
+			await expect(page.getByTestId('next-reset')).toHaveCount(0);
+
+			// Nudge 15 minutes later → an override one-off is created; Reset appears.
+			await adjust.getByRole('button', { name: '15 minutes later' }).click();
+			await expect(page.getByTestId('next-reset')).toBeVisible({ timeout: 10000 });
+
+			// Reset → back to the daily default (no override).
+			await page.getByTestId('next-reset').click();
+			await expect(page.getByTestId('next-reset')).toHaveCount(0, { timeout: 10000 });
+		});
+	});
+
 	test.describe('Heat-now target dial', () => {
 		test.beforeEach(async ({ page }) => {
 			// The dial only shows in heat-to-target mode; enable it (admin) and clear sessions.

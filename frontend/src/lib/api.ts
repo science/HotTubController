@@ -18,6 +18,7 @@ export interface ScheduledJob {
 		target_temp_f?: number;
 		ready_by_time?: string;
 		timezone?: string;
+		override_of?: string;
 	};
 	skipped?: boolean;
 	skipDate?: string;
@@ -326,6 +327,14 @@ export const api = {
 		put<ScheduledJob>(`/api/schedule/${jobId}/target-temp`, { target_temp_f: targetTempF }),
 	skipScheduledJob: (jobId: string) => post(`/api/schedule/${jobId}/skip`),
 	unskipScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}/skip`),
+	// "Adjust just the next run" of a recurring job: skip it + a mode-aware one-off
+	// override at the new HH:MM time/temp. clearOverrideNext undoes back to the default.
+	overrideNextOccurrence: (jobId: string, scheduledTime: string, target_temp_f: number) =>
+		postJson<{ success: boolean; override: ScheduledJob }>(
+			`/api/schedule/${jobId}/override-next`,
+			{ scheduledTime, target_temp_f }
+		),
+	clearOverrideNext: (jobId: string) => del(`/api/schedule/${jobId}/override-next`),
 
 	// User management endpoints (admin only)
 	listUsers: () => get<UserListResponse>('/api/users'),

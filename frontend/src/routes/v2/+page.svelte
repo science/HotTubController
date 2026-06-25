@@ -7,7 +7,7 @@
 	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
 	import EventCard from '$lib/components/EventCard.svelte';
 	import { api, type TargetTemperatureState, type ScheduledJob } from '$lib/api';
-	import { canControl } from '$lib/roles';
+	import { canControl, canSchedule } from '$lib/roles';
 	import { getNextOccurrence } from '$lib/scheduleUtils';
 	import {
 		fetchStatus,
@@ -90,6 +90,88 @@
 			.slice(0, 3)
 	);
 
+	// "Adjust just the next run" lives on Home for User/Owner (Guests see Next up read-only).
+	const canSched = $derived(canSchedule(data.user?.role));
+	function parentIdOf(job: ScheduledJob): string | null {
+		// The recurring event itself, or — once adjusted — the override one-off pointing back to it.
+		return job.params?.override_of ?? (job.recurring ? job.jobId : null);
+	}
+	const canAdjustNext = $derived(canSched && upcoming.length > 0 && parentIdOf(upcoming[0]) !== null);
+	let adjusting = $state(false);
+
+	async function reloadJobs() {
+		try {
+			const r = await api.listScheduledJobs();
+			scheduledJobs = r.jobs;
+		} catch {
+			/* keep the last list */
+		}
+	}
+
+	// User-facing HH:MM for an event: ready-by time, else the recurring time, else the
+	// one-off's local clock time.
+	function eventClockTime(job: ScheduledJob): string {
+		if (job.params?.ready_by_time) return job.params.ready_by_time;
+		if (job.recurring) return job.scheduledTime;
+		const d = new Date(job.scheduledTime);
+		return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+	}
+	function shiftClock(hhmm: string, deltaMin: number): string {
+		const [h, m] = hhmm.split(':').map(Number);
+		const total = (h * 60 + m + deltaMin + 1440) % 1440;
+		return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+	}
+
+	// Each tap reads the currently-shown next event and replaces its override, so repeated
+	// taps compound. Only the next run changes — the everyday default is untouched.
+	async function adjustNext(deltaMin: number, deltaTemp: number) {
+		const ev = upcoming[0];
+		if (!ev || adjusting) return;
+		const parentId = parentIdOf(ev);
+		if (!parentId) return;
+		const newTime = shiftClock(eventClockTime(ev), deltaMin);
+		const newTemp = Math.min(110, Math.max(80, (ev.params?.target_temp_f ?? 103) + deltaTemp));
+		adjusting = true;
+		try {
+			await api.overrideNextOccurrence(parentId, newTime, newTemp);
+			await reloadJobs();
+		} catch {
+			status = { message: "Couldn't adjust tomorrow. Try again.", type: 'error' };
+			setTimeout(() => (status = null), 3000);
+		} finally {
+			adjusting = false;
+		}
+	}
+
+	async function skipTomorrow() {
+		const ev = upcoming[0];
+		if (!ev || adjusting) return;
+		const parentId = parentIdOf(ev);
+		if (!parentId) return;
+		adjusting = true;
+		try {
+			await api.clearOverrideNext(parentId).catch(() => {}); // drop any override (also unskips)
+			await api.skipScheduledJob(parentId).catch(() => {}); // then skip tomorrow
+			await reloadJobs();
+		} finally {
+			adjusting = false;
+		}
+	}
+
+	async function resetNext() {
+		const ev = upcoming[0];
+		if (!ev || adjusting) return;
+		const parentId = parentIdOf(ev);
+		if (!parentId) return;
+		adjusting = true;
+		try {
+			await api.clearOverrideNext(parentId);
+			await reloadJobs();
+		} finally {
+			adjusting = false;
+		}
+	}
+
 	let status = $state<{ message: string; type: 'success' | 'error' } | null>(null);
 	let stallBannerDismissed = $state(false);
 	let lastStallEvent = $derived(stallBannerDismissed ? null : getLastStallEvent());
@@ -111,10 +193,7 @@
 
 	onMount(() => {
 		fetchStatus();
-		api
-			.listScheduledJobs()
-			.then((r) => (scheduledJobs = r.jobs))
-			.catch(() => {});
+		reloadJobs();
 	});
 
 	// Poll heat-to-target status while target mode is enabled. Reading heaterOn makes the
@@ -273,12 +352,80 @@
 		</div>
 	{/if}
 
-	<!-- Next up: a read-only peek at upcoming events (manage on the Schedule tab) -->
+	<!-- Next up: the next few events. The next one is adjustable (just tomorrow) for User/Owner. -->
 	{#if upcoming.length > 0}
 		<section class="flex flex-col gap-2" data-testid="v2-next-up">
 			<h2 class="text-xs uppercase tracking-wide text-slate-400">Next up</h2>
-			{#each upcoming as job (job.jobId)}
-				<EventCard {job} compact />
+			{#each upcoming as job, i (job.jobId)}
+				{#if i === 0 && canAdjustNext}
+					<div
+						class="rounded-xl border border-slate-700 bg-slate-800/50 p-3"
+						data-testid="next-adjust"
+					>
+						<EventCard {job} compact />
+						<div class="mt-2 grid grid-cols-2 gap-2">
+							<div class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5">
+								<button
+									type="button"
+									aria-label="15 minutes earlier"
+									onclick={() => adjustNext(-15, 0)}
+									disabled={adjusting}
+									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+									>&minus;</button
+								>
+								<span class="text-xs text-slate-400">time</span>
+								<button
+									type="button"
+									aria-label="15 minutes later"
+									onclick={() => adjustNext(15, 0)}
+									disabled={adjusting}
+									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+									>+</button
+								>
+							</div>
+							<div class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5">
+								<button
+									type="button"
+									aria-label="half a degree cooler"
+									onclick={() => adjustNext(0, -0.5)}
+									disabled={adjusting}
+									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+									>&minus;</button
+								>
+								<span class="text-xs text-slate-400">temp</span>
+								<button
+									type="button"
+									aria-label="half a degree warmer"
+									onclick={() => adjustNext(0, 0.5)}
+									disabled={adjusting}
+									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+									>+</button
+								>
+							</div>
+						</div>
+						<div class="mt-2 flex items-center gap-3 text-xs">
+							<button
+								type="button"
+								onclick={skipTomorrow}
+								disabled={adjusting}
+								data-testid="next-skip"
+								class="text-slate-400 hover:text-amber-300 disabled:opacity-40">Skip tomorrow</button
+							>
+							{#if job.params?.override_of}
+								<button
+									type="button"
+									onclick={resetNext}
+									disabled={adjusting}
+									data-testid="next-reset"
+									class="text-slate-400 hover:text-slate-200 disabled:opacity-40">Reset to daily</button
+								>
+							{/if}
+							<span class="ml-auto text-slate-500">just tomorrow — default unchanged</span>
+						</div>
+					</div>
+				{:else}
+					<EventCard {job} compact />
+				{/if}
 			{/each}
 		</section>
 	{/if}
