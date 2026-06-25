@@ -146,6 +146,32 @@ class HeatTargetSettingsService
     }
 
     /**
+     * Update only the target temperature, preserving every other setting
+     * (notably the `enabled` flag and all admin-only config).
+     *
+     * This backs the write-level Home "Heat now" dial: a Guest/User can adjust
+     * the saved default target without touching admin-only settings. Already-created
+     * scheduled jobs are unaffected — they each store their own params.target_temp_f.
+     *
+     * @throws \InvalidArgumentException if temperature is out of range
+     */
+    public function updateTargetTemp(float $targetTempF): void
+    {
+        if ($targetTempF < self::MIN_TEMP_F || $targetTempF > self::MAX_TEMP_F) {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    'Target temperature must be between %.1f°F and %.1f°F',
+                    self::MIN_TEMP_F,
+                    self::MAX_TEMP_F
+                )
+            );
+        }
+
+        $this->settings['target_temp_f'] = $targetTempF;
+        $this->saveSettings();
+    }
+
+    /**
      * Get the stall detection grace period in minutes.
      */
     public function getStallGracePeriodMinutes(): int

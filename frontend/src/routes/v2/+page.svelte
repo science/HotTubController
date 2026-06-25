@@ -21,7 +21,12 @@
 		getTargetTempF,
 		getHeatButtonLabel,
 		getHeatButtonTooltip,
-		getLastStallEvent
+		getLastStallEvent,
+		getDynamicMode,
+		getMinTempF,
+		getMaxTempF,
+		setTargetTempF,
+		persistDefaultTargetTemp
 	} from '$lib/stores/heatTargetSettings.svelte';
 
 	let { data } = $props();
@@ -29,6 +34,46 @@
 	// Guest/User/Owner can all act on hardware; read-only never reaches the UI.
 	// Gate defensively so the control grid is honest about who may act.
 	const canAct = $derived(canControl(data.user?.role));
+
+	// The "Heat now" target dial. Shown only when heat-to-target mode is on and not
+	// dynamic (an absolute dial is meaningless against an ambient-derived target).
+	const TEMP_STEP_F = 0.5;
+	let targetEnabled = $derived(getTargetTempEnabled());
+	let dynamicMode = $derived(getDynamicMode());
+	let showDial = $derived(canAct && targetEnabled && !dynamicMode);
+	let targetTempF = $derived(getTargetTempF());
+	let targetDisplay = $derived(
+		Number.isInteger(targetTempF) ? `${targetTempF}` : targetTempF.toFixed(2).replace(/\.?0+$/, '')
+	);
+	let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// Re-fetch the projected ETA so the "ready by" line reflects the dialed target.
+	// computeProjectedEta() reads the saved default, which persistDefaultTargetTemp just wrote.
+	function refreshEta() {
+		if (!getTargetTempEnabled()) return;
+		api
+			.getTargetTempStatus()
+			.then((s) => (heatTargetEta = s))
+			.catch(() => {});
+	}
+
+	// Nudge the target: update locally at once (label/ETA/handleHeatOn all read the store),
+	// then debounce-persist the saved default and refresh the ETA.
+	function nudgeTarget(deltaF: number) {
+		const next = setTargetTempF(getTargetTempF() + deltaF);
+		if (persistTimer) clearTimeout(persistTimer);
+		persistTimer = setTimeout(() => {
+			persistDefaultTargetTemp(next)
+				.then(refreshEta)
+				.catch(() => {
+					status = {
+						message: "Couldn't save the target — it still applies to the next heat.",
+						type: 'error'
+					};
+					setTimeout(() => (status = null), 3000);
+				});
+		}, 500);
+	}
 
 	let heaterOn = $derived(getHeaterOn());
 	let pumpOn = $derived(getPumpOn());
@@ -142,6 +187,37 @@
 				active={pumpOn}
 				onClick={() => handleAction(api.pumpRun, 'Pump running for 2 hours', setPumpOn)}
 			/>
+		</div>
+	{/if}
+
+	<!-- Heat-now target dial (heat-to-target mode, non-dynamic) -->
+	{#if showDial}
+		<div class="flex items-center justify-center gap-3" data-testid="target-dial">
+			<span class="text-slate-400 text-sm">Target</span>
+			<button
+				type="button"
+				aria-label="Lower target temperature"
+				onclick={() => nudgeTarget(-TEMP_STEP_F)}
+				disabled={targetTempF <= getMinTempF()}
+				class="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-xl leading-none text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800"
+			>
+				&minus;
+			</button>
+			<span
+				class="min-w-[5.5rem] text-center text-lg font-semibold tabular-nums text-slate-100"
+				data-testid="target-value"
+			>
+				{targetDisplay}&deg;F
+			</span>
+			<button
+				type="button"
+				aria-label="Raise target temperature"
+				onclick={() => nudgeTarget(TEMP_STEP_F)}
+				disabled={targetTempF >= getMaxTempF()}
+				class="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-xl leading-none text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800"
+			>
+				+
+			</button>
 		</div>
 	{/if}
 

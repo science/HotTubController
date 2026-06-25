@@ -37,4 +37,44 @@ test.describe('v2 Home (MVP)', () => {
 		await page.getByRole('button', { name: 'Heat/Pump Off' }).click({ force: true });
 		await expect(page.getByText('Heater and pump off')).toBeVisible({ timeout: 10000 });
 	});
+
+	test.describe('Heat-now target dial', () => {
+		test.beforeEach(async ({ page }) => {
+			// The dial only shows in heat-to-target mode; enable it (admin) and clear sessions.
+			await page.request.put('/tub/backend/public/api/settings/heat-target', {
+				data: { enabled: true, target_temp_f: 103, dynamic_mode: false }
+			});
+			await page.request.delete('/tub/backend/public/api/equipment/heat-to-target');
+		});
+
+		test.afterEach(async ({ page }) => {
+			await page.request.delete('/tub/backend/public/api/equipment/heat-to-target');
+			await page.request.put('/tub/backend/public/api/settings/heat-target', {
+				data: { enabled: false, target_temp_f: 103, dynamic_mode: false }
+			});
+		});
+
+		test('adjusts the saved target, and the Heat button + backend track it', async ({ page }) => {
+			await page.reload();
+			await expect(page.getByTestId('v2-home')).toBeVisible({ timeout: 15000 });
+
+			const dial = page.getByTestId('target-dial');
+			await expect(dial).toBeVisible();
+			await expect(page.getByTestId('target-value')).toHaveText('103°F');
+			await expect(page.getByRole('button', { name: 'Heat to 103°F' })).toBeVisible();
+
+			// Raise by one step (+0.5°F): label updates immediately.
+			await dial.getByRole('button', { name: 'Raise target temperature' }).click();
+			await expect(page.getByTestId('target-value')).toHaveText('103.5°F');
+			await expect(page.getByRole('button', { name: 'Heat to 103.5°F' })).toBeVisible();
+
+			// The new default persists to the backend (debounced write-level endpoint).
+			await expect
+				.poll(async () => {
+					const res = await page.request.get('/tub/backend/public/api/settings/heat-target');
+					return (await res.json()).target_temp_f;
+				})
+				.toBe(103.5);
+		});
+	});
 });

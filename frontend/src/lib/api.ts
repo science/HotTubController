@@ -368,6 +368,12 @@ export const api = {
 			...(dynamic_mode !== undefined && { dynamic_mode }),
 			...(calibration_points !== undefined && { calibration_points })
 		}),
+	// Write-level: set ONLY the saved default target temp (Home "Heat now" dial).
+	// Leaves enabled + all admin-only config untouched; existing jobs keep their own temp.
+	setDefaultTargetTemp: (target_temp_f: number) =>
+		put<HeatTargetSettings & { message: string }>('/api/settings/heat-target/temp', {
+			target_temp_f
+		}),
 
 	// Heating characteristics analysis (admin only)
 	getHeatingCharacteristics: () =>

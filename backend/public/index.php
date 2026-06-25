@@ -305,6 +305,9 @@ $router->put('/api/esp32/sensors/{address}', fn($params) => handleEsp32SensorUpd
 // Heat-target settings endpoints
 $router->get('/api/settings/heat-target', fn() => $heatTargetSettingsController->get(), $requireAuth);
 $router->put('/api/settings/heat-target', fn() => handleHeatTargetSettingsUpdate($heatTargetSettingsController), $requireAdmin);
+// Write-level: set ONLY the saved default target temp (Home dial). All other
+// heat-target config stays admin-only on the route above.
+$router->put('/api/settings/heat-target/temp', fn() => handleHeatTargetTempUpdate($heatTargetSettingsController), $requireWrite);
 
 // Protected schedule routes (reads → requireAuth; mutations → requireWrite)
 $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireWrite);
@@ -480,6 +483,12 @@ function handleHeatTargetSettingsUpdate(HeatTargetSettingsController $controller
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->update($input);
+}
+
+function handleHeatTargetTempUpdate(HeatTargetSettingsController $controller): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->updateTemp($input);
 }
 
 function handleScheduleUpdateTargetTemp(ScheduleController $controller, string $jobId): array
