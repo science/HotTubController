@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { getScheduleTime, getTimezoneOffset } from './scheduleUtils';
+import { getScheduleTime, getTimezoneOffset, getNextOccurrence, formatNextFire } from './scheduleUtils';
 
 describe('scheduleUtils', () => {
 	describe('getTimezoneOffset', () => {
@@ -109,6 +109,75 @@ describe('scheduleUtils', () => {
 				// Should include timezone offset
 				expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
 			});
+		});
+	});
+
+	describe('getNextOccurrence', () => {
+		// Fixed reference: 2026-06-25 (Thu) 10:00 local.
+		const now = new Date(2026, 5, 25, 10, 0, 0);
+
+		it('returns the scheduled instant for one-off jobs', () => {
+			const iso = '2026-06-30T15:00:00-07:00';
+			const result = getNextOccurrence({ recurring: false, scheduledTime: iso }, now);
+			expect(result.getTime()).toBe(new Date(iso).getTime());
+		});
+
+		it('returns today for a recurring time still ahead today', () => {
+			const result = getNextOccurrence({ recurring: true, scheduledTime: '18:30' }, now);
+			expect(result.getDate()).toBe(25);
+			expect(result.getHours()).toBe(18);
+			expect(result.getMinutes()).toBe(30);
+		});
+
+		it('rolls to tomorrow for a recurring time already past today', () => {
+			const result = getNextOccurrence({ recurring: true, scheduledTime: '06:55' }, now);
+			expect(result.getDate()).toBe(26);
+			expect(result.getHours()).toBe(6);
+			expect(result.getMinutes()).toBe(55);
+		});
+
+		it('advances past a skipped next occurrence to the following day', () => {
+			// 06:55 is past today → next would be the 26th, but the 26th is skipped.
+			const result = getNextOccurrence(
+				{
+					recurring: true,
+					scheduledTime: '06:55',
+					skipped: true,
+					skipDate: '2026-06-26T06:55:00-07:00'
+				},
+				now
+			);
+			expect(result.getDate()).toBe(27);
+		});
+
+		it('ignores a skip whose date is not the next occurrence', () => {
+			const result = getNextOccurrence(
+				{
+					recurring: true,
+					scheduledTime: '06:55',
+					skipped: true,
+					skipDate: '2026-06-30T06:55:00-07:00'
+				},
+				now
+			);
+			expect(result.getDate()).toBe(26);
+		});
+	});
+
+	describe('formatNextFire', () => {
+		const now = new Date(2026, 5, 25, 10, 0, 0);
+
+		it('labels today', () => {
+			expect(formatNextFire(new Date(2026, 5, 25, 18, 30), now)).toMatch(/^Today /);
+		});
+
+		it('labels tomorrow', () => {
+			expect(formatNextFire(new Date(2026, 5, 26, 6, 55), now)).toMatch(/^Tomorrow /);
+		});
+
+		it('labels further-out days without a relative word', () => {
+			const label = formatNextFire(new Date(2026, 5, 30, 15, 0), now);
+			expect(label).not.toMatch(/^(Today|Tomorrow)/);
 		});
 	});
 });
