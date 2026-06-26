@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { getScheduleTime, getTimezoneOffset, getNextOccurrence, formatNextFire } from './scheduleUtils';
+import {
+	getScheduleTime,
+	getTimezoneOffset,
+	getNextOccurrence,
+	formatNextFire,
+	foldScheduledEvents
+} from './scheduleUtils';
+import type { ScheduledJob } from './api';
 
 describe('scheduleUtils', () => {
 	describe('getTimezoneOffset', () => {
@@ -178,6 +185,126 @@ describe('scheduleUtils', () => {
 		it('labels further-out days without a relative word', () => {
 			const label = formatNextFire(new Date(2026, 5, 30, 15, 0), now);
 			expect(label).not.toMatch(/^(Today|Tomorrow)/);
+		});
+	});
+
+	describe('foldScheduledEvents', () => {
+		// 2026-06-25 (Thu) 10:00 local — 06:55 is already past today.
+		const now = new Date(2026, 5, 25, 10, 0, 0);
+
+		const recurring = (extra: Partial<ScheduledJob> = {}): ScheduledJob => ({
+			jobId: 'rec-1',
+			action: 'heat-to-target',
+			scheduledTime: '06:55',
+			createdAt: '2026-06-20T00:00:00Z',
+			recurring: true,
+			timezone: 'America/Los_Angeles',
+			params: { target_temp_f: 102.25 },
+			...extra
+		});
+
+		// The backend stores skip/resume dates with a +00:00 offset even though the date
+		// part is the local calendar date — the exact artifact that broke sort order.
+		const skipped = (extra: Partial<ScheduledJob> = {}): ScheduledJob =>
+			recurring({
+				skipped: true,
+				skipDate: '2026-06-26T06:55:00+00:00',
+				resumeDate: '2026-06-27T06:55:00+00:00',
+				...extra
+			});
+
+		const overrideOneOff = (extra: Partial<ScheduledJob> = {}): ScheduledJob => ({
+			jobId: 'job-9',
+			action: 'heat-to-target',
+			scheduledTime: '2026-06-26T07:10:00-07:00',
+			createdAt: '2026-06-25T17:00:00Z',
+			recurring: false,
+			params: { target_temp_f: 102.25, override_of: 'rec-1' },
+			...extra
+		});
+
+		it('returns an empty list for no jobs', () => {
+			expect(foldScheduledEvents([], now)).toEqual([]);
+		});
+
+		it('passes a plain recurring event through as one adjustable entry', () => {
+			const events = foldScheduledEvents([recurring()], now);
+			expect(events).toHaveLength(1);
+			const e = events[0];
+			expect(e.key).toBe('rec-1');
+			expect(e.recurring).toBe(true);
+			expect(e.overridden).toBe(false);
+			expect(e.skipped).toBe(false);
+			expect(e.adjustable).toBe(true);
+			expect(e.nextFire.getDate()).toBe(26);
+			expect(e.nextFire.getHours()).toBe(6);
+			expect(e.nextFire.getMinutes()).toBe(55);
+		});
+
+		it('collapses a recurring parent and its override one-off into one entry', () => {
+			// This is the regression: the override + its now-skipped parent are ONE event.
+			const events = foldScheduledEvents([skipped(), overrideOneOff()], now);
+			expect(events).toHaveLength(1);
+			const e = events[0];
+			expect(e.key).toBe('rec-1'); // stable parent id — survives override churn
+			expect(e.overridden).toBe(true);
+			expect(e.skipped).toBe(false); // an override is an adjustment, not a skip
+			expect(e.job.jobId).toBe('job-9'); // display the override
+			expect(e.baseJob.jobId).toBe('rec-1');
+			expect(e.overrideJob?.jobId).toBe('job-9');
+			expect(e.adjustable).toBe(true);
+			expect(e.nextFire.getTime()).toBe(new Date('2026-06-26T07:10:00-07:00').getTime());
+		});
+
+		it('represents a skipped recurring event (no override) by its resume date', () => {
+			const events = foldScheduledEvents([skipped()], now);
+			expect(events).toHaveLength(1);
+			const e = events[0];
+			expect(e.skipped).toBe(true);
+			expect(e.overridden).toBe(false);
+			expect(e.resumeDate).toBe('2026-06-27T06:55:00+00:00');
+			// Resumes the 27th — derived from the date part, immune to the skipDate tz artifact.
+			expect(e.nextFire.getFullYear()).toBe(2026);
+			expect(e.nextFire.getMonth()).toBe(5);
+			expect(e.nextFire.getDate()).toBe(27);
+		});
+
+		it('keeps a standalone one-off as its own non-adjustable entry', () => {
+			const oneOff: ScheduledJob = {
+				jobId: 'job-x',
+				action: 'pump-run',
+				scheduledTime: '2026-06-26T21:00:00-07:00',
+				createdAt: '2026-06-25T00:00:00Z',
+				recurring: false
+			};
+			const events = foldScheduledEvents([oneOff], now);
+			expect(events).toHaveLength(1);
+			const e = events[0];
+			expect(e.key).toBe('job-x');
+			expect(e.recurring).toBe(false);
+			expect(e.adjustable).toBe(false);
+			expect(e.nextFire.getTime()).toBe(new Date('2026-06-26T21:00:00-07:00').getTime());
+		});
+
+		it('sorts by next fire and still collapses the override pair (no duplicate)', () => {
+			const earlierOneOff: ScheduledJob = {
+				jobId: 'job-x',
+				action: 'pump-run',
+				scheduledTime: '2026-06-26T05:00:00-07:00',
+				createdAt: '2026-06-25T00:00:00Z',
+				recurring: false
+			};
+			const events = foldScheduledEvents([skipped(), overrideOneOff(), earlierOneOff], now);
+			expect(events).toHaveLength(2); // not 3 — the pair collapsed
+			expect(events[0].key).toBe('job-x'); // 05:00 sorts before the 07:10 override
+			expect(events[1].key).toBe('rec-1');
+		});
+
+		it('treats an override whose parent is missing as a standalone entry', () => {
+			const events = foldScheduledEvents([overrideOneOff()], now);
+			expect(events).toHaveLength(1);
+			expect(events[0].key).toBe('job-9');
+			expect(events[0].adjustable).toBe(false);
 		});
 	});
 });

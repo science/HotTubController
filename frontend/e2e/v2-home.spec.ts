@@ -70,7 +70,7 @@ test.describe('v2 Home (MVP)', () => {
 			await page.reload();
 			const nextUp = page.getByTestId('v2-next-up');
 			await expect(nextUp).toBeVisible({ timeout: 15000 });
-			await expect(nextUp.getByText(/Heat to 101\.5/)).toBeVisible();
+			await expect(nextUp.getByTestId('next-card-title')).toHaveText(/Heat to 101\.5/);
 		});
 	});
 
@@ -82,7 +82,7 @@ test.describe('v2 Home (MVP)', () => {
 			}
 		});
 
-		test('nudging the next run creates an override; reset returns to the daily default', async ({
+		test('nudging the next run overrides it as one folded card; reset returns to the daily default', async ({
 			page
 		}) => {
 			// Clear leftovers, then create a daily event whose time has already passed today
@@ -106,18 +106,23 @@ test.describe('v2 Home (MVP)', () => {
 			expect(res.ok()).toBeTruthy();
 
 			await page.reload();
-			const adjust = page.getByTestId('next-adjust');
-			await expect(adjust).toBeVisible({ timeout: 15000 });
-			// Daily event — not yet overridden.
-			await expect(page.getByTestId('next-reset')).toHaveCount(0);
+			// The control bar auto-selects the only adjustable event — no manual select needed.
+			const controls = page.getByTestId('next-controls');
+			await expect(controls).toBeVisible({ timeout: 15000 });
+			await expect(page.getByTestId('next-card')).toHaveCount(1);
+			await expect(page.getByTestId('next-reset')).toHaveCount(0); // not yet overridden
 
-			// Nudge 15 minutes later → an override one-off is created; Reset appears.
-			await adjust.getByRole('button', { name: '15 minutes later' }).click();
+			// Nudge 15 minutes later → an override is created, folded into the SAME one card.
+			await controls.getByRole('button', { name: '15 minutes later' }).click();
 			await expect(page.getByTestId('next-reset')).toBeVisible({ timeout: 10000 });
+			await expect(page.getByTestId('next-card-adjusted')).toBeVisible();
+			// Regression: the override does NOT split the daily into a second card.
+			await expect(page.getByTestId('next-card')).toHaveCount(1);
 
-			// Reset → back to the daily default (no override).
+			// Reset → back to the daily default (no override, still one card).
 			await page.getByTestId('next-reset').click();
 			await expect(page.getByTestId('next-reset')).toHaveCount(0, { timeout: 10000 });
+			await expect(page.getByTestId('next-card')).toHaveCount(1);
 		});
 	});
 

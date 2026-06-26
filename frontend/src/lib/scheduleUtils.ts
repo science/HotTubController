@@ -1,3 +1,5 @@
+import type { ScheduledJob } from './api';
+
 /**
  * Get the local timezone offset in ISO 8601 format (e.g., "+05:30", "-08:00")
  */
@@ -148,6 +150,144 @@ export function formatNextFire(date: Date, now: Date = new Date()): string {
 		day: 'numeric'
 	});
 	return `${day} ${time}`;
+}
+
+/**
+ * A single *logical* scheduled event for the Home "Next up" surface.
+ *
+ * The backend models an "adjust just the next run" as two jobs — the recurring parent
+ * (now skipped for that date) plus a one-off override. Those are one thing to a person,
+ * so we fold them into a single entry keyed by the *stable* parent id. The key survives
+ * the override churn (each override one-off gets a fresh id), which is what lets the UI
+ * keep a card selected across edits instead of re-binding controls to whatever floats to
+ * the top of the sort.
+ */
+export interface LogicalEvent {
+	/** Stable selection id: the recurring parent's id, or a standalone one-off's own id. */
+	key: string;
+	/** The job to display (the override when present, else the base). */
+	job: ScheduledJob;
+	/** The recurring/base job (its time + temp are the "everyday default"). */
+	baseJob: ScheduledJob;
+	/** The override one-off, when the next run has been adjusted. */
+	overrideJob?: ScheduledJob;
+	nextFire: Date;
+	recurring: boolean;
+	/** The next run has been moved to a one-off time/temp. */
+	overridden: boolean;
+	/** The next run is skipped (and not overridden); only "Resume" applies. */
+	skipped: boolean;
+	resumeDate?: string;
+	/** Whether the next run can be adjusted/skipped (recurring events only). */
+	adjustable: boolean;
+}
+
+/**
+ * Build a local Date from a "YYYY-MM-DD" calendar date and an "HH:MM" clock time.
+ * Used for skip/resume dates, whose stored offset can't be trusted (see foldScheduledEvents).
+ */
+function localDateFromParts(dateStr: string, clock: string): Date {
+	const [year, month, day] = dateStr.split('-').map(Number);
+	const { hours, minutes } = parseClockTime(clock);
+	return new Date(year, month - 1, day, hours, minutes, 0, 0);
+}
+
+function oneOffEvent(job: ScheduledJob): LogicalEvent {
+	return {
+		key: job.jobId,
+		job,
+		baseJob: job,
+		nextFire: new Date(job.scheduledTime),
+		recurring: false,
+		overridden: false,
+		skipped: false,
+		adjustable: false
+	};
+}
+
+/**
+ * Fold the raw jobs list into logical events for the Home "Next up" zone.
+ *
+ * - A recurring parent and its override one-off collapse into ONE entry (overridden).
+ * - A skipped recurring event (no override) reports its resume date as the next fire —
+ *   derived from the date part, so the backend's "+00:00 on a local date" skip/resume
+ *   timestamps can't push it onto the wrong calendar day.
+ * - Standalone one-offs pass through (not adjustable from Home; edited on the Schedule tab).
+ * - An override whose parent has vanished is shown on its own rather than dropped.
+ *
+ * Sorted ascending by next fire ("which runs next?").
+ */
+export function foldScheduledEvents(jobs: ScheduledJob[], now: Date = new Date()): LogicalEvent[] {
+	const groups = new Map<string, { base?: ScheduledJob; override?: ScheduledJob }>();
+	const standalone: ScheduledJob[] = [];
+
+	for (const job of jobs) {
+		const overrideOf = job.params?.override_of;
+		if (overrideOf) {
+			const group = groups.get(overrideOf) ?? {};
+			group.override = job;
+			groups.set(overrideOf, group);
+		} else if (job.recurring) {
+			const group = groups.get(job.jobId) ?? {};
+			group.base = job;
+			groups.set(job.jobId, group);
+		} else {
+			standalone.push(job);
+		}
+	}
+
+	const events: LogicalEvent[] = [];
+
+	for (const [key, { base, override }] of groups) {
+		if (!base) {
+			// Override pointing at a parent we can't see — surface it rather than drop it.
+			if (override) events.push(oneOffEvent(override));
+			continue;
+		}
+		if (override) {
+			events.push({
+				key,
+				job: override,
+				baseJob: base,
+				overrideJob: override,
+				nextFire: new Date(override.scheduledTime),
+				recurring: true,
+				overridden: true,
+				skipped: false,
+				adjustable: true
+			});
+		} else if (base.skipped) {
+			const nextFire = base.resumeDate
+				? localDateFromParts(base.resumeDate.slice(0, 10), base.scheduledTime)
+				: getNextOccurrence(base, now);
+			events.push({
+				key,
+				job: base,
+				baseJob: base,
+				nextFire,
+				recurring: true,
+				overridden: false,
+				skipped: true,
+				resumeDate: base.resumeDate,
+				adjustable: true
+			});
+		} else {
+			events.push({
+				key,
+				job: base,
+				baseJob: base,
+				nextFire: getNextOccurrence(base, now),
+				recurring: true,
+				overridden: false,
+				skipped: false,
+				adjustable: true
+			});
+		}
+	}
+
+	for (const job of standalone) events.push(oneOffEvent(job));
+
+	return events.sort((a, b) => a.nextFire.getTime() - b.nextFire.getTime());
 }
 
 /**

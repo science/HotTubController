@@ -5,10 +5,9 @@
 	import CompactControlButton from '$lib/components/CompactControlButton.svelte';
 	import EquipmentStatusBar from '$lib/components/EquipmentStatusBar.svelte';
 	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
-	import EventCard from '$lib/components/EventCard.svelte';
 	import { api, type TargetTemperatureState, type ScheduledJob } from '$lib/api';
 	import { canControl, canSchedule } from '$lib/roles';
-	import { getNextOccurrence } from '$lib/scheduleUtils';
+	import { foldScheduledEvents, formatNextFire, type LogicalEvent } from '$lib/scheduleUtils';
 	import {
 		fetchStatus,
 		getHeaterOn,
@@ -81,23 +80,88 @@
 	let pumpOn = $derived(getPumpOn());
 	let blindsEnabled = $derived(getBlindsEnabled());
 
-	// Upcoming scheduled events — a read-only peek (the next few). Full control lives
-	// on the Schedule tab; the "adjust just the next run" controls arrive with override-next.
+	// ── Next up ────────────────────────────────────────────────────────────────
+	// Upcoming events, folded so each recurring event (with or without an override)
+	// is ONE card. Display is for everyone; the adjust controls are User/Owner only.
 	let scheduledJobs = $state<ScheduledJob[]>([]);
-	const upcoming = $derived(
-		[...scheduledJobs]
-			.sort((a, b) => getNextOccurrence(a).getTime() - getNextOccurrence(b).getTime())
-			.slice(0, 3)
-	);
-
-	// "Adjust just the next run" lives on Home for User/Owner (Guests see Next up read-only).
+	const events = $derived(foldScheduledEvents(scheduledJobs));
 	const canSched = $derived(canSchedule(data.user?.role));
-	function parentIdOf(job: ScheduledJob): string | null {
-		// The recurring event itself, or — once adjusted — the override one-off pointing back to it.
-		return job.params?.override_of ?? (job.recurring ? job.jobId : null);
-	}
-	const canAdjustNext = $derived(canSched && upcoming.length > 0 && parentIdOf(upcoming[0]) !== null);
+
+	// Selection is keyed by the *stable* logical-event key (the recurring parent id),
+	// so it survives the override churn instead of re-binding to whatever sorts to the top.
+	let selectedKey = $state<string | null>(null);
+	const selected = $derived(events.find((e) => e.key === selectedKey) ?? null);
 	let adjusting = $state(false);
+
+	// Keep a valid selection: if the selected card disappears, fall back to the soonest
+	// adjustable event so the common case ("tweak the next run") needs no extra tap.
+	$effect(() => {
+		if (!canSched) return;
+		if (selectedKey && events.some((e) => e.key === selectedKey)) return;
+		const firstAdjustable = events.find((e) => e.adjustable);
+		selectedKey = firstAdjustable?.key ?? events[0]?.key ?? null;
+	});
+
+	const TEMP_MIN = 80;
+	const TEMP_MAX = 110;
+	const clampTemp = (t: number) => Math.min(TEMP_MAX, Math.max(TEMP_MIN, t));
+	const pad2 = (n: number) => String(n).padStart(2, '0');
+
+	function formatTemp(t: number): string {
+		return Number.isInteger(t) ? `${t}` : t.toFixed(2).replace(/\.?0+$/, '');
+	}
+	function formatClock(hhmm: string): string {
+		const [h, m] = hhmm.split(':').map(Number);
+		const d = new Date();
+		d.setHours(h, m, 0, 0);
+		return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+	}
+	function shiftClock(hhmm: string, deltaMin: number): string {
+		const [h, m] = hhmm.split(':').map(Number);
+		const total = (h * 60 + m + deltaMin + 1440) % 1440;
+		return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
+	}
+
+	const ACTION_LABELS: Record<string, string> = {
+		'heater-on': 'Heater on',
+		'heater-off': 'Heater off',
+		'pump-run': 'Run pump'
+	};
+	function jobTitle(job: ScheduledJob): string {
+		if (job.action === 'heat-to-target' && job.params?.target_temp_f != null) {
+			const tilde = getDynamicMode() ? '~' : '';
+			return `Heat to ${tilde}${formatTemp(job.params.target_temp_f)}°F`;
+		}
+		return ACTION_LABELS[job.action] ?? job.action;
+	}
+
+	// Clock time of a job: ready-by time, the recurring HH:MM, else the one-off's local clock.
+	function jobClock(job: ScheduledJob): string {
+		if (job.params?.ready_by_time) return job.params.ready_by_time;
+		if (job.recurring) return job.scheduledTime;
+		const d = new Date(job.scheduledTime);
+		return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+	}
+	const eventTemp = (e: LogicalEvent) => e.job.params?.target_temp_f ?? getTargetTempF();
+
+	// "6:55 AM · 102.25°F" — the everyday default that an override leaves untouched.
+	function baseSummary(e: LogicalEvent): string {
+		const parts = [formatClock(jobClock(e.baseJob))];
+		if (e.baseJob.params?.target_temp_f != null) {
+			parts.push(`${formatTemp(e.baseJob.params.target_temp_f)}°F`);
+		}
+		return parts.join(' · ');
+	}
+	function resumeLabel(iso?: string): string {
+		if (!iso) return '';
+		// Use the date part — skip/resume timestamps carry a misleading +00:00 offset.
+		const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
+		return new Date(y, mo - 1, d).toLocaleDateString(undefined, {
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric'
+		});
+	}
 
 	async function reloadJobs() {
 		try {
@@ -108,65 +172,66 @@
 		}
 	}
 
-	// User-facing HH:MM for an event: ready-by time, else the recurring time, else the
-	// one-off's local clock time.
-	function eventClockTime(job: ScheduledJob): string {
-		if (job.params?.ready_by_time) return job.params.ready_by_time;
-		if (job.recurring) return job.scheduledTime;
-		const d = new Date(job.scheduledTime);
-		return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-	}
-	function shiftClock(hhmm: string, deltaMin: number): string {
-		const [h, m] = hhmm.split(':').map(Number);
-		const total = (h * 60 + m + deltaMin + 1440) % 1440;
-		return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+	function failToast(message: string) {
+		status = { message, type: 'error' };
+		setTimeout(() => (status = null), 3000);
 	}
 
-	// Each tap reads the currently-shown next event and replaces its override, so repeated
-	// taps compound. Only the next run changes — the everyday default is untouched.
-	async function adjustNext(deltaMin: number, deltaTemp: number) {
-		const ev = upcoming[0];
-		if (!ev || adjusting) return;
-		const parentId = parentIdOf(ev);
-		if (!parentId) return;
-		const newTime = shiftClock(eventClockTime(ev), deltaMin);
-		const newTemp = Math.min(110, Math.max(80, (ev.params?.target_temp_f ?? 103) + deltaTemp));
+	// All actions operate on the SELECTED event's stable key — never a sort position.
+	async function adjustSelected(deltaMin: number, deltaTemp: number) {
+		const e = selected;
+		if (!e || !e.adjustable || e.skipped || adjusting) return;
+		const newTime = shiftClock(jobClock(e.job), deltaMin);
+		const newTemp = clampTemp(eventTemp(e) + deltaTemp);
 		adjusting = true;
 		try {
-			await api.overrideNextOccurrence(parentId, newTime, newTemp);
+			await api.overrideNextOccurrence(e.key, newTime, newTemp);
 			await reloadJobs();
 		} catch {
-			status = { message: "Couldn't adjust tomorrow. Try again.", type: 'error' };
-			setTimeout(() => (status = null), 3000);
+			failToast("Couldn't adjust the next run. Try again.");
 		} finally {
 			adjusting = false;
 		}
 	}
 
-	async function skipTomorrow() {
-		const ev = upcoming[0];
-		if (!ev || adjusting) return;
-		const parentId = parentIdOf(ev);
-		if (!parentId) return;
+	async function skipSelected() {
+		const e = selected;
+		if (!e || !e.adjustable || adjusting) return;
 		adjusting = true;
 		try {
-			await api.clearOverrideNext(parentId).catch(() => {}); // drop any override (also unskips)
-			await api.skipScheduledJob(parentId).catch(() => {}); // then skip tomorrow
+			await api.clearOverrideNext(e.key).catch(() => {}); // drop any override (also unskips)
+			await api.skipScheduledJob(e.key); // then skip the next run
 			await reloadJobs();
+		} catch {
+			failToast("Couldn't skip the next run. Try again.");
 		} finally {
 			adjusting = false;
 		}
 	}
 
-	async function resetNext() {
-		const ev = upcoming[0];
-		if (!ev || adjusting) return;
-		const parentId = parentIdOf(ev);
-		if (!parentId) return;
+	async function resetSelected() {
+		const e = selected;
+		if (!e || !e.overridden || adjusting) return;
 		adjusting = true;
 		try {
-			await api.clearOverrideNext(parentId);
+			await api.clearOverrideNext(e.key);
 			await reloadJobs();
+		} catch {
+			failToast("Couldn't reset to the daily default. Try again.");
+		} finally {
+			adjusting = false;
+		}
+	}
+
+	async function resumeSelected() {
+		const e = selected;
+		if (!e || !e.skipped || adjusting) return;
+		adjusting = true;
+		try {
+			await api.unskipScheduledJob(e.key);
+			await reloadJobs();
+		} catch {
+			failToast("Couldn't resume the next run. Try again.");
 		} finally {
 			adjusting = false;
 		}
@@ -250,6 +315,27 @@
 	}
 </script>
 
+{#snippet eventRow(e: LogicalEvent)}
+	<div class="flex items-center justify-between gap-3">
+		<div class="min-w-0">
+			<p class="truncate font-semibold text-slate-100" data-testid="next-card-title">
+				{jobTitle(e.job)}
+			</p>
+			<p class="text-sm text-slate-400">{formatNextFire(e.nextFire)}</p>
+		</div>
+		{#if e.overridden}
+			<span
+				class="shrink-0 rounded-full bg-orange-500/15 px-2 py-0.5 text-xs text-orange-300"
+				data-testid="next-card-adjusted">adjusted</span
+			>
+		{:else if e.skipped}
+			<span class="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
+				>skipped</span
+			>
+		{/if}
+	</div>
+{/snippet}
+
 <section data-testid="v2-home" class="flex flex-col gap-3">
 	<!-- Temperature hero -->
 	<TemperaturePanel />
@@ -287,7 +373,7 @@
 	<!-- Heat-now target dial (heat-to-target mode, non-dynamic) -->
 	{#if showDial}
 		<div class="flex items-center justify-center gap-3" data-testid="target-dial">
-			<span class="text-slate-400 text-sm">Target</span>
+			<span class="text-sm text-slate-400">Target</span>
 			<button
 				type="button"
 				aria-label="Lower target temperature"
@@ -320,12 +406,12 @@
 		{#if etaDisplay.projected}
 			<div class="text-center text-sm text-slate-400" data-testid="eta-display">
 				Heat now &rarr; {etaDisplay.targetTempF}°F by {etaDisplay.time}
-				<span class="text-slate-500 text-xs">({etaDisplay.minutesRemaining} min)</span>
+				<span class="text-xs text-slate-500">({etaDisplay.minutesRemaining} min)</span>
 			</div>
 		{:else}
 			<div class="text-center text-sm text-orange-400/80" data-testid="eta-display">
 				Target {etaDisplay.targetTempF}°F by {etaDisplay.time}
-				<span class="text-slate-500 text-xs">({etaDisplay.minutesRemaining} min)</span>
+				<span class="text-xs text-slate-500">({etaDisplay.minutesRemaining} min)</span>
 			</div>
 		{/if}
 	{/if}
@@ -352,51 +438,79 @@
 		</div>
 	{/if}
 
-	<!-- Next up: the next few events. The next one is adjustable (just tomorrow) for User/Owner. -->
-	{#if upcoming.length > 0}
+	<!-- Next up: folded events. Select a card; the control bar above acts on that card. -->
+	{#if events.length > 0}
 		<section class="flex flex-col gap-2" data-testid="v2-next-up">
 			<h2 class="text-xs uppercase tracking-wide text-slate-400">Next up</h2>
-			{#each upcoming as job, i (job.jobId)}
-				{#if i === 0 && canAdjustNext}
-					<div
-						class="rounded-xl border border-slate-700 bg-slate-800/50 p-3"
-						data-testid="next-adjust"
-					>
-						<EventCard {job} compact />
+
+			{#if canSched && selected}
+				<!-- Control bar — bound to the SELECTED card by its stable key, not its position. -->
+				<div
+					class="rounded-xl border border-slate-700 bg-slate-800/50 p-3"
+					data-testid="next-controls"
+				>
+					<p class="text-xs text-slate-400">
+						Adjusting just the next run ·
+						<span class="text-slate-200" data-testid="next-controls-target"
+							>{jobTitle(selected.job)} · {formatNextFire(selected.nextFire)}</span
+						>
+					</p>
+
+					{#if selected.skipped}
+						<div class="mt-2 flex items-center gap-3">
+							<span class="text-xs text-amber-300"
+								>Skipped — resumes {resumeLabel(selected.resumeDate)}</span
+							>
+							<button
+								type="button"
+								onclick={resumeSelected}
+								disabled={adjusting}
+								data-testid="next-resume"
+								class="ml-auto rounded-lg border border-amber-600/50 px-3 py-1 text-sm text-amber-300 hover:bg-amber-600/10 disabled:opacity-40"
+								>Resume next run</button
+							>
+						</div>
+					{:else if selected.adjustable}
 						<div class="mt-2 grid grid-cols-2 gap-2">
-							<div class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5">
+							<div
+								class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5"
+							>
 								<button
 									type="button"
 									aria-label="15 minutes earlier"
-									onclick={() => adjustNext(-15, 0)}
+									onclick={() => adjustSelected(-15, 0)}
 									disabled={adjusting}
 									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
 									>&minus;</button
 								>
-								<span class="text-xs text-slate-400">time</span>
+								<span class="text-xs text-slate-400"
+									>{formatClock(jobClock(selected.job))}</span
+								>
 								<button
 									type="button"
 									aria-label="15 minutes later"
-									onclick={() => adjustNext(15, 0)}
+									onclick={() => adjustSelected(15, 0)}
 									disabled={adjusting}
 									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
 									>+</button
 								>
 							</div>
-							<div class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5">
+							<div
+								class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5"
+							>
 								<button
 									type="button"
 									aria-label="half a degree cooler"
-									onclick={() => adjustNext(0, -0.5)}
+									onclick={() => adjustSelected(0, -0.5)}
 									disabled={adjusting}
 									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
 									>&minus;</button
 								>
-								<span class="text-xs text-slate-400">temp</span>
+								<span class="text-xs text-slate-400">{formatTemp(eventTemp(selected))}°F</span>
 								<button
 									type="button"
 									aria-label="half a degree warmer"
-									onclick={() => adjustNext(0, 0.5)}
+									onclick={() => adjustSelected(0, 0.5)}
 									disabled={adjusting}
 									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
 									>+</button
@@ -406,27 +520,61 @@
 						<div class="mt-2 flex items-center gap-3 text-xs">
 							<button
 								type="button"
-								onclick={skipTomorrow}
+								onclick={skipSelected}
 								disabled={adjusting}
 								data-testid="next-skip"
-								class="text-slate-400 hover:text-amber-300 disabled:opacity-40">Skip tomorrow</button
+								class="text-slate-400 hover:text-amber-300 disabled:opacity-40">Skip next run</button
 							>
-							{#if job.params?.override_of}
+							{#if selected.overridden}
 								<button
 									type="button"
-									onclick={resetNext}
+									onclick={resetSelected}
 									disabled={adjusting}
 									data-testid="next-reset"
-									class="text-slate-400 hover:text-slate-200 disabled:opacity-40">Reset to daily</button
+									class="text-slate-400 hover:text-slate-200 disabled:opacity-40"
+									>Reset to daily</button
 								>
 							{/if}
-							<span class="ml-auto text-slate-500">just tomorrow — default unchanged</span>
+							<span class="ml-auto text-slate-500">default stays {baseSummary(selected)}</span>
 						</div>
-					</div>
-				{:else}
-					<EventCard {job} compact />
-				{/if}
-			{/each}
+					{:else}
+						<p class="mt-1 text-xs text-slate-500">
+							One-time event — edit it on the Schedule tab.
+						</p>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Cards: selectable (radio-like) for schedulers, plain display for Guests. -->
+			<ul class="flex flex-col gap-2">
+				{#each events as e (e.key)}
+					<li>
+						{#if canSched}
+							<button
+								type="button"
+								onclick={() => (selectedKey = e.key)}
+								aria-pressed={selectedKey === e.key}
+								data-testid="next-card"
+								data-key={e.key}
+								class="w-full rounded-xl border p-3 text-left transition-colors {selectedKey ===
+								e.key
+									? 'border-orange-500/70 bg-slate-800'
+									: 'border-slate-700 bg-slate-800/40 hover:border-slate-600'}"
+							>
+								{@render eventRow(e)}
+							</button>
+						{:else}
+							<div
+								class="rounded-xl border border-slate-700 bg-slate-800/40 p-3"
+								data-testid="next-card"
+								data-key={e.key}
+							>
+								{@render eventRow(e)}
+							</div>
+						{/if}
+					</li>
+				{/each}
+			</ul>
 		</section>
 	{/if}
 
@@ -437,15 +585,15 @@
 	{#if lastStallEvent}
 		<div
 			data-testid="stall-warning-banner"
-			class="bg-red-500/20 border border-red-500/50 rounded-lg p-3 flex items-start gap-2"
+			class="flex items-start gap-2 rounded-lg border border-red-500/50 bg-red-500/20 p-3"
 		>
 			<div class="flex-1">
-				<p class="text-red-400 text-sm font-medium">Heating stalled</p>
-				<p class="text-red-300 text-xs mt-0.5">
+				<p class="text-sm font-medium text-red-400">Heating stalled</p>
+				<p class="mt-0.5 text-xs text-red-300">
 					Stalled at {lastStallEvent.current_temp_f.toFixed(1)}°F (target: {lastStallEvent.target_temp_f}°F)
 					— heater turned off
 				</p>
-				<p class="text-red-400/60 text-xs mt-0.5">
+				<p class="mt-0.5 text-xs text-red-400/60">
 					{new Date(lastStallEvent.timestamp).toLocaleString()}
 				</p>
 			</div>
@@ -453,7 +601,7 @@
 				type="button"
 				aria-label="Dismiss stall warning"
 				onclick={() => (stallBannerDismissed = true)}
-				class="text-red-400 hover:text-red-300 text-lg leading-none px-1">&times;</button
+				class="px-1 text-lg leading-none text-red-400 hover:text-red-300">&times;</button
 			>
 		</div>
 	{/if}
