@@ -82,7 +82,7 @@ test.describe('v2 Home (MVP)', () => {
 			}
 		});
 
-		test('nudging the next run overrides it as one folded card; reset returns to the daily default', async ({
+		test('nudging stages the next run; Save overrides it as one folded card; reset returns to the daily default', async ({
 			page
 		}) => {
 			// Clear leftovers, then create a daily event whose time has already passed today
@@ -112,8 +112,13 @@ test.describe('v2 Home (MVP)', () => {
 			await expect(page.getByTestId('next-card')).toHaveCount(1);
 			await expect(page.getByTestId('next-reset')).toHaveCount(0); // not yet overridden
 
-			// Nudge 15 minutes later → an override is created, folded into the SAME one card.
+			// Nudge 15 minutes later → staged locally only; nothing persists until Save.
 			await controls.getByRole('button', { name: '15 minutes later' }).click();
+			await expect(page.getByTestId('next-save')).toBeVisible({ timeout: 10000 });
+			await expect(page.getByTestId('next-card-adjusted')).toHaveCount(0); // not committed yet
+
+			// Save → the override is created, folded into the SAME one card.
+			await page.getByTestId('next-save').click();
 			await expect(page.getByTestId('next-reset')).toBeVisible({ timeout: 10000 });
 			await expect(page.getByTestId('next-card-adjusted')).toBeVisible();
 			// Regression: the override does NOT split the daily into a second card.

@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
+	import UnsavedChangesModal from '$lib/components/UnsavedChangesModal.svelte';
+	import { registerPendingEdit, clearPendingEdit } from '$lib/stores/pendingEdits.svelte';
 	import CompactControlButton from '$lib/components/CompactControlButton.svelte';
 	import EquipmentStatusBar from '$lib/components/EquipmentStatusBar.svelte';
 	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
@@ -178,21 +180,125 @@
 		setTimeout(() => (status = null), 3000);
 	}
 
-	// All actions operate on the SELECTED event's stable key — never a sort position.
-	async function adjustSelected(deltaMin: number, deltaTemp: number) {
+	// Staged next-run edit for the selected card. The ± steppers mutate this draft; an
+	// explicit Save commits it as ONE override (skip + one-off) — we never auto-send each
+	// tap, since an override rewrites the crontab (slow on the host). See pendingEdits.svelte.
+	let draftClock = $state<string | null>(null);
+	let draftTemp = $state<number | null>(null);
+
+	// Re-seed the draft whenever the selection (or its underlying job) changes, so switching
+	// cards or reloading after Save starts clean. Reads `selected` only — mutating the draft
+	// can't feed back into this effect.
+	$effect(() => {
 		const e = selected;
-		if (!e || !e.adjustable || e.skipped || adjusting) return;
-		const newTime = shiftClock(jobClock(e.job), deltaMin);
-		const newTemp = clampTemp(eventTemp(e) + deltaTemp);
+		draftClock = e ? jobClock(e.job) : null;
+		draftTemp = e ? eventTemp(e) : null;
+	});
+
+	const homeDirty = $derived(
+		!!selected &&
+			selected.adjustable &&
+			!selected.skipped &&
+			(draftClock !== jobClock(selected.job) || draftTemp !== eventTemp(selected))
+	);
+
+	function draftSummary(): string {
+		const e = selected;
+		if (!e) return 'Next run change';
+		const tail = draftTemp != null ? ` · ${formatTemp(draftTemp)}°F` : '';
+		return `${jobTitle(e.job)} → ${formatClock(draftClock ?? jobClock(e.job))}${tail}`;
+	}
+
+	// All actions operate on the SELECTED event's stable key — never a sort position.
+	// ± taps mutate the local draft only; nothing hits the backend until Save.
+	function adjustSelected(deltaMin: number, deltaTemp: number) {
+		const e = selected;
+		if (!e || !e.adjustable || e.skipped) return;
+		if (deltaMin) draftClock = shiftClock(draftClock ?? jobClock(e.job), deltaMin);
+		if (deltaTemp) draftTemp = clampTemp((draftTemp ?? eventTemp(e)) + deltaTemp);
+	}
+
+	async function saveSelected() {
+		const e = selected;
+		if (!e || !homeDirty || adjusting) return;
 		adjusting = true;
 		try {
-			await api.overrideNextOccurrence(e.key, newTime, newTemp);
-			await reloadJobs();
-		} catch {
+			await api.overrideNextOccurrence(e.key, draftClock!, draftTemp!);
+			await reloadJobs(); // reload → reseed effect → draft goes clean
+		} catch (err) {
 			failToast("Couldn't adjust the next run. Try again.");
+			throw err; // let the guard's Save-all halt navigation when a save fails
 		} finally {
 			adjusting = false;
 		}
+	}
+
+	function discardSelected() {
+		const e = selected;
+		draftClock = e ? jobClock(e.job) : null;
+		draftTemp = e ? eventTemp(e) : null;
+	}
+
+	// Register the next-run draft while dirty so the tab-switch guard can prompt before it's
+	// lost. Tracks `homeDirty` (a boolean edge), not every tap.
+	$effect(() => {
+		if (homeDirty) {
+			registerPendingEdit({
+				id: 'home-next-run',
+				describe: draftSummary,
+				save: saveSelected,
+				discard: discardSelected
+			});
+		} else {
+			clearPendingEdit('home-next-run');
+		}
+	});
+	onDestroy(() => clearPendingEdit('home-next-run'));
+
+	// Switching the selected card while the draft is dirty would lose it — prompt first.
+	let switchModalOpen = $state(false);
+	let switchBusy = $state(false);
+	let switchError = $state<string | null>(null);
+	let pendingKey = $state<string | null>(null);
+	const switchLines = $derived(homeDirty ? [draftSummary()] : []);
+
+	function requestSelect(key: string) {
+		if (key === selectedKey) return;
+		if (homeDirty) {
+			pendingKey = key;
+			switchError = null;
+			switchModalOpen = true;
+			return;
+		}
+		selectedKey = key;
+	}
+
+	async function switchSave() {
+		switchBusy = true;
+		switchError = null;
+		try {
+			await saveSelected();
+			selectedKey = pendingKey;
+			switchModalOpen = false;
+			pendingKey = null;
+		} catch {
+			switchError = "Couldn't save the change. Try again.";
+		} finally {
+			switchBusy = false;
+		}
+	}
+
+	function switchDiscard() {
+		discardSelected();
+		selectedKey = pendingKey;
+		switchModalOpen = false;
+		pendingKey = null;
+	}
+
+	function switchStay() {
+		switchModalOpen = false;
+		pendingKey = null;
+		switchError = null;
 	}
 
 	async function skipSelected() {
@@ -515,7 +621,7 @@
 									>&minus;</button
 								>
 								<span class="text-xs text-slate-400"
-									>{formatClock(jobClock(selected.job))}</span
+									>{formatClock(draftClock ?? jobClock(selected.job))}</span
 								>
 								<button
 									type="button"
@@ -537,7 +643,7 @@
 									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
 									>&minus;</button
 								>
-								<span class="text-xs text-slate-400">{formatTemp(eventTemp(selected))}°F</span>
+								<span class="text-xs text-slate-400">{formatTemp(draftTemp ?? eventTemp(selected))}°F</span>
 								<button
 									type="button"
 									aria-label="half a degree warmer"
@@ -548,6 +654,27 @@
 								>
 							</div>
 						</div>
+						{#if homeDirty}
+							<div class="mt-2 flex items-center gap-3 text-xs">
+								<span class="text-orange-300/80">Unsaved — Save rewrites the schedule</span>
+								<button
+									type="button"
+									onclick={discardSelected}
+									disabled={adjusting}
+									data-testid="next-discard"
+									class="ml-auto rounded-lg px-2 py-1 text-slate-400 hover:text-slate-200 disabled:opacity-40"
+									>Discard</button
+								>
+								<button
+									type="button"
+									onclick={saveSelected}
+									disabled={adjusting}
+									data-testid="next-save"
+									class="rounded-lg bg-orange-600 px-3 py-1 font-medium text-white hover:bg-orange-500 disabled:opacity-50"
+									>{adjusting ? 'Saving…' : 'Save'}</button
+								>
+							</div>
+						{:else}
 						<div class="mt-2 flex items-center gap-3 text-xs">
 							<button
 								type="button"
@@ -568,6 +695,7 @@
 							{/if}
 							<span class="ml-auto text-slate-500">default stays {baseSummary(selected)}</span>
 						</div>
+						{/if}
 					{:else}
 						<p class="mt-1 text-xs text-slate-500">
 							One-time event — edit it on the Schedule tab.
@@ -583,7 +711,7 @@
 						{#if canSched}
 							<button
 								type="button"
-								onclick={() => (selectedKey = e.key)}
+								onclick={() => requestSelect(e.key)}
 								aria-pressed={selectedKey === e.key}
 								data-testid="next-card"
 								data-key={e.key}
@@ -648,4 +776,15 @@
 			{status.message}
 		</div>
 	{/if}
+
+	<!-- Prompt before switching the selected card abandons an unsaved next-run edit. -->
+	<UnsavedChangesModal
+		open={switchModalOpen}
+		lines={switchLines}
+		busy={switchBusy}
+		error={switchError}
+		onSave={switchSave}
+		onDiscard={switchDiscard}
+		onStay={switchStay}
+	/>
 </section>

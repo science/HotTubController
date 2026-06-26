@@ -1,10 +1,17 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { goto, beforeNavigate } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { logout } from '$lib/stores/auth.svelte';
 	import { visibleTabs, friendlyRoleName, type Tab } from '$lib/roles';
+	import {
+		hasPendingEdits,
+		pendingEdits,
+		saveAllPendingEdits,
+		discardAllPendingEdits
+	} from '$lib/stores/pendingEdits.svelte';
+	import UnsavedChangesModal from '$lib/components/UnsavedChangesModal.svelte';
 
 	let { children, data } = $props();
 
@@ -35,11 +42,72 @@
 		if (!data.user) {
 			goto(`${base}/login`, { replaceState: true });
 		}
+		// Hard navigations (close tab / reload) can't show our modal — fall back to the
+		// browser's native prompt so an in-flight schedule edit isn't silently lost.
+		const onBeforeUnload = (event: BeforeUnloadEvent) => {
+			if (hasPendingEdits()) {
+				event.preventDefault();
+				event.returnValue = '';
+			}
+		};
+		window.addEventListener('beforeunload', onBeforeUnload);
+		return () => window.removeEventListener('beforeunload', onBeforeUnload);
 	});
 
 	async function handleLogout() {
 		await logout();
 		goto(`${base}/login`);
+	}
+
+	// ── Unsaved-changes guard ────────────────────────────────────────────────────
+	// A schedule edit stages locally (see pendingEdits.svelte). Leaving a tab with one
+	// unsaved would silently lose it, so intercept the navigation and prompt.
+	let guardOpen = $state(false);
+	let guardBusy = $state(false);
+	let guardError = $state<string | null>(null);
+	let pendingUrl = $state<URL | null>(null);
+	const guardLines = $derived(pendingEdits().map((e) => e.describe()));
+
+	beforeNavigate((nav) => {
+		if (!hasPendingEdits()) return;
+		if (nav.type === 'leave') return; // full-page unload → native beforeunload handles it
+		if (!nav.to) return;
+		nav.cancel();
+		pendingUrl = nav.to.url;
+		guardError = null;
+		guardOpen = true;
+	});
+
+	function proceed() {
+		guardOpen = false;
+		const url = pendingUrl;
+		pendingUrl = null;
+		// Registry is now empty → the re-issued navigation passes the guard above.
+		if (url) goto(url);
+	}
+
+	async function guardSave() {
+		guardBusy = true;
+		guardError = null;
+		try {
+			await saveAllPendingEdits();
+			proceed();
+		} catch (e) {
+			guardError = e instanceof Error ? e.message : "Couldn't save the change. Try again.";
+		} finally {
+			guardBusy = false;
+		}
+	}
+
+	function guardDiscard() {
+		discardAllPendingEdits();
+		proceed();
+	}
+
+	function guardStay() {
+		guardOpen = false;
+		pendingUrl = null;
+		guardError = null;
 	}
 </script>
 
@@ -84,4 +152,14 @@
 			</ul>
 		</nav>
 	{/if}
+
+	<UnsavedChangesModal
+		open={guardOpen}
+		lines={guardLines}
+		busy={guardBusy}
+		error={guardError}
+		onSave={guardSave}
+		onDiscard={guardDiscard}
+		onStay={guardStay}
+	/>
 </div>

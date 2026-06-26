@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { type ScheduledJob } from '$lib/api';
 	import { getDynamicMode } from '$lib/stores/heatTargetSettings.svelte';
 	import { getNextOccurrence, formatNextFire } from '$lib/scheduleUtils';
+	import { registerPendingEdit, clearPendingEdit } from '$lib/stores/pendingEdits.svelte';
 
 	/**
 	 * A single scheduled heating event, rendered as a card (not a cramped row).
@@ -112,31 +114,87 @@
 		}
 	}
 
-	// One-off heat-to-target quick adjust: ± time / ± temp, moved in place (no skip).
+	// One-off heat-to-target quick adjust: ± time / ± temp staged locally, then committed as
+	// ONE in-place reschedule (no skip). We never auto-send each tap — a reschedule rewrites
+	// the crontab (slow on the host) — so taps mutate a draft and Save commits it once.
 	const oneOffAdjustable = $derived(
 		isHeatToTarget && !job.recurring && !getDynamicMode() && !!onReschedule
 	);
+
+	const TEMP_MIN = 80;
+	const TEMP_MAX = 110;
+	// Stage edits as offsets from server state — 0/0 is clean. Holding offsets (not absolute
+	// values seeded from the prop) means the draft always tracks the live job and resets to
+	// clean simply by zeroing, with no risk of capturing a stale initial prop value.
+	let timeOffsetMin = $state(0);
+	let tempOffset = $state(0);
+	const dirty = $derived(timeOffsetMin !== 0 || tempOffset !== 0);
+
+	const draftIso = $derived(
+		new Date(new Date(job.scheduledTime).getTime() + timeOffsetMin * 60_000).toISOString()
+	);
+	const draftTemp = $derived(
+		job.params?.target_temp_f != null
+			? Math.min(TEMP_MAX, Math.max(TEMP_MIN, job.params.target_temp_f + tempOffset))
+			: null
+	);
 	const oneOffClock = $derived(
-		new Date(job.scheduledTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+		new Date(draftIso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 	);
 	let rescheduling = $state(false);
 	let rescheduleError = $state<string | null>(null);
 
-	async function nudge(deltaMin: number, deltaTemp: number) {
-		if (rescheduling) return;
-		const newIso = new Date(new Date(job.scheduledTime).getTime() + deltaMin * 60_000).toISOString();
-		const curTemp = job.params?.target_temp_f ?? 103;
-		const tempArg = deltaTemp !== 0 ? Math.min(110, Math.max(80, curTemp + deltaTemp)) : undefined;
+	function nudge(deltaMin: number, deltaTemp: number) {
+		timeOffsetMin += deltaMin;
+		tempOffset += deltaTemp;
+	}
+
+	async function saveReschedule() {
+		if (!dirty || rescheduling) return;
 		rescheduling = true;
 		rescheduleError = null;
 		try {
-			await onReschedule?.(job.jobId, newIso, tempArg);
+			const tempArg = tempOffset !== 0 && draftTemp != null ? draftTemp : undefined;
+			await onReschedule?.(job.jobId, draftIso, tempArg);
+			// Committed — server is the new truth; go clean (the reload refreshes the base time).
+			timeOffsetMin = 0;
+			tempOffset = 0;
 		} catch (e) {
 			rescheduleError = e instanceof Error ? e.message : 'Failed to reschedule';
+			throw e; // let the guard's Save-all halt navigation when a save fails
 		} finally {
 			rescheduling = false;
 		}
 	}
+
+	function discardReschedule() {
+		timeOffsetMin = 0;
+		tempOffset = 0;
+		rescheduleError = null;
+	}
+
+	// While dirty, register this card so the v2 navigation guard can prompt before the change
+	// is lost. The effect tracks `dirty` (a boolean edge), not every tap; the registered
+	// closures read live draft state when the guard calls them.
+	function describeChange(): string {
+		const parts = [oneOffClock];
+		if (draftTemp != null) parts.push(`${formatTemp(draftTemp)}°F`);
+		return `${title} → ${parts.join(' · ')}`;
+	}
+	$effect(() => {
+		const id = `card:${job.jobId}`;
+		if (dirty) {
+			registerPendingEdit({
+				id,
+				describe: describeChange,
+				save: saveReschedule,
+				discard: discardReschedule
+			});
+		} else {
+			clearPendingEdit(id);
+		}
+	});
+	onDestroy(() => clearPendingEdit(`card:${job.jobId}`));
 </script>
 
 <div
@@ -255,7 +313,7 @@
 						>&minus;</button
 					>
 					<span class="text-xs text-slate-400" data-testid="event-oneoff-temp"
-						>{formatTemp(job.params?.target_temp_f ?? 0)}°F</span
+						>{formatTemp(draftTemp ?? 0)}°F</span
 					>
 					<button
 						type="button"
@@ -269,6 +327,24 @@
 			</div>
 			<div class="mt-2 flex items-center gap-3 text-xs">
 				{#if rescheduleError}<span class="text-red-400">{rescheduleError}</span>{/if}
+				{#if dirty}
+					<button
+						type="button"
+						onclick={discardReschedule}
+						disabled={rescheduling}
+						data-testid="event-oneoff-discard"
+						class="rounded-lg px-2 py-1 text-slate-400 hover:text-slate-200 disabled:opacity-40"
+						>Discard</button
+					>
+					<button
+						type="button"
+						onclick={saveReschedule}
+						disabled={rescheduling}
+						data-testid="event-oneoff-save"
+						class="rounded-lg bg-orange-600 px-3 py-1 font-medium text-white hover:bg-orange-500 disabled:opacity-50"
+						>{rescheduling ? 'Saving…' : 'Save'}</button
+					>
+				{/if}
 				<button
 					type="button"
 					onclick={() => onCancel?.(job.jobId)}
