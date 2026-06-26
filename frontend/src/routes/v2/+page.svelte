@@ -162,6 +162,7 @@
 			day: 'numeric'
 		});
 	}
+	const skipLabel = (e: LogicalEvent) => resumeLabel(e.baseJob.skipDate);
 
 	async function reloadJobs() {
 		try {
@@ -315,13 +316,43 @@
 	}
 </script>
 
+{#snippet repeatIcon()}
+	<svg
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+		stroke-linecap="round"
+		stroke-linejoin="round"
+		class="h-3.5 w-3.5 shrink-0 text-slate-500"
+		aria-hidden="true"
+	>
+		<path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path
+			d="M21 13v1a4 4 0 0 1-4 4H3"
+		/>
+	</svg>
+{/snippet}
+
 {#snippet eventRow(e: LogicalEvent)}
-	<div class="flex items-center justify-between gap-3">
+	<div class="flex items-start justify-between gap-3">
 		<div class="min-w-0">
-			<p class="truncate font-semibold text-slate-100" data-testid="next-card-title">
+			<p
+				class="flex items-center gap-1.5 truncate font-semibold text-slate-100"
+				data-testid="next-card-title"
+			>
 				{jobTitle(e.job)}
+				{#if e.recurring}<span title="Repeats daily">{@render repeatIcon()}</span>{/if}
 			</p>
 			<p class="text-sm text-slate-400">{formatNextFire(e.nextFire)}</p>
+			{#if e.overridden}
+				<p class="mt-0.5 text-xs text-orange-300/80" data-testid="next-card-resets">
+					resets to {baseSummary(e)} daily
+				</p>
+			{:else if e.skipped}
+				<p class="mt-0.5 text-xs text-amber-300/80" data-testid="next-card-skip-info">
+					skips {skipLabel(e)}
+				</p>
+			{/if}
 		</div>
 		{#if e.overridden}
 			<span

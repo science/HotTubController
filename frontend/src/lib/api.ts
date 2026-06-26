@@ -335,6 +335,13 @@ export const api = {
 			{ scheduledTime, target_temp_f }
 		),
 	clearOverrideNext: (jobId: string) => del(`/api/schedule/${jobId}/override-next`),
+	// Move a one-off to a new time (and optionally temp) in place — preserves the job id,
+	// so a heat is never dropped by a failed recreate. One-off (non-recurring) jobs only.
+	rescheduleOneOff: (jobId: string, scheduledTime: string, target_temp_f?: number) =>
+		put<{ success: boolean; job: ScheduledJob }>(`/api/schedule/${jobId}/reschedule`, {
+			scheduledTime,
+			...(target_temp_f !== undefined ? { target_temp_f } : {})
+		}),
 
 	// User management endpoints (admin only)
 	listUsers: () => get<UserListResponse>('/api/users'),

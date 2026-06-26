@@ -49,4 +49,38 @@ test.describe('v2 Schedule tab', () => {
 		await card.getByTestId('event-cancel').click();
 		await expect(card).toHaveCount(0, { timeout: 10000 });
 	});
+
+	test('adjust a one-time heat event in place: ± temp/time keep the same card', async ({ page }) => {
+		// Add a one-time heat-to-target tomorrow at 14:00, unique temp 106.25°F.
+		await page.getByTestId('schedule-add').click();
+		const sheet = page.getByTestId('schedule-add-sheet');
+		await expect(sheet).toBeVisible();
+		await sheet.getByTestId('add-temp').fill('106.25');
+		await sheet.getByTestId('add-time').fill('14:00');
+		await sheet.getByRole('button', { name: 'Once' }).click();
+		await sheet.getByTestId('add-submit').click();
+
+		// Find our one-off by its unique temp, then pin the card to its stable job id.
+		const initialCard = page.locator('[data-testid="event-card"]', { hasText: 'Heat to 106.25' });
+		await expect(initialCard).toHaveCount(1, { timeout: 10000 });
+		const jobId = await initialCard.getAttribute('data-job-id');
+		const card = page.locator(`[data-testid="event-card"][data-job-id="${jobId}"]`);
+
+		// One-off heat-to-target shows ± quick adjust — and NO skip option.
+		await expect(card.getByTestId('event-oneoff-temp')).toHaveText('106.25°F');
+		await expect(card.getByTestId('event-skip')).toHaveCount(0);
+
+		// + temp → 106.75°F, and it's the SAME card (job id preserved by the in-place move).
+		await card.getByRole('button', { name: 'half a degree warmer' }).click();
+		await expect(card.getByTestId('event-oneoff-temp')).toHaveText('106.75°F', { timeout: 10000 });
+
+		// + time → the clock advances; still the same card.
+		const before = (await card.getByTestId('event-oneoff-time').textContent())?.trim() ?? '';
+		await card.getByRole('button', { name: '15 minutes later' }).click();
+		await expect(card.getByTestId('event-oneoff-time')).not.toHaveText(before, { timeout: 10000 });
+
+		// Clean up.
+		await card.getByTestId('event-cancel').click();
+		await expect(card).toHaveCount(0, { timeout: 10000 });
+	});
 });

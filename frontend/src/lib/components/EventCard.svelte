@@ -18,6 +18,7 @@
 		onUnskip?: (jobId: string) => void;
 		onCancel?: (jobId: string) => void;
 		onSaveTemp?: (jobId: string, tempF: number) => Promise<void> | void;
+		onReschedule?: (jobId: string, scheduledTime: string, tempF?: number) => Promise<void> | void;
 	}
 	let {
 		job,
@@ -26,7 +27,8 @@
 		onSkip,
 		onUnskip,
 		onCancel,
-		onSaveTemp
+		onSaveTemp,
+		onReschedule
 	}: Props = $props();
 
 	const ACTION_LABELS: Record<string, string> = {
@@ -58,7 +60,10 @@
 
 	function resumeLabel(iso?: string): string {
 		if (!iso) return '';
-		return new Date(iso).toLocaleDateString(undefined, {
+		// Use the date part — skip/resume timestamps carry a misleading +00:00 offset
+		// (the date is the local calendar date), so `new Date(iso)` would land a day early.
+		const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
+		return new Date(y, mo - 1, d).toLocaleDateString(undefined, {
 			weekday: 'short',
 			month: 'short',
 			day: 'numeric'
@@ -106,6 +111,32 @@
 			cancelEdit();
 		}
 	}
+
+	// One-off heat-to-target quick adjust: ± time / ± temp, moved in place (no skip).
+	const oneOffAdjustable = $derived(
+		isHeatToTarget && !job.recurring && !getDynamicMode() && !!onReschedule
+	);
+	const oneOffClock = $derived(
+		new Date(job.scheduledTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+	);
+	let rescheduling = $state(false);
+	let rescheduleError = $state<string | null>(null);
+
+	async function nudge(deltaMin: number, deltaTemp: number) {
+		if (rescheduling) return;
+		const newIso = new Date(new Date(job.scheduledTime).getTime() + deltaMin * 60_000).toISOString();
+		const curTemp = job.params?.target_temp_f ?? 103;
+		const tempArg = deltaTemp !== 0 ? Math.min(110, Math.max(80, curTemp + deltaTemp)) : undefined;
+		rescheduling = true;
+		rescheduleError = null;
+		try {
+			await onReschedule?.(job.jobId, newIso, tempArg);
+		} catch (e) {
+			rescheduleError = e instanceof Error ? e.message : 'Failed to reschedule';
+		} finally {
+			rescheduling = false;
+		}
+	}
 </script>
 
 <div
@@ -117,7 +148,26 @@
 >
 	<div class="flex items-start justify-between gap-3">
 		<div class="min-w-0">
-			<p class="truncate font-semibold text-slate-100" data-testid="event-title">{title}</p>
+			<div class="flex items-center gap-1.5">
+				<p class="truncate font-semibold text-slate-100" data-testid="event-title">{title}</p>
+				{#if job.recurring}
+					<svg
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						class="h-3.5 w-3.5 shrink-0 text-slate-500"
+						role="img"
+						aria-label="Repeats daily"
+						data-testid="event-recurring-icon"
+					>
+						<path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" />
+						<path d="M21 13v1a4 4 0 0 1-4 4H3" />
+					</svg>
+				{/if}
+			</div>
 			<p class="text-sm text-slate-400">
 				{#if whenVerb}{whenVerb} {/if}{nextFire.replace(/^Today |^Tomorrow /, '')}
 			</p>
@@ -126,7 +176,7 @@
 				<span aria-hidden="true">·</span>
 				{#if job.skipped}
 					<span class="text-amber-300" data-testid="event-skip-state"
-						>skipped — resumes {resumeLabel(job.resumeDate)}</span
+						>skips {resumeLabel(job.skipDate)} · resumes {resumeLabel(job.resumeDate)}</span
 					>
 				{:else}
 					next {nextFire}
@@ -172,6 +222,59 @@
 					class="rounded-lg px-2 py-1 text-sm text-slate-400 hover:text-slate-200">Cancel</button
 				>
 				{#if tempError}<span class="text-xs text-red-400">{tempError}</span>{/if}
+			</div>
+		{:else if oneOffAdjustable}
+			<!-- One-time heat-to-target: quick ± time / temp adjust (no skip). -->
+			<div class="mt-3 grid grid-cols-2 gap-2">
+				<div class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5">
+					<button
+						type="button"
+						aria-label="15 minutes earlier"
+						onclick={() => nudge(-15, 0)}
+						disabled={rescheduling}
+						class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+						>&minus;</button
+					>
+					<span class="text-xs text-slate-400" data-testid="event-oneoff-time">{oneOffClock}</span>
+					<button
+						type="button"
+						aria-label="15 minutes later"
+						onclick={() => nudge(15, 0)}
+						disabled={rescheduling}
+						class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+						>+</button
+					>
+				</div>
+				<div class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5">
+					<button
+						type="button"
+						aria-label="half a degree cooler"
+						onclick={() => nudge(0, -0.5)}
+						disabled={rescheduling}
+						class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+						>&minus;</button
+					>
+					<span class="text-xs text-slate-400" data-testid="event-oneoff-temp"
+						>{formatTemp(job.params?.target_temp_f ?? 0)}°F</span
+					>
+					<button
+						type="button"
+						aria-label="half a degree warmer"
+						onclick={() => nudge(0, 0.5)}
+						disabled={rescheduling}
+						class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+						>+</button
+					>
+				</div>
+			</div>
+			<div class="mt-2 flex items-center gap-3 text-xs">
+				{#if rescheduleError}<span class="text-red-400">{rescheduleError}</span>{/if}
+				<button
+					type="button"
+					onclick={() => onCancel?.(job.jobId)}
+					data-testid="event-cancel"
+					class="ml-auto rounded-lg px-3 py-1 text-slate-400 hover:text-red-300">Cancel</button
+				>
 			</div>
 		{:else}
 			<div class="mt-3 flex flex-wrap items-center gap-2 text-sm">

@@ -68,6 +68,11 @@
 				: j
 		);
 	}
+	// Quick ± adjust of a one-off heat-to-target (time and/or temp), moved in place.
+	async function handleReschedule(jobId: string, scheduledTime: string, tempF?: number) {
+		await api.rescheduleOneOff(jobId, scheduledTime, tempF);
+		await loadJobs();
+	}
 
 	// ---- Add-heating sheet ----
 	let showAdd = $state(false);
@@ -253,6 +258,7 @@
 						onUnskip={handleUnskip}
 						onCancel={handleCancel}
 						onSaveTemp={handleSaveTemp}
+						onReschedule={handleReschedule}
 					/>
 				{/each}
 			</div>
