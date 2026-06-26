@@ -208,6 +208,39 @@ class ScheduleController
     }
 
     /**
+     * PUT /api/schedule/{id}/reschedule — move a one-off to a new time (and optional temp).
+     *
+     * Atomic and in-place (the job id is preserved), so a heat is never dropped by a
+     * failed recreate. Recurring jobs are rejected here — adjust their next run via
+     * override-next, or their everyday default by recreating.
+     *
+     * @param array{scheduledTime?: string, target_temp_f?: float|int} $data
+     * @return array{status: int, body: array}
+     */
+    public function reschedule(string $jobId, array $data): array
+    {
+        if (empty($data['scheduledTime'])) {
+            return ['status' => 400, 'body' => ['error' => 'Missing required field: scheduledTime']];
+        }
+
+        $tempF = null;
+        if (isset($data['target_temp_f'])) {
+            if (!is_numeric($data['target_temp_f'])) {
+                return ['status' => 400, 'body' => ['error' => 'Invalid target_temp_f']];
+            }
+            $tempF = (float) $data['target_temp_f'];
+        }
+
+        try {
+            $updated = $this->scheduler->rescheduleOneOff($jobId, (string) $data['scheduledTime'], $tempF);
+            return ['status' => 200, 'body' => ['success' => true, 'job' => $updated]];
+        } catch (InvalidArgumentException $e) {
+            $status = str_contains(strtolower($e->getMessage()), 'not found') ? 404 : 400;
+            return ['status' => $status, 'body' => ['error' => $e->getMessage()]];
+        }
+    }
+
+    /**
      * DELETE /api/schedule/{id} - Cancel a scheduled job.
      *
      * @param string $jobId The job ID to cancel

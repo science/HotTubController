@@ -314,6 +314,8 @@ $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController)
 $router->get('/api/schedule', fn() => $scheduleController->list(), $requireAuth);
 $router->delete('/api/schedule/{id}', fn($params) => $scheduleController->cancel($params['id']), $requireWrite);
 $router->put('/api/schedule/{id}/target-temp', fn($params) => handleScheduleUpdateTargetTemp($scheduleController, $params['id']), $requireWrite);
+// Move a one-off to a new time/temp in place (atomic; preserves the job id).
+$router->put('/api/schedule/{id}/reschedule', fn($params) => handleScheduleReschedule($scheduleController, $params['id']), $requireWrite);
 $router->post('/api/schedule/{id}/skip', fn($params) => $scheduleController->skip($params['id']), $requireWrite);
 $router->delete('/api/schedule/{id}/skip', fn($params) => $scheduleController->unskip($params['id']), $requireWrite);
 // "Adjust just the next run": skip the recurring + a mode-aware one-off override (POST);
@@ -499,6 +501,12 @@ function handleScheduleUpdateTargetTemp(ScheduleController $controller, string $
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->updateTargetTemp($jobId, $input);
+}
+
+function handleScheduleReschedule(ScheduleController $controller, string $jobId): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->reschedule($jobId, $input);
 }
 
 function handleScheduleOverrideNext(ScheduleController $controller, string $jobId): array

@@ -615,6 +615,71 @@ class SchedulerService
     }
 
     /**
+     * Reschedule a one-off job to a new time (and optionally a new target temp),
+     * preserving its job id and re-registering its cron entry at the new time.
+     *
+     * Atomic and in-place: the heat is never dropped by a failed recreate. Recurring
+     * jobs are rejected — change their next run via override-next, or their everyday
+     * default by recreating. Mirrors the one-off branch of scheduleJob().
+     *
+     * @param string $jobId The one-off job to move
+     * @param string $newScheduledTime ISO 8601 datetime (may carry a client offset)
+     * @param float|null $targetTempF Optional new target temp (heat-to-target only)
+     * @return array The updated job data
+     * @throws InvalidArgumentException If the job is missing, recurring, the time is past,
+     *                                  or the temp is out of range
+     */
+    public function rescheduleOneOff(string $jobId, string $newScheduledTime, ?float $targetTempF = null): array
+    {
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+        if (!file_exists($jobFile)) {
+            throw new InvalidArgumentException('Job not found: ' . $jobId);
+        }
+
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        if (($jobData['recurring'] ?? false) === true) {
+            throw new InvalidArgumentException(
+                'Cannot reschedule a recurring job; change its next run or recreate it'
+            );
+        }
+
+        if (new \DateTime($newScheduledTime) <= new \DateTime()) {
+            throw new InvalidArgumentException('Scheduled time must be in the future, not in the past');
+        }
+
+        if ($targetTempF !== null) {
+            if (($jobData['action'] ?? '') !== 'heat-to-target') {
+                throw new InvalidArgumentException('Can only set target temperature for heat-to-target jobs');
+            }
+            if ($targetTempF < TargetTemperatureService::MIN_TARGET_TEMP_F
+                || $targetTempF > TargetTemperatureService::MAX_TARGET_TEMP_F
+            ) {
+                throw new InvalidArgumentException(sprintf(
+                    'Target temperature must be between %.0f and %.0f°F',
+                    TargetTemperatureService::MIN_TARGET_TEMP_F,
+                    TargetTemperatureService::MAX_TARGET_TEMP_F
+                ));
+            }
+            $jobData['params'] = array_merge($jobData['params'] ?? [], ['target_temp_f' => $targetTempF]);
+        }
+
+        // Move the stored instant (UTC) and swap the cron entry — same job id throughout.
+        $utcDateTime = $this->timeConverter->toUtc($newScheduledTime);
+        $jobData['scheduledTime'] = $utcDateTime->format(\DateTime::ATOM);
+
+        $this->crontabAdapter->removeByPattern('HOTTUB:' . $jobId);
+        $actionLabel = self::ACTION_LABELS[$jobData['action']] ?? 'JOB';
+        $command = sprintf('%s %s', escapeshellarg($this->cronRunnerPath), escapeshellarg($jobId));
+        $comment = sprintf('HOTTUB:%s:%s:ONCE', $jobId, $actionLabel);
+        $this->cronSchedulingService->scheduleAt($utcDateTime->getTimestamp(), $command, $comment);
+
+        file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        return $jobData;
+    }
+
+    /**
      * Cancel a scheduled job.
      *
      * @param string $jobId The job ID to cancel

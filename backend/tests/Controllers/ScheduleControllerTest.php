@@ -88,6 +88,95 @@ class ScheduleControllerTest extends TestCase
         $this->assertStringContainsString('Invalid action', $response['body']['error']);
     }
 
+    // ========== PUT /api/schedule/{id}/reschedule Tests ==========
+
+    private function createOneOff(float $tempF = 100.0): string
+    {
+        $job = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            (new \DateTime('+3 hours'))->format(\DateTime::ATOM),
+            recurring: false,
+            params: ['target_temp_f' => $tempF]
+        );
+        return $job['jobId'];
+    }
+
+    public function testRescheduleMovesAOneOffTimeAndTempInPlace(): void
+    {
+        $jobId = $this->createOneOff(100.0);
+        $newTime = (new \DateTime('+5 hours'))->format(\DateTime::ATOM);
+
+        $response = $this->controller->reschedule($jobId, [
+            'scheduledTime' => $newTime,
+            'target_temp_f' => 104.5,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertTrue($response['body']['success']);
+        // Same job id — the event was moved in place, not recreated.
+        $this->assertEquals($jobId, $response['body']['job']['jobId']);
+        $this->assertEquals(104.5, $response['body']['job']['params']['target_temp_f']);
+
+        // Persisted to disk; the stored instant moved to the new time.
+        $saved = json_decode(file_get_contents($this->jobsDir . '/' . $jobId . '.json'), true);
+        $this->assertEquals(104.5, $saved['params']['target_temp_f']);
+        $this->assertEquals(
+            (new \DateTime($newTime))->getTimestamp(),
+            (new \DateTime($saved['scheduledTime']))->getTimestamp()
+        );
+    }
+
+    public function testRescheduleReturns404ForMissingJob(): void
+    {
+        $response = $this->controller->reschedule('job-does-not-exist', [
+            'scheduledTime' => (new \DateTime('+5 hours'))->format(\DateTime::ATOM),
+        ]);
+        $this->assertEquals(404, $response['status']);
+    }
+
+    public function testRescheduleRejectsRecurringJobs(): void
+    {
+        $rec = $this->scheduler->scheduleJob(
+            'heat-to-target',
+            '06:55',
+            recurring: true,
+            params: ['target_temp_f' => 102.0],
+            timezone: 'America/Los_Angeles'
+        );
+        $response = $this->controller->reschedule($rec['jobId'], [
+            'scheduledTime' => (new \DateTime('+5 hours'))->format(\DateTime::ATOM),
+        ]);
+        $this->assertEquals(400, $response['status']);
+        $this->assertStringContainsString('recurring', strtolower($response['body']['error']));
+    }
+
+    public function testRescheduleRejectsPastTime(): void
+    {
+        $jobId = $this->createOneOff();
+        $response = $this->controller->reschedule($jobId, [
+            'scheduledTime' => (new \DateTime('-1 hour'))->format(\DateTime::ATOM),
+        ]);
+        $this->assertEquals(400, $response['status']);
+        $this->assertStringContainsString('past', strtolower($response['body']['error']));
+    }
+
+    public function testRescheduleRejectsTempOutOfRange(): void
+    {
+        $jobId = $this->createOneOff();
+        $response = $this->controller->reschedule($jobId, [
+            'scheduledTime' => (new \DateTime('+5 hours'))->format(\DateTime::ATOM),
+            'target_temp_f' => 200.0,
+        ]);
+        $this->assertEquals(400, $response['status']);
+    }
+
+    public function testRescheduleRequiresScheduledTime(): void
+    {
+        $jobId = $this->createOneOff();
+        $response = $this->controller->reschedule($jobId, []);
+        $this->assertEquals(400, $response['status']);
+    }
+
     public function testCreateReturns400ForPastTime(): void
     {
         $response = $this->controller->create([
