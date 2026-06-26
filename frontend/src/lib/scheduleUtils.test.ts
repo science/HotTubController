@@ -286,6 +286,21 @@ describe('scheduleUtils', () => {
 			expect(e.nextFire.getTime()).toBe(new Date('2026-06-26T21:00:00-07:00').getTime());
 		});
 
+		it('marks a standalone heat-to-target one-off adjustable (movable in place from Home)', () => {
+			const oneOff: ScheduledJob = {
+				jobId: 'job-h',
+				action: 'heat-to-target',
+				scheduledTime: '2026-06-26T21:00:00-07:00',
+				createdAt: '2026-06-25T00:00:00Z',
+				recurring: false,
+				params: { target_temp_f: 105 }
+			};
+			const events = foldScheduledEvents([oneOff], now);
+			expect(events).toHaveLength(1);
+			expect(events[0].recurring).toBe(false);
+			expect(events[0].adjustable).toBe(true);
+		});
+
 		it('sorts by next fire and still collapses the override pair (no duplicate)', () => {
 			const earlierOneOff: ScheduledJob = {
 				jobId: 'job-x',
@@ -304,7 +319,8 @@ describe('scheduleUtils', () => {
 			const events = foldScheduledEvents([overrideOneOff()], now);
 			expect(events).toHaveLength(1);
 			expect(events[0].key).toBe('job-9');
-			expect(events[0].adjustable).toBe(false);
+			// It's a real heat-to-target one-off, so it can still be moved in place from Home.
+			expect(events[0].adjustable).toBe(true);
 		});
 	});
 });

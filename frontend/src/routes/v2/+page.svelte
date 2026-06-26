@@ -123,6 +123,15 @@
 		const total = (h * 60 + m + deltaMin + 1440) % 1440;
 		return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
 	}
+	// Recompose a one-off's instant from its existing calendar date + a new local HH:MM, so a
+	// Home nudge moves it in place via rescheduleOneOff. Nudges stay within the day; a larger
+	// move belongs on the Schedule tab.
+	function oneOffIso(job: ScheduledJob, clock: string): string {
+		const d = new Date(job.scheduledTime);
+		const [h, m] = clock.split(':').map(Number);
+		d.setHours(h, m, 0, 0);
+		return d.toISOString();
+	}
 
 	const ACTION_LABELS: Record<string, string> = {
 		'heater-on': 'Heater on',
@@ -223,7 +232,13 @@
 		if (!e || !homeDirty || adjusting) return;
 		adjusting = true;
 		try {
-			await api.overrideNextOccurrence(e.key, draftClock!, draftTemp!);
+			if (e.recurring) {
+				// Skip the next recurrence + write a one-off at the new time/temp (atomic server-side).
+				await api.overrideNextOccurrence(e.key, draftClock!, draftTemp!);
+			} else {
+				// A one-off has no recurrence to override — move it in place, preserving its id.
+				await api.rescheduleOneOff(e.key, oneOffIso(e.job, draftClock!), draftTemp ?? undefined);
+			}
 			await reloadJobs(); // reload → reseed effect → draft goes clean
 		} catch (err) {
 			failToast("Couldn't adjust the next run. Try again.");
@@ -303,7 +318,8 @@
 
 	async function skipSelected() {
 		const e = selected;
-		if (!e || !e.adjustable || adjusting) return;
+		// Skip applies to a recurrence only; a one-off has nothing to skip to.
+		if (!e || !e.adjustable || !e.recurring || adjusting) return;
 		adjusting = true;
 		try {
 			await api.clearOverrideNext(e.key).catch(() => {}); // drop any override (also unskips)
@@ -587,7 +603,7 @@
 					data-testid="next-controls"
 				>
 					<p class="text-xs text-slate-400">
-						Adjusting just the next run ·
+						{selected.recurring ? 'Adjusting just the next run' : 'Adjusting this one-time event'} ·
 						<span class="text-slate-200" data-testid="next-controls-target"
 							>{jobTitle(selected.job)} · {formatNextFire(selected.nextFire)}</span
 						>
@@ -656,7 +672,11 @@
 						</div>
 						{#if homeDirty}
 							<div class="mt-2 flex items-center gap-3 text-xs">
-								<span class="text-orange-300/80">Unsaved — Save rewrites the schedule</span>
+								<span class="text-orange-300/80"
+									>{selected.recurring
+										? 'Unsaved — Save rewrites the schedule'
+										: 'Unsaved — Save moves this event'}</span
+								>
 								<button
 									type="button"
 									onclick={discardSelected}
@@ -674,27 +694,32 @@
 									>{adjusting ? 'Saving…' : 'Save'}</button
 								>
 							</div>
-						{:else}
-						<div class="mt-2 flex items-center gap-3 text-xs">
-							<button
-								type="button"
-								onclick={skipSelected}
-								disabled={adjusting}
-								data-testid="next-skip"
-								class="text-slate-400 hover:text-amber-300 disabled:opacity-40">Skip next run</button
-							>
-							{#if selected.overridden}
+						{:else if selected.recurring}
+							<div class="mt-2 flex items-center gap-3 text-xs">
 								<button
 									type="button"
-									onclick={resetSelected}
+									onclick={skipSelected}
 									disabled={adjusting}
-									data-testid="next-reset"
-									class="text-slate-400 hover:text-slate-200 disabled:opacity-40"
-									>Reset to daily</button
+									data-testid="next-skip"
+									class="text-slate-400 hover:text-amber-300 disabled:opacity-40"
+									>Skip next run</button
 								>
-							{/if}
-							<span class="ml-auto text-slate-500">default stays {baseSummary(selected)}</span>
-						</div>
+								{#if selected.overridden}
+									<button
+										type="button"
+										onclick={resetSelected}
+										disabled={adjusting}
+										data-testid="next-reset"
+										class="text-slate-400 hover:text-slate-200 disabled:opacity-40"
+										>Reset to daily</button
+									>
+								{/if}
+								<span class="ml-auto text-slate-500">default stays {baseSummary(selected)}</span>
+							</div>
+						{:else}
+							<p class="mt-2 text-xs text-slate-500" data-testid="next-oneoff-hint">
+								One-time event — moves in place when you save.
+							</p>
 						{/if}
 					{:else}
 						<p class="mt-1 text-xs text-slate-500">

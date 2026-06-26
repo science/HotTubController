@@ -178,7 +178,7 @@ export interface LogicalEvent {
 	/** The next run is skipped (and not overridden); only "Resume" applies. */
 	skipped: boolean;
 	resumeDate?: string;
-	/** Whether the next run can be adjusted/skipped (recurring events only). */
+	/** Whether the event can be adjusted from Home — recurring events, or a heat-to-target one-off. */
 	adjustable: boolean;
 }
 
@@ -201,7 +201,10 @@ function oneOffEvent(job: ScheduledJob): LogicalEvent {
 		recurring: false,
 		overridden: false,
 		skipped: false,
-		adjustable: false
+		// A heat-to-target one-off can be nudged in place from Home (rescheduleOneOff —
+		// no skip/override needed, since there's no recurrence). Other one-off actions
+		// (e.g. pump) have no time/temp dial there and are edited on the Schedule tab.
+		adjustable: job.action === 'heat-to-target'
 	};
 }
 
@@ -212,7 +215,8 @@ function oneOffEvent(job: ScheduledJob): LogicalEvent {
  * - A skipped recurring event (no override) reports its resume date as the next fire —
  *   derived from the date part, so the backend's "+00:00 on a local date" skip/resume
  *   timestamps can't push it onto the wrong calendar day.
- * - Standalone one-offs pass through (not adjustable from Home; edited on the Schedule tab).
+ * - Standalone one-offs pass through; a heat-to-target one-off stays adjustable (moved in
+ *   place from Home), while other actions are display-only there and edited on the Schedule tab.
  * - An override whose parent has vanished is shown on its own rather than dropped.
  *
  * Sorted ascending by next fire ("which runs next?").

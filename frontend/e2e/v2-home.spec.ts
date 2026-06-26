@@ -131,6 +131,69 @@ test.describe('v2 Home (MVP)', () => {
 		});
 	});
 
+	test.describe('Home adjust one-off', () => {
+		test.afterEach(async ({ page }) => {
+			const list = await (await page.request.get('/tub/backend/public/api/schedule')).json();
+			for (const j of list.jobs ?? []) {
+				await page.request.delete(`/tub/backend/public/api/schedule/${j.jobId}`).catch(() => {});
+			}
+		});
+
+		test('a one-off heat event is adjustable on Home: nudging stages, Save moves it in place', async ({
+			page
+		}) => {
+			// Clear leftovers, then create a one-off heat-to-target tomorrow at a unique temp so we
+			// can find exactly our card.
+			const list = await (await page.request.get('/tub/backend/public/api/schedule')).json();
+			for (const j of list.jobs ?? []) {
+				await page.request.delete(`/tub/backend/public/api/schedule/${j.jobId}`);
+			}
+			const when = new Date(Date.now() + 24 * 3600 * 1000);
+			when.setHours(17, 30, 0, 0);
+			const res = await page.request.post('/tub/backend/public/api/schedule', {
+				data: {
+					action: 'heat-to-target',
+					scheduledTime: when.toISOString(),
+					recurring: false,
+					target_temp_f: 108.25
+				}
+			});
+			expect(res.ok()).toBeTruthy();
+			const jobId = (await res.json()).jobId;
+
+			await page.reload();
+			// Select our one-off by its stable key (the only event present after the clear).
+			const card = page.locator(`[data-testid="next-card"][data-key="${jobId}"]`);
+			await expect(card).toBeVisible({ timeout: 15000 });
+			await card.click();
+
+			const controls = page.getByTestId('next-controls');
+			await expect(controls).toBeVisible();
+			// A one-off offers ±, but NOT the recurring-only Skip, and never the "edit on the
+			// Schedule tab" redirect (the bug this test pins down).
+			await expect(page.getByTestId('next-skip')).toHaveCount(0);
+			await expect(page.getByText('edit it on the Schedule tab')).toHaveCount(0);
+
+			const tempOf = async () => {
+				const l = (await (await page.request.get('/tub/backend/public/api/schedule')).json())
+					.jobs as Array<{ jobId: string; params?: { target_temp_f?: number } }>;
+				return l.find((j) => j.jobId === jobId)?.params?.target_temp_f;
+			};
+
+			// Nudge temp + time → staged locally; the backend is untouched until Save.
+			await controls.getByRole('button', { name: 'half a degree warmer' }).click();
+			await controls.getByRole('button', { name: '15 minutes later' }).click();
+			await expect(page.getByTestId('next-save')).toBeVisible();
+			expect(await tempOf()).toBe(108.25);
+
+			// Save → moved in place: SAME job id (not recreated), backend now 108.75.
+			await page.getByTestId('next-save').click();
+			await expect(page.getByTestId('next-save')).toHaveCount(0, { timeout: 10000 });
+			await expect(page.locator(`[data-testid="next-card"][data-key="${jobId}"]`)).toBeVisible();
+			expect(await tempOf()).toBe(108.75);
+		});
+	});
+
 	test.describe('Heat-now target dial', () => {
 		test.beforeEach(async ({ page }) => {
 			// The dial only shows in heat-to-target mode; enable it (admin) and clear sessions.
