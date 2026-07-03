@@ -12,10 +12,10 @@ use HotTub\Contracts\JsonHttpClientInterface;
  *
  * Implements IftttClientInterface so HeaterControlService and
  * BlindsController swap over with a one-line DI change and zero consumer
- * edits: legacy IFTTT event names are translated to iot-api command
- * bodies ({device, action}) and POSTed to
- * https://misuse.org/iot/public/api/v1/command, which relays to Home
- * Assistant over the Tailscale Funnel. See
+ * edits: legacy IFTTT event names are translated to the iot-api REST
+ * device-path surface (2026-07 normalization) and POSTed to
+ * {base}/api/v1/device/{slug}, which relays to Home Assistant over the
+ * Tailscale Funnel. See
  * ~/dev/home-assistant/docs/plans/ifttt-deprecation-iot-api.md.
  *
  * Same late-binding strategy as IftttClient: business logic is identical
@@ -24,45 +24,48 @@ use HotTub\Contracts\JsonHttpClientInterface;
 class IotApiClient implements IftttClientInterface
 {
     /**
-     * Legacy IFTTT event name -> iot-api command body.
+     * Legacy IFTTT event name -> [device slug, request body].
      *
      * Only events this backend actually triggers are mapped (the webapp's
-     * five call sites). Devices "hot-tub-heater", "hot-tub-cycle-ionizer"
-     * and "dining-blinds" require the HA-side iot_internal Phase-1
-     * generalization before live cutover — until then HA answers 404
-     * unknown_device, which trigger() reports as failure.
+     * five call sites). The heater events use the unified partial-update
+     * "set" action (implicit when the body has no action): power on/off
+     * dispatches script.hot_tub_heater_on/_off HA-side via the script
+     * suffix convention.
      */
     private const EVENT_MAP = [
-        'hot-tub-heat-on' => ['device' => 'hot-tub-heater', 'action' => 'turn_on'],
-        'hot-tub-heat-off' => ['device' => 'hot-tub-heater', 'action' => 'turn_off'],
-        'cycle_hot_tub_ionizer' => ['device' => 'hot-tub-cycle-ionizer', 'action' => 'run'],
-        'open-dining-room-blinds' => ['device' => 'dining-blinds', 'action' => 'open'],
-        'close-dining-room-blinds' => ['device' => 'dining-blinds', 'action' => 'close'],
+        'hot-tub-heat-on' => ['hot-tub-heater', ['power' => 'on']],
+        'hot-tub-heat-off' => ['hot-tub-heater', ['power' => 'off']],
+        'cycle_hot_tub_ionizer' => ['hot-tub-cycle-ionizer', ['action' => 'run']],
+        'open-dining-room-blinds' => ['dining-blinds', ['action' => 'open']],
+        'close-dining-room-blinds' => ['dining-blinds', ['action' => 'close']],
     ];
 
     private string $mode;
+    private string $apiBase;
 
     public function __construct(
-        private string $apiUrl,
+        string $apiBaseUrl,
         private string $apiJwt,
         private JsonHttpClientInterface $httpClient,
         private ConsoleLogger $console,
         private EventLogger $logger
     ) {
+        $this->apiBase = rtrim($apiBaseUrl, '/');
         $this->mode = $httpClient instanceof StubJsonHttpClient ? 'stub' : 'live';
     }
 
     public function trigger(string $eventName): bool
     {
-        $body = self::EVENT_MAP[$eventName] ?? null;
-        if ($body === null) {
+        $mapped = self::EVENT_MAP[$eventName] ?? null;
+        if ($mapped === null) {
             $this->logger->log('iot_api_unknown_event', ['event' => $eventName]);
             return false;
         }
+        [$device, $body] = $mapped;
 
         $start = microtime(true);
         $response = $this->httpClient->postJson(
-            $this->apiUrl,
+            $this->apiBase . '/api/v1/device/' . $device,
             $body,
             ['Authorization: Bearer ' . $this->apiJwt]
         );
@@ -79,8 +82,8 @@ class IotApiClient implements IftttClientInterface
 
         $data = [
             'event' => $eventName,
-            'device' => $body['device'],
-            'action' => $body['action'],
+            'device' => $device,
+            'body' => $body,
             'http_code' => $httpCode,
             'duration_ms' => $durationMs,
             'success' => $success,

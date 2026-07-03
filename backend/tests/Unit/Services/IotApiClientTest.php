@@ -15,12 +15,13 @@ use HotTub\Services\StubJsonHttpClient;
 /**
  * Tests for the iot-api adapter that replaces IftttClient at the
  * IFTTT-deprecation cutover. Verifies interface compatibility, the
- * event -> {device, action} translation, auth header injection, and
- * failure reporting.
+ * event -> device-path + body translation (the 2026-07 REST surface:
+ * POST {base}/api/v1/device/{slug} with orthogonal params), auth header
+ * injection, and failure reporting.
  */
 class IotApiClientTest extends TestCase
 {
-    private const API_URL = 'https://misuse.org/iot/public/api/v1/command';
+    private const API_BASE = 'https://misuse.org/iot';
 
     private string $testLogFile;
     private StubJsonHttpClient $httpClient;
@@ -38,12 +39,12 @@ class IotApiClientTest extends TestCase
         }
     }
 
-    private function makeClient(): IotApiClient
+    private function makeClient(string $base = self::API_BASE): IotApiClient
     {
         $output = fopen('php://memory', 'w+');
 
         return new IotApiClient(
-            self::API_URL,
+            $base,
             'test-jwt-token',
             $this->httpClient,
             new ConsoleLogger($output),
@@ -66,24 +67,36 @@ class IotApiClientTest extends TestCase
     /**
      * @dataProvider eventTranslationProvider
      */
-    public function testTranslatesEventsToCommandBodies(string $event, array $expectedBody): void
+    public function testTranslatesEventsToDevicePathCalls(string $event, string $expectedUrl, array $expectedBody): void
     {
         $result = $this->makeClient()->trigger($event);
 
         $this->assertTrue($result);
-        $this->assertSame(self::API_URL, $this->httpClient->lastUrl);
+        $this->assertSame($expectedUrl, $this->httpClient->lastUrl);
         $this->assertSame($expectedBody, $this->httpClient->lastBody);
     }
 
     public static function eventTranslationProvider(): array
     {
+        $device = self::API_BASE . '/api/v1/device/';
+
         return [
-            'heat on' => ['hot-tub-heat-on', ['device' => 'hot-tub-heater', 'action' => 'turn_on']],
-            'heat off' => ['hot-tub-heat-off', ['device' => 'hot-tub-heater', 'action' => 'turn_off']],
-            'cycle ionizer' => ['cycle_hot_tub_ionizer', ['device' => 'hot-tub-cycle-ionizer', 'action' => 'run']],
-            'blinds open' => ['open-dining-room-blinds', ['device' => 'dining-blinds', 'action' => 'open']],
-            'blinds close' => ['close-dining-room-blinds', ['device' => 'dining-blinds', 'action' => 'close']],
+            'heat on' => ['hot-tub-heat-on', $device . 'hot-tub-heater', ['power' => 'on']],
+            'heat off' => ['hot-tub-heat-off', $device . 'hot-tub-heater', ['power' => 'off']],
+            'cycle ionizer' => ['cycle_hot_tub_ionizer', $device . 'hot-tub-cycle-ionizer', ['action' => 'run']],
+            'blinds open' => ['open-dining-room-blinds', $device . 'dining-blinds', ['action' => 'open']],
+            'blinds close' => ['close-dining-room-blinds', $device . 'dining-blinds', ['action' => 'close']],
         ];
+    }
+
+    public function testTrailingSlashOnBaseUrlIsNormalized(): void
+    {
+        $this->makeClient(self::API_BASE . '/')->trigger('hot-tub-heat-on');
+
+        $this->assertSame(
+            self::API_BASE . '/api/v1/device/hot-tub-heater',
+            $this->httpClient->lastUrl
+        );
     }
 
     public function testSendsBearerAuthorizationHeader(): void
