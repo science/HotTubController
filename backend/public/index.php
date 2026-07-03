@@ -27,7 +27,7 @@ use HotTub\Services\EnvLoader;
 use HotTub\Services\CookieHelper;
 use HotTub\Services\EquipmentStatusService;
 use HotTub\Services\HeaterControlService;
-use HotTub\Services\IftttClientFactory;
+use HotTub\Services\IotApiClientFactory;
 use HotTub\Services\AuthService;
 use HotTub\Services\UserRepositoryFactory;
 use HotTub\Services\SchedulerService;
@@ -57,6 +57,8 @@ if (file_exists($envPath)) {
         'APP_ENV' => $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'development',
         'IFTTT_MODE' => $_ENV['IFTTT_MODE'] ?? getenv('IFTTT_MODE') ?: 'auto',
         'IFTTT_WEBHOOK_KEY' => $_ENV['IFTTT_WEBHOOK_KEY'] ?? getenv('IFTTT_WEBHOOK_KEY') ?: null,
+        'IOT_API_URL' => $_ENV['IOT_API_URL'] ?? getenv('IOT_API_URL') ?: null,
+        'IOT_API_JWT' => $_ENV['IOT_API_JWT'] ?? getenv('IOT_API_JWT') ?: null,
     ];
 }
 
@@ -93,8 +95,11 @@ $authController = new AuthController($authService);
 $cookieHelper = new CookieHelper(CookieHelper::deriveAppBasePath());
 $userController = new UserController($userRepository);
 
-// Create IFTTT client via factory (uses EXTERNAL_API_MODE from config)
-$factory = new IftttClientFactory($config, $logFile);
+// Create the device-command client via factory (uses EXTERNAL_API_MODE from
+// config). 2026-07 cutover: IotApiClient (misuse.org/iot -> HA) replaced
+// IftttClient behind the same IftttClientInterface — consumers unchanged.
+// Rollback = swap IotApiClientFactory back to IftttClientFactory here.
+$factory = new IotApiClientFactory($config, $logFile);
 $iftttClient = $factory->create();
 
 // Create equipment status service for tracking heater/pump state

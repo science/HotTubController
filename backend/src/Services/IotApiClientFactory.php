@@ -11,7 +11,8 @@ use RuntimeException;
 /**
  * Factory for iot-api clients. Mirrors IftttClientFactory: mode resolution
  * priority is EXTERNAL_API_MODE env var, then config, then fail-safe stub.
- * Config keys: IOT_API_URL, IOT_API_JWT.
+ * Config keys: IOT_API_URL (the base, e.g. https://misuse.org/iot — the
+ * client appends /api/v1/device/{slug}), IOT_API_JWT.
  */
 class IotApiClientFactory
 {
@@ -50,7 +51,7 @@ class IotApiClientFactory
             }
             $httpClient = new CurlJsonHttpClient();
         } else {
-            $url = trim((string) ($this->config['IOT_API_URL'] ?? '')) ?: 'https://stub.invalid/api/v1/command';
+            $url = trim((string) ($this->config['IOT_API_URL'] ?? '')) ?: 'https://stub.invalid';
             $jwt = 'stub-mode-no-jwt';
             $httpClient = new StubJsonHttpClient();
         }
