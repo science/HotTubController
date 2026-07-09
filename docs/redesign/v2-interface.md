@@ -119,12 +119,14 @@ automatically." QuickSchedule is gone.
 - **Keep as-is (data + logic):** `lib/api.ts`, `lib/stores/*` (+ new capability helpers in
   `auth.svelte.ts`), `lib/scheduleUtils.ts`, `lib/autoHeatOff.ts`, `lib/settings.ts`,
   `lib/config.ts`.
-- **Keep, re-home:** `TemperaturePanel`, `CompactControlButton`, `EquipmentStatusBar`,
-  `SensorConfigPanel`, `SchedulePanel`, `SettingsPanel` (decomposed).
-- **New:** v2 layout shell + tab bar, `Home/Schedule/Setup` routes, role-capability helpers,
+- **Keep, re-home:** `CompactControlButton`, `EquipmentStatusBar`, `SensorConfigPanel`,
+  `SettingsPanel` (decomposed). `TemperaturePanel` stays for v1; v2 Home uses the new
+  `TempHero` (v1 panel's sensor detail moves to Setup).
+- **New:** v2 layout shell + tab bar, `Home/Schedule/Setup` routes, role-capability helpers
+  (`lib/roles.ts`), `EventCard`, `TempHero`, `pendingEdits` store + `UnsavedChangesModal`,
   shared button-token module.
 - **Delete at cutover:** `QuickSchedulePanel.svelte` (dead), `ControlButton.svelte`
-  (superseded).
+  (superseded), `SchedulePanel.svelte` (superseded by the card-based Schedule tab).
 - **Decide in Stage 2:** auto-heat-off (overlaps heat-to-target's own auto-off).
 
 ---
@@ -134,27 +136,59 @@ automatically." QuickSchedule is gone.
 Each stage is TDD red/green per `CLAUDE.md`; tests run **only** via `./scripts/test.sh`. The
 old UI stays live until Stage 5.
 
-### Stage 0 — Branch + scaffold
+> **Status (2026-07-08):** Stages 0–2 are ✅ done (with deliberate deviations noted
+> below). Stage 2.5 (card parity) is the active work. Stages 3–5 remain. A UX review of
+> the shipped stages lives in `v2-ux-review.md`; open decisions in `v2-open-questions.md`.
+
+### Stage 0 — Branch + scaffold ✅
 - Create `feature/v2-interface`; commit this doc.
 - v2 route group `frontend/src/routes/v2/` (respect `/tub` base): `+layout.svelte` (tab shell
   + role gating) and an empty Home page.
-- Add role-capability helpers to `lib/stores/auth.svelte.ts` (`isOwner/isUser/isGuest/isReadonly`,
-  `canControl/canSchedule/canConfigure/canManageUsers`) with unit tests.
+- Role-capability helpers landed as a standalone pure module `lib/roles.ts` (not inside
+  `auth.svelte.ts` as first sketched) with unit tests — works with both the layout `data.user`
+  and the auth store.
 - **Verify gate:** `/tub/v2` renders the tab shell; the existing UI is untouched;
   `./scripts/test.sh` green.
 
-### Stage 1 — MVP: Home  ← smallest valuable, verifiable chunk
-- Build Home by composing existing pieces: `TemperaturePanel` (hero), `CompactControlButton`
+### Stage 1 — MVP: Home ✅ (+ Stage 1.5)
+- Build Home by composing existing pieces: temperature hero, `CompactControlButton`
   (Heat/Off/Pump + blinds), `equipmentStatus` + `heatTargetSettings` stores, and the ETA +
   stall logic lifted from today's `+page.svelte`.
+- **Stage 1.5 (added):** Home "Heat now" target dial (± the saved default target temp) backed
+  by a new write-level endpoint `PUT /api/settings/heat-target/temp` (all other heat-target
+  config stays admin-only). Dial is Owner/User in the UI (see review F7 / question Q1).
 - **Verify gate:** sign in as Owner/User/Guest → Home shows temps + controls; Heat/Off/Pump
-  work in stub mode. `./scripts/test.sh` green. **STOP for user verification.**
+  work in stub mode. `./scripts/test.sh` green. ✅
 
-### Stage 2 — Schedule (User+)
-- `v2/schedule` route; reuse `SchedulePanel`; gate to User/Owner; remove QuickSchedule from
-  v2; move auto-heat-off into Preferences (menu) or retire.
+### Stage 2 — Schedule (User+) ✅ (deviated from sketch, deliberately)
+- Planned as "reuse `SchedulePanel`"; shipped instead as a **card-based Schedule tab**
+  (`EventCard`) plus a Home **"Next up"** zone — richer than the plan:
+  - `foldScheduledEvents`: a recurring parent + its next-run override render as ONE logical
+    card keyed by the stable parent id.
+  - New atomic endpoints: `POST/DELETE /api/schedule/{id}/override-next` ("adjust just the
+    next run", mode-aware) and `PUT /api/schedule/{id}/reschedule` (move a one-off in place,
+    id preserved).
+  - **Staged edits**: ± steppers mutate a local draft; explicit Save commits ONE backend
+    call (crontab rewrites are slow on the host). A `pendingEdits` registry + navigation
+    guard (`UnsavedChangesModal`) prevents silent loss.
+  - QuickSchedule is gone from v2 as planned. auto-heat-off decision still open (Q2).
 - **Verify gate:** User creates one-off + recurring jobs; Guest has no Schedule tab; tests
-  green. **STOP.**
+  green. ✅
+
+### Stage 2.5 — Card parity (recurring ⇄ one-off) ← ACTIVE
+- Backend (TDD): atomic **in-place recurring reschedule** — change a recurring job's daily
+  time (+ optional temp) preserving its id, mirroring `rescheduleOneOff`. Must rewrite the
+  daily cron via `CronSchedulingService`/`scheduleDailyInTimezone`, keep the healthcheck
+  cron in sync, and honor DTDT ready-by (edited HH:MM = new ready-by time; see Q5).
+  Rejected recreate-based route: a failed recreate could drop the schedule and orphan
+  Home's override folding.
+- Frontend: `api.rescheduleRecurring`; `EventCard` renders the SAME ± time/temp steppers +
+  Save/Discard for recurring heat-to-target as for one-offs (recurring differs only by the
+  repeat indicator + Skip next). "Edit temp" input retires.
+- Also fold Home's adjust-bar into the selected card (review F8) so Home and Schedule share
+  one expanded-card interaction.
+- **Verify gate:** recurring daily time/temp edit round-trips; skip/override flows intact;
+  tests green. **STOP.**
 
 ### Stage 3 — Setup (Owner)
 - `v2/setup` route with sub-sections; decompose `SettingsPanel` → Heat targets / Sensors /
