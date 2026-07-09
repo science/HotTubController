@@ -8,6 +8,7 @@ import {
 	canSchedule,
 	canConfigure,
 	canManageUsers,
+	canTuneTarget,
 	friendlyRoleName,
 	visibleTabs
 } from './roles';
@@ -33,6 +34,19 @@ describe('roles', () => {
 			expect(isUser(undefined)).toBe(false);
 			expect(isGuest('nonsense')).toBe(false);
 			expect(isReadonly('')).toBe(false);
+		});
+	});
+
+	describe('canTuneTarget — persistent default target temp (Home dial)', () => {
+		it('allows Owner and User', () => {
+			expect(canTuneTarget('admin')).toBe(true);
+			expect(canTuneTarget('user')).toBe(true);
+		});
+
+		it('blocks Guest — heating to the household default is fine, rewriting it is not', () => {
+			expect(canTuneTarget('basic')).toBe(false);
+			expect(canTuneTarget('readonly')).toBe(false);
+			expect(canTuneTarget(null)).toBe(false);
 		});
 	});
 

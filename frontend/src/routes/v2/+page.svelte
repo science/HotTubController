@@ -6,9 +6,9 @@
 	import { registerPendingEdit, clearPendingEdit } from '$lib/stores/pendingEdits.svelte';
 	import CompactControlButton from '$lib/components/CompactControlButton.svelte';
 	import EquipmentStatusBar from '$lib/components/EquipmentStatusBar.svelte';
-	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
+	import TempHero from '$lib/components/TempHero.svelte';
 	import { api, type TargetTemperatureState, type ScheduledJob } from '$lib/api';
-	import { canControl, canSchedule } from '$lib/roles';
+	import { canControl, canSchedule, canTuneTarget } from '$lib/roles';
 	import { foldScheduledEvents, formatNextFire, type LogicalEvent } from '$lib/scheduleUtils';
 	import {
 		fetchStatus,
@@ -40,10 +40,12 @@
 
 	// The "Heat now" target dial. Shown only when heat-to-target mode is on and not
 	// dynamic (an absolute dial is meaningless against an ambient-derived target).
+	// Owner/User only: the dial rewrites the *persistent household default* — a Guest
+	// heats to it but doesn't redefine it (roles.canTuneTarget).
 	const TEMP_STEP_F = 0.5;
 	let targetEnabled = $derived(getTargetTempEnabled());
 	let dynamicMode = $derived(getDynamicMode());
-	let showDial = $derived(canAct && targetEnabled && !dynamicMode);
+	let showDial = $derived(canTuneTarget(data.user?.role) && targetEnabled && !dynamicMode);
 	let targetTempF = $derived(getTargetTempF());
 	let targetDisplay = $derived(
 		Number.isInteger(targetTempF) ? `${targetTempF}` : targetTempF.toFixed(2).replace(/\.?0+$/, '')
@@ -491,7 +493,7 @@
 
 <section data-testid="v2-home" class="flex flex-col gap-3">
 	<!-- Temperature hero -->
-	<TemperaturePanel />
+	<TempHero />
 
 	<!-- Primary controls: heat now / off / pump -->
 	{#if canAct}
@@ -790,15 +792,20 @@
 		</div>
 	{/if}
 
-	<!-- Action result -->
+	<!-- Action result: fixed above the tab bar so feedback is visible no matter how
+	     far the page has scrolled (the buttons it confirms live at the top). -->
 	{#if status}
-		<div
-			data-testid="status-toast"
-			class="text-center text-sm font-medium {status.type === 'success'
-				? 'text-green-400'
-				: 'text-red-400'}"
-		>
-			{status.message}
+		<div class="pointer-events-none fixed inset-x-0 bottom-16 z-40 flex justify-center px-4">
+			<div
+				data-testid="status-toast"
+				role="status"
+				class="rounded-full border px-4 py-1.5 text-sm font-medium shadow-lg {status.type ===
+				'success'
+					? 'border-green-500/40 bg-slate-800 text-green-400'
+					: 'border-red-500/40 bg-slate-800 text-red-400'}"
+			>
+				{status.message}
+			</div>
 		</div>
 	{/if}
 

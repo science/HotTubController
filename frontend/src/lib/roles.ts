@@ -54,6 +54,15 @@ export function canSchedule(role?: string | null): boolean {
 	return SCHEDULE_ROLES.includes(role ?? '');
 }
 
+/**
+ * Can adjust the *persistent* default target temp (Home dial). Guests may heat to the
+ * household default but not rewrite it — the dial writes a global setting. UI-scoping
+ * only: the backend endpoint accepts any write role (see v2-open-questions.md Q1).
+ */
+export function canTuneTarget(role?: string | null): boolean {
+	return SCHEDULE_ROLES.includes(role ?? '');
+}
+
 /** Can change system configuration: heat targets, sensors, heating analysis (Setup tab). */
 export function canConfigure(role?: string | null): boolean {
 	return role === 'admin';

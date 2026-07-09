@@ -136,7 +136,7 @@
 				onclick={openAdd}
 				data-testid="schedule-add"
 				class="rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-500"
-				>+ Add</button
+				>+ Add heating</button
 			>
 		{/if}
 	</div>

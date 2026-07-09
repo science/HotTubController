@@ -72,6 +72,16 @@
 			{/if}
 
 			<div class="mt-4 flex items-center justify-end gap-2">
+				<!-- The safe choice is a visible button, not just Escape/backdrop — on a phone
+				     those are undiscoverable and the other two options are both commitments. -->
+				<button
+					type="button"
+					onclick={onStay}
+					disabled={busy}
+					data-testid="unsaved-stay"
+					class="mr-auto rounded-lg px-3 py-1.5 text-sm text-slate-300 hover:text-slate-100 disabled:opacity-40"
+					>Keep editing</button
+				>
 				<button
 					type="button"
 					onclick={onDiscard}

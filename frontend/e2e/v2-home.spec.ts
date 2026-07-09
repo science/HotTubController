@@ -21,7 +21,8 @@ test.describe('v2 Home (MVP)', () => {
 	});
 
 	test('shows the temperature hero and primary controls', async ({ page }) => {
-		await expect(page.getByRole('heading', { name: 'Temperature' })).toBeVisible();
+		await expect(page.getByTestId('temp-hero')).toBeVisible();
+		await expect(page.getByTestId('hero-water')).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Heat/Pump Off' })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Pump (2h)' })).toBeVisible();
 	});
@@ -231,6 +232,40 @@ test.describe('v2 Home (MVP)', () => {
 					return (await res.json()).target_temp_f;
 				})
 				.toBe(103.5);
+		});
+
+		test('a Guest can heat to the default but gets no dial to rewrite it', async ({
+			page,
+			browser
+		}) => {
+			// Create a basic-role user (as admin), then sign in as them in a FRESH context —
+			// the admin session must survive for afterEach's settings reset.
+			const username = `testuser_${Date.now()}`;
+			await page.request.post('/tub/backend/public/api/users', {
+				data: { username, password: 'guestpass123', role: 'basic' }
+			});
+
+			const guestContext = await browser.newContext();
+			const guest = await guestContext.newPage();
+			try {
+				await guest.goto('/tub/login');
+				await guest.fill('#username', username);
+				await guest.fill('#password', 'guestpass123');
+				await guest.press('#password', 'Enter');
+				await expect(guest.getByRole('button', { name: 'Logout' })).toBeVisible({
+					timeout: 15000
+				});
+				await guest.goto('/tub/v2');
+				await expect(guest.getByTestId('v2-home')).toBeVisible({ timeout: 15000 });
+
+				// Heat-to-target is on (beforeEach): the Heat button carries the household
+				// default, but the dial that would rewrite that default is absent.
+				await expect(guest.getByRole('button', { name: /Heat to 103/ })).toBeVisible();
+				await expect(guest.getByTestId('target-dial')).toHaveCount(0);
+			} finally {
+				await guestContext.close();
+				await page.request.delete(`/tub/backend/public/api/users/${username}`);
+			}
 		});
 	});
 });

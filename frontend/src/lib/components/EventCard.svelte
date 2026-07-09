@@ -57,8 +57,18 @@
 	// "ready by" when the recurring parent is in ready-by mode, else "start"/one-off.
 	const whenVerb = $derived(job.params?.ready_by_time ? 'ready by' : job.recurring ? 'start' : '');
 
-	const nextFire = $derived(formatNextFire(getNextOccurrence(job)));
-	const cadence = $derived(job.recurring ? 'every day' : 'one-time');
+	// One when-line, no repeats: "Daily · start 6:30 AM · next Tomorrow" for recurring,
+	// "One-time · Tomorrow 3:00 PM" for one-offs. (An earlier cut said the same time three
+	// times per card.)
+	const nextOcc = $derived(getNextOccurrence(job));
+	const nextFire = $derived(formatNextFire(nextOcc));
+	const clockStr = $derived(
+		nextOcc.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+	);
+	const nextDay = $derived(nextFire.slice(0, nextFire.length - clockStr.length).trim());
+	const whenLine = $derived(
+		job.recurring ? `Daily · ${whenVerb} ${clockStr} · next ${nextDay}` : `One-time · ${nextFire}`
+	);
 
 	function resumeLabel(iso?: string): string {
 		if (!iso) return '';
@@ -226,30 +236,19 @@
 					</svg>
 				{/if}
 			</div>
-			<p class="text-sm text-slate-400">
-				{#if whenVerb}{whenVerb} {/if}{nextFire.replace(/^Today |^Tomorrow /, '')}
-			</p>
-			<p class="mt-0.5 text-xs text-slate-500">
-				{cadence}
-				<span aria-hidden="true">·</span>
-				{#if job.skipped}
-					<span class="text-amber-300" data-testid="event-skip-state"
-						>skips {resumeLabel(job.skipDate)} · resumes {resumeLabel(job.resumeDate)}</span
-					>
-				{:else}
-					next {nextFire}
-				{/if}
-			</p>
+			<p class="text-sm text-slate-400" data-testid="event-when">{whenLine}</p>
+			{#if job.skipped}
+				<p class="mt-0.5 text-xs text-amber-300" data-testid="event-skip-state">
+					skips {resumeLabel(job.skipDate)} · resumes {resumeLabel(job.resumeDate)}
+				</p>
+			{/if}
 		</div>
 
-		{#if !compact}
-			<span
-				class="shrink-0 rounded-full px-2 py-0.5 text-xs {job.skipped
-					? 'bg-amber-500/15 text-amber-300'
-					: 'bg-emerald-500/15 text-emerald-300'}"
+		<!-- Badges mark exceptions only — every card saying "active" says nothing. -->
+		{#if !compact && job.skipped}
+			<span class="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
+				>skipped</span
 			>
-				{job.skipped ? 'skipped' : 'active'}
-			</span>
 		{/if}
 	</div>
 
@@ -349,7 +348,8 @@
 					type="button"
 					onclick={() => onCancel?.(job.jobId)}
 					data-testid="event-cancel"
-					class="ml-auto rounded-lg px-3 py-1 text-slate-400 hover:text-red-300">Cancel</button
+					class="ml-auto rounded-lg px-3 py-1 text-slate-400 hover:bg-red-500/10 hover:text-red-300"
+					>Remove</button
 				>
 			</div>
 		{:else}
@@ -386,7 +386,8 @@
 					type="button"
 					onclick={() => onCancel?.(job.jobId)}
 					data-testid="event-cancel"
-					class="ml-auto rounded-lg px-3 py-1 text-slate-400 hover:text-red-300">Cancel</button
+					class="ml-auto rounded-lg px-3 py-1 text-slate-400 hover:bg-red-500/10 hover:text-red-300"
+					>Remove</button
 				>
 			</div>
 		{/if}
