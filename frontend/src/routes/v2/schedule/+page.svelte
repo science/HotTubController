@@ -73,6 +73,11 @@
 		await api.rescheduleOneOff(jobId, scheduledTime, tempF);
 		await loadJobs();
 	}
+	// Same ± adjust for a recurring event: changes the everyday daily time/temp in place.
+	async function handleRescheduleRecurring(jobId: string, time: string, tempF?: number) {
+		await api.rescheduleRecurring(jobId, time, tempF);
+		await loadJobs();
+	}
 
 	// ---- Add-heating sheet ----
 	let showAdd = $state(false);
@@ -259,6 +264,7 @@
 						onCancel={handleCancel}
 						onSaveTemp={handleSaveTemp}
 						onReschedule={handleReschedule}
+						onRescheduleRecurring={handleRescheduleRecurring}
 					/>
 				{/each}
 			</div>

@@ -101,6 +101,57 @@ test.describe('v2 Schedule tab', () => {
 		await expect(card).toHaveCount(0, { timeout: 10000 });
 	});
 
+	test('recurring heat ± is staged too: Save changes the daily default in place', async ({
+		page
+	}) => {
+		// Add a daily heat-to-target at 06:30, unique temp 105.25°F.
+		await page.getByTestId('schedule-add').click();
+		const sheet = page.getByTestId('schedule-add-sheet');
+		await expect(sheet).toBeVisible();
+		await sheet.getByTestId('add-temp').fill('105.25');
+		await sheet.getByTestId('add-time').fill('06:30');
+		await sheet.getByTestId('add-submit').click(); // Daily is the default
+
+		const initialCard = page.locator('[data-testid="event-card"]', { hasText: 'Heat to 105.25' });
+		await expect(initialCard).toHaveCount(1, { timeout: 10000 });
+		const jobId = await initialCard.getAttribute('data-job-id');
+		const card = page.locator(`[data-testid="event-card"][data-job-id="${jobId}"]`);
+
+		const jobOf = async () => {
+			const list = (await (await page.request.get('/tub/backend/public/api/schedule')).json())
+				.jobs as Array<{
+				jobId: string;
+				scheduledTime: string;
+				params?: { target_temp_f?: number };
+			}>;
+			return list.find((j) => j.jobId === jobId);
+		};
+
+		// Card parity: the recurring card has the SAME ± steppers, plus Skip next while clean.
+		await expect(card.getByTestId('event-oneoff-temp')).toHaveText('105.25°F');
+		await expect(card.getByTestId('event-skip')).toBeVisible();
+		await expect(card.getByTestId('event-oneoff-save')).toHaveCount(0);
+
+		// Nudge time + temp: draft only — Skip next yields to Save/Discard, backend untouched.
+		await card.getByRole('button', { name: '15 minutes later' }).click();
+		await card.getByRole('button', { name: 'half a degree warmer' }).click();
+		await expect(card.getByTestId('event-oneoff-temp')).toHaveText('105.75°F');
+		await expect(card.getByTestId('event-skip')).toHaveCount(0);
+		expect((await jobOf())?.scheduledTime).toBe('06:30');
+
+		// Save → the everyday default moved in place: same rec- id, new daily time + temp.
+		await card.getByTestId('event-oneoff-save').click();
+		await expect(card.getByTestId('event-oneoff-save')).toHaveCount(0, { timeout: 10000 });
+		const after = await jobOf();
+		expect(after?.scheduledTime).toBe('06:45');
+		expect(after?.params?.target_temp_f).toBe(105.75);
+		await expect(card.getByTestId('event-skip')).toBeVisible(); // clean again
+
+		// Clean up.
+		await card.getByTestId('event-cancel').click();
+		await expect(card).toHaveCount(0, { timeout: 10000 });
+	});
+
 	test('leaving the tab with an unsaved one-off prompts; Discard abandons it', async ({ page }) => {
 		await page.getByTestId('schedule-add').click();
 		const sheet = page.getByTestId('schedule-add-sheet');

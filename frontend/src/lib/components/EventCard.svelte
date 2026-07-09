@@ -21,6 +21,7 @@
 		onCancel?: (jobId: string) => void;
 		onSaveTemp?: (jobId: string, tempF: number) => Promise<void> | void;
 		onReschedule?: (jobId: string, scheduledTime: string, tempF?: number) => Promise<void> | void;
+		onRescheduleRecurring?: (jobId: string, time: string, tempF?: number) => Promise<void> | void;
 	}
 	let {
 		job,
@@ -30,7 +31,8 @@
 		onUnskip,
 		onCancel,
 		onSaveTemp,
-		onReschedule
+		onReschedule,
+		onRescheduleRecurring
 	}: Props = $props();
 
 	const ACTION_LABELS: Record<string, string> = {
@@ -124,12 +126,18 @@
 		}
 	}
 
-	// One-off heat-to-target quick adjust: ± time / ± temp staged locally, then committed as
-	// ONE in-place reschedule (no skip). We never auto-send each tap — a reschedule rewrites
-	// the crontab (slow on the host) — so taps mutate a draft and Save commits it once.
+	// Quick ± time / ± temp adjust, staged locally and committed as ONE in-place
+	// reschedule. We never auto-send each tap — a reschedule rewrites the crontab (slow
+	// on the host) — so taps mutate a draft and Save commits it once. One-off and
+	// recurring heat events render the SAME steppers (card parity); they differ only in
+	// what Save means: move the instant vs. change the everyday daily time.
 	const oneOffAdjustable = $derived(
 		isHeatToTarget && !job.recurring && !getDynamicMode() && !!onReschedule
 	);
+	const recurringAdjustable = $derived(
+		isHeatToTarget && job.recurring && !job.skipped && !getDynamicMode() && !!onRescheduleRecurring
+	);
+	const stepperAdjustable = $derived(oneOffAdjustable || recurringAdjustable);
 
 	const TEMP_MIN = 80;
 	const TEMP_MAX = 110;
@@ -140,17 +148,36 @@
 	let tempOffset = $state(0);
 	const dirty = $derived(timeOffsetMin !== 0 || tempOffset !== 0);
 
+	// One-off: the draft is an instant. Recurring: the draft is a daily HH:MM wall clock,
+	// based on the user-facing time (the ready-by time for DTDT parents, whose
+	// scheduledTime is the earlier cron wake-up).
 	const draftIso = $derived(
 		new Date(new Date(job.scheduledTime).getTime() + timeOffsetMin * 60_000).toISOString()
+	);
+	function shiftHHMM(hhmm: string, deltaMin: number): string {
+		const [h, m] = hhmm.split(':').map(Number);
+		const total = (h * 60 + m + deltaMin + 1440 * 100) % 1440;
+		const pad = (n: number) => String(n).padStart(2, '0');
+		return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
+	}
+	const recurringBaseClock = $derived(job.params?.ready_by_time ?? job.scheduledTime);
+	const draftClockHHMM = $derived(
+		job.recurring ? shiftHHMM(recurringBaseClock, timeOffsetMin) : null
 	);
 	const draftTemp = $derived(
 		job.params?.target_temp_f != null
 			? Math.min(TEMP_MAX, Math.max(TEMP_MIN, job.params.target_temp_f + tempOffset))
 			: null
 	);
-	const oneOffClock = $derived(
-		new Date(draftIso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-	);
+	const draftClockDisplay = $derived.by(() => {
+		if (job.recurring && draftClockHHMM) {
+			const [h, m] = draftClockHHMM.split(':').map(Number);
+			const d = new Date();
+			d.setHours(h, m, 0, 0);
+			return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+		}
+		return new Date(draftIso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+	});
 	let rescheduling = $state(false);
 	let rescheduleError = $state<string | null>(null);
 
@@ -165,7 +192,11 @@
 		rescheduleError = null;
 		try {
 			const tempArg = tempOffset !== 0 && draftTemp != null ? draftTemp : undefined;
-			await onReschedule?.(job.jobId, draftIso, tempArg);
+			if (job.recurring) {
+				await onRescheduleRecurring?.(job.jobId, draftClockHHMM!, tempArg);
+			} else {
+				await onReschedule?.(job.jobId, draftIso, tempArg);
+			}
 			// Committed — server is the new truth; go clean (the reload refreshes the base time).
 			timeOffsetMin = 0;
 			tempOffset = 0;
@@ -187,7 +218,7 @@
 	// is lost. The effect tracks `dirty` (a boolean edge), not every tap; the registered
 	// closures read live draft state when the guard calls them.
 	function describeChange(): string {
-		const parts = [oneOffClock];
+		const parts = [draftClockDisplay];
 		if (draftTemp != null) parts.push(`${formatTemp(draftTemp)}°F`);
 		return `${title} → ${parts.join(' · ')}`;
 	}
@@ -280,8 +311,9 @@
 				>
 				{#if tempError}<span class="text-xs text-red-400">{tempError}</span>{/if}
 			</div>
-		{:else if oneOffAdjustable}
-			<!-- One-time heat-to-target: quick ± time / temp adjust (no skip). -->
+		{:else if stepperAdjustable}
+			<!-- Heat-to-target quick ± time / temp adjust — identical for one-time and
+			     recurring (card parity); recurring adds Skip next below. -->
 			<div class="mt-3 grid grid-cols-2 gap-2">
 				<div class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5">
 					<button
@@ -292,7 +324,7 @@
 						class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
 						>&minus;</button
 					>
-					<span class="text-xs text-slate-400" data-testid="event-oneoff-time">{oneOffClock}</span>
+					<span class="text-xs text-slate-400" data-testid="event-oneoff-time">{draftClockDisplay}</span>
 					<button
 						type="button"
 						aria-label="15 minutes later"
@@ -342,6 +374,14 @@
 						data-testid="event-oneoff-save"
 						class="rounded-lg bg-orange-600 px-3 py-1 font-medium text-white hover:bg-orange-500 disabled:opacity-50"
 						>{rescheduling ? 'Saving…' : 'Save'}</button
+					>
+				{:else if recurringAdjustable}
+					<button
+						type="button"
+						onclick={() => onSkip?.(job.jobId)}
+						data-testid="event-skip"
+						class="rounded-lg border border-slate-600 px-3 py-1 text-slate-300 hover:bg-slate-700"
+						>Skip next</button
 					>
 				{/if}
 				<button

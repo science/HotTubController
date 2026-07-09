@@ -342,6 +342,14 @@ export const api = {
 			scheduledTime,
 			...(target_temp_f !== undefined ? { target_temp_f } : {})
 		}),
+	// Change a recurring job's everyday daily time (and optionally temp) in place — same
+	// endpoint, but the time is a bare "HH:MM" wall clock. Ready-by parents recompute
+	// their wake-up cron server-side; the job id (and Home's override folding) survives.
+	rescheduleRecurring: (jobId: string, time: string, target_temp_f?: number) =>
+		put<{ success: boolean; job: ScheduledJob }>(`/api/schedule/${jobId}/reschedule`, {
+			scheduledTime: time,
+			...(target_temp_f !== undefined ? { target_temp_f } : {})
+		}),
 
 	// User management endpoints (admin only)
 	listUsers: () => get<UserListResponse>('/api/users'),

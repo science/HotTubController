@@ -109,6 +109,33 @@ class DtdtService
     }
 
     /**
+     * Reschedule a recurring ready-by job in place: the edited time is the new
+     * READY-BY wall clock; the wake-up cron is recomputed from worst-case heating
+     * (mirroring createReadyBySchedule) and handed to the scheduler's in-place
+     * recurring reschedule, so the job id — and Home's override folding keyed on
+     * it — survives.
+     *
+     * @param string $jobId The recurring ready-by job to move
+     * @param string $newReadyByTime New ready-by time, bare "HH:MM"
+     * @param float|null $targetTempF Optional new target temp
+     * @throws \RuntimeException if heating characteristics are not available
+     */
+    public function rescheduleReadyBy(string $jobId, string $newReadyByTime, ?float $targetTempF = null): array
+    {
+        $chars = $this->loadHeatingCharacteristics();
+
+        $job = $this->schedulerService->getJob($jobId);
+        $tempForEstimate = $targetTempF
+            ?? (float) ($job['params']['target_temp_f'] ?? 103.0);
+        $maxHeatMinutes = $this->calculateMaxHeatMinutes($tempForEstimate, $chars);
+
+        $timezone = $job['timezone'] ?? $job['params']['timezone'] ?? TimeConverter::getSystemTimezone();
+        $wakeUpTime = $this->shiftTimeBack($newReadyByTime, (int) ceil($maxHeatMinutes), $timezone);
+
+        return $this->schedulerService->rescheduleRecurring($jobId, $newReadyByTime, $targetTempF, $wakeUpTime);
+    }
+
+    /**
      * Handle a wake-up call from the DTDT cron job.
      *
      * Reads current temperature, projects cooling, and either starts heating

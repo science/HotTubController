@@ -208,11 +208,14 @@ class ScheduleController
     }
 
     /**
-     * PUT /api/schedule/{id}/reschedule — move a one-off to a new time (and optional temp).
+     * PUT /api/schedule/{id}/reschedule — move a job to a new time (and optional temp),
+     * atomically and in place (the job id is preserved), so a heat is never dropped by
+     * a failed recreate.
      *
-     * Atomic and in-place (the job id is preserved), so a heat is never dropped by a
-     * failed recreate. Recurring jobs are rejected here — adjust their next run via
-     * override-next, or their everyday default by recreating.
+     * Branches on the job's own type:
+     * - one-off:   scheduledTime is an ISO 8601 instant → rescheduleOneOff
+     * - recurring: scheduledTime is a daily "HH:MM" wall clock → rescheduleRecurring;
+     *              ready-by parents recompute their wake-up cron via DtdtService
      *
      * @param array{scheduledTime?: string, target_temp_f?: float|int} $data
      * @return array{status: int, body: array}
@@ -222,6 +225,7 @@ class ScheduleController
         if (empty($data['scheduledTime'])) {
             return ['status' => 400, 'body' => ['error' => 'Missing required field: scheduledTime']];
         }
+        $newTime = (string) $data['scheduledTime'];
 
         $tempF = null;
         if (isset($data['target_temp_f'])) {
@@ -231,12 +235,37 @@ class ScheduleController
             $tempF = (float) $data['target_temp_f'];
         }
 
+        $job = $this->scheduler->getJob($jobId);
+        if ($job === null) {
+            return ['status' => 404, 'body' => ['error' => 'Job not found: ' . $jobId]];
+        }
+
         try {
-            $updated = $this->scheduler->rescheduleOneOff($jobId, (string) $data['scheduledTime'], $tempF);
+            if ($job['recurring'] ?? false) {
+                if (!preg_match('/^\d{2}:\d{2}$/', $newTime)) {
+                    return ['status' => 400, 'body' => [
+                        'error' => 'Invalid time format for a recurring job: expected HH:MM, got ' . $newTime,
+                    ]];
+                }
+                if (isset($job['params']['ready_by_time'])) {
+                    if ($this->dtdtService === null) {
+                        return ['status' => 400, 'body' => [
+                            'error' => 'Cannot reschedule a ready-by job without DTDT support',
+                        ]];
+                    }
+                    $updated = $this->dtdtService->rescheduleReadyBy($jobId, $newTime, $tempF);
+                } else {
+                    $updated = $this->scheduler->rescheduleRecurring($jobId, $newTime, $tempF);
+                }
+            } else {
+                $updated = $this->scheduler->rescheduleOneOff($jobId, $newTime, $tempF);
+            }
             return ['status' => 200, 'body' => ['success' => true, 'job' => $updated]];
         } catch (InvalidArgumentException $e) {
             $status = str_contains(strtolower($e->getMessage()), 'not found') ? 404 : 400;
             return ['status' => $status, 'body' => ['error' => $e->getMessage()]];
+        } catch (\RuntimeException $e) {
+            return ['status' => 400, 'body' => ['error' => $e->getMessage()]];
         }
     }
 

@@ -713,6 +713,125 @@ class ScheduleControllerTest extends TestCase
         $this->assertCount(0, $this->findOverrides($parentId)); // override gone
         $this->assertFalse($this->scheduler->isSkipped($parentId)); // back to normal daily
     }
+
+    // ========== PUT /api/schedule/{id}/reschedule — recurring (in-place) Tests ==========
+
+    /** The HOTTUB crontab entries for a given job id. */
+    private function cronEntriesFor(string $jobId): array
+    {
+        return array_values(array_filter(
+            $this->crontabAdapter->listEntries(),
+            fn($e) => str_contains($e, 'HOTTUB:' . $jobId)
+        ));
+    }
+
+    public function testRescheduleRecurringMovesDailyTimeAndTempInPlace(): void
+    {
+        [$controller] = $this->dtdtController();
+        $parentId = $this->createRecurringParent($controller); // start_at, tz = system tz
+
+        $resp = $controller->reschedule($parentId, [
+            'scheduledTime' => '07:45',
+            'target_temp_f' => 103.5,
+        ]);
+
+        $this->assertEquals(200, $resp['status']);
+        $this->assertTrue($resp['body']['success']);
+        // Same job id — moved in place, never recreated (a failed recreate would drop the daily heat).
+        $this->assertEquals($parentId, $resp['body']['job']['jobId']);
+
+        $saved = json_decode(file_get_contents($this->jobsDir . '/' . $parentId . '.json'), true);
+        $this->assertEquals('07:45', $saved['scheduledTime']);
+        $this->assertEquals(103.5, $saved['params']['target_temp_f']);
+        $this->assertTrue($saved['recurring']);
+
+        // Exactly ONE crontab entry for the job, rewritten to the new daily time.
+        // (Parent tz == system tz, so the cron hour/minute equal the wall clock.)
+        $entries = $this->cronEntriesFor($parentId);
+        $this->assertCount(1, $entries);
+        $this->assertStringStartsWith('45 7 * * *', $entries[0]);
+        $this->assertStringContainsString(':DAILY', $entries[0]);
+    }
+
+    public function testRescheduleRecurringTimeOnlyKeepsExistingTemp(): void
+    {
+        [$controller] = $this->dtdtController();
+        $parentId = $this->createRecurringParent($controller); // created at 102°F
+
+        $resp = $controller->reschedule($parentId, ['scheduledTime' => '09:15']);
+
+        $this->assertEquals(200, $resp['status']);
+        $saved = json_decode(file_get_contents($this->jobsDir . '/' . $parentId . '.json'), true);
+        $this->assertEquals('09:15', $saved['scheduledTime']);
+        $this->assertEquals(102.0, $saved['params']['target_temp_f']);
+    }
+
+    public function testRescheduleRecurringRejectsIsoDatetime(): void
+    {
+        [$controller] = $this->dtdtController();
+        $parentId = $this->createRecurringParent($controller);
+
+        // A recurring job's time is a daily HH:MM wall clock, not an instant.
+        $resp = $controller->reschedule($parentId, [
+            'scheduledTime' => (new \DateTime('+5 hours'))->format(\DateTime::ATOM),
+        ]);
+        $this->assertEquals(400, $resp['status']);
+        $this->assertStringContainsString('HH:MM', $resp['body']['error']);
+    }
+
+    public function testRescheduleRecurringRejectsTempOutOfRange(): void
+    {
+        [$controller] = $this->dtdtController();
+        $parentId = $this->createRecurringParent($controller);
+
+        $resp = $controller->reschedule($parentId, [
+            'scheduledTime' => '07:45',
+            'target_temp_f' => 120,
+        ]);
+        $this->assertEquals(400, $resp['status']);
+    }
+
+    public function testRescheduleRecurringReadyByRecomputesWakeup(): void
+    {
+        [$controller, $settings] = $this->dtdtController();
+        $settings->updateScheduleMode('ready_by');
+        $parentId = $this->createRecurringParent($controller);
+        $this->assertArrayHasKey('ready_by_time', $this->scheduler->getJob($parentId)['params']);
+
+        $resp = $controller->reschedule($parentId, [
+            'scheduledTime' => '08:30',
+            'target_temp_f' => 103,
+        ]);
+
+        $this->assertEquals(200, $resp['status']);
+        $saved = json_decode(file_get_contents($this->jobsDir . '/' . $parentId . '.json'), true);
+        // The edited time IS the ready-by time; both stored representations track it.
+        $this->assertEquals('08:30', $saved['scheduledTime']);
+        $this->assertEquals('08:30', $saved['params']['ready_by_time']);
+        $this->assertEquals('/api/maintenance/dtdt-wakeup', $saved['endpoint']);
+
+        // Cron fires at the recomputed worst-case wake-up, not at 08:30:
+        // maxHeat = (103-58)/0.3 + 10 lag + 15 margin = 175 min → 08:30 - 175 = 05:35.
+        $entries = $this->cronEntriesFor($parentId);
+        $this->assertCount(1, $entries);
+        $this->assertStringStartsWith('35 5 * * *', $entries[0]);
+    }
+
+    public function testRescheduleRecurringReadyByWithoutDtdtIs400(): void
+    {
+        // Build a ready-by parent, then hit a controller with NO DtdtService: it must
+        // refuse rather than silently schedule the cron at the ready-by time (late heat).
+        [$dtdtController, $settings] = $this->dtdtController();
+        $settings->updateScheduleMode('ready_by');
+        $parentId = $this->createRecurringParent($dtdtController);
+
+        $bare = new ScheduleController($this->scheduler);
+        $resp = $bare->reschedule($parentId, ['scheduledTime' => '08:30']);
+
+        $this->assertEquals(400, $resp['status']);
+        $saved = json_decode(file_get_contents($this->jobsDir . '/' . $parentId . '.json'), true);
+        $this->assertNotEquals('08:30', $saved['scheduledTime']); // untouched
+    }
 }
 
 /**
