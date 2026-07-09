@@ -146,4 +146,58 @@ class HeatTargetSettingsController
             ],
         ];
     }
+
+    /**
+     * Update only the target temperature (write-level).
+     *
+     * Unlike update(), this requires neither the `enabled` flag nor any admin-only
+     * config, and changes neither — it sets just the saved default target temp used
+     * by "heat now" and as the seed for newly created schedules. Dynamic mode,
+     * calibration, timezone, schedule mode and stall settings stay admin-only via
+     * update(). Already-created scheduled jobs keep their own per-job temperatures.
+     *
+     * @param array $data Request data with 'target_temp_f' (numeric)
+     */
+    public function updateTemp(array $data): array
+    {
+        if (!isset($data['target_temp_f'])) {
+            return [
+                'status' => 400,
+                'body' => ['error' => 'target_temp_f is required'],
+            ];
+        }
+
+        if (!is_numeric($data['target_temp_f'])) {
+            return [
+                'status' => 400,
+                'body' => ['error' => 'target_temp_f must be a number'],
+            ];
+        }
+
+        try {
+            $this->settingsService->updateTargetTemp((float) $data['target_temp_f']);
+        } catch (\InvalidArgumentException $e) {
+            return [
+                'status' => 400,
+                'body' => ['error' => $e->getMessage()],
+            ];
+        }
+
+        $settings = $this->settingsService->getSettings();
+
+        return [
+            'status' => 200,
+            'body' => [
+                'enabled' => $settings['enabled'],
+                'target_temp_f' => $settings['target_temp_f'],
+                'timezone' => $settings['timezone'],
+                'schedule_mode' => $settings['schedule_mode'],
+                'stall_grace_period_minutes' => $settings['stall_grace_period_minutes'],
+                'stall_timeout_minutes' => $settings['stall_timeout_minutes'],
+                'dynamic_mode' => $settings['dynamic_mode'],
+                'calibration_points' => $settings['calibration_points'],
+                'message' => 'Target temperature updated',
+            ],
+        ];
+    }
 }

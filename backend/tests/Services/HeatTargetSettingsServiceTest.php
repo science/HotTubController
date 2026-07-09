@@ -58,6 +58,73 @@ class HeatTargetSettingsServiceTest extends TestCase
         $this->assertEquals(103.0, $this->service->getTargetTempF());
     }
 
+    // ==================== Update Target Temp Only Tests ====================
+
+    /**
+     * @test
+     */
+    public function updateTargetTempStoresTemperature(): void
+    {
+        $this->service->updateTargetTemp(106.5);
+
+        $this->assertEquals(106.5, $this->service->getTargetTempF());
+    }
+
+    /**
+     * @test
+     */
+    public function updateTargetTempPreservesEnabledState(): void
+    {
+        $this->service->updateSettings(true, 103.0);
+
+        $this->service->updateTargetTemp(105.0);
+
+        // A temp-only update must leave the enabled flag untouched.
+        $this->assertTrue($this->service->isEnabled());
+        $this->assertEquals(105.0, $this->service->getTargetTempF());
+    }
+
+    /**
+     * @test
+     */
+    public function updateTargetTempLeavesDisabledStateDisabled(): void
+    {
+        $this->service->updateTargetTemp(101.0);
+
+        $this->assertFalse($this->service->isEnabled());
+        $this->assertEquals(101.0, $this->service->getTargetTempF());
+    }
+
+    /**
+     * @test
+     */
+    public function updateTargetTempAcceptsQuarterDegrees(): void
+    {
+        $this->service->updateTargetTemp(102.25);
+
+        $this->assertEquals(102.25, $this->service->getTargetTempF());
+    }
+
+    /**
+     * @test
+     */
+    public function updateTargetTempRejectsTemperatureTooLow(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->service->updateTargetTemp(79.0);
+    }
+
+    /**
+     * @test
+     */
+    public function updateTargetTempRejectsTemperatureTooHigh(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->service->updateTargetTemp(111.0);
+    }
+
     // ==================== Update Settings Tests ====================
 
     /**

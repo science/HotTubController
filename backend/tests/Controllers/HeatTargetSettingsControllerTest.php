@@ -238,6 +238,102 @@ class HeatTargetSettingsControllerTest extends TestCase
         $this->assertEquals(103.25, $response['body']['target_temp_f']);
     }
 
+    // ============ Update Temp Only Tests (write-level Home dial) ============
+
+    /**
+     * @test
+     */
+    public function updateTempSetsTemperatureWithoutEnabledField(): void
+    {
+        $response = $this->controller->updateTemp([
+            'target_temp_f' => 104.0,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals(104.0, $response['body']['target_temp_f']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateTempPreservesEnabledState(): void
+    {
+        // Heat-to-target is on; a temp-only dial change must not disable it.
+        $this->service->updateSettings(true, 103.0);
+
+        $response = $this->controller->updateTemp([
+            'target_temp_f' => 106.0,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertTrue($response['body']['enabled']);
+        $this->assertTrue($this->service->isEnabled());
+        $this->assertEquals(106.0, $this->service->getTargetTempF());
+    }
+
+    /**
+     * @test
+     */
+    public function updateTempReturns400WhenTargetTempMissing(): void
+    {
+        $response = $this->controller->updateTemp([]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateTempReturns400WhenTargetTempNotNumeric(): void
+    {
+        $response = $this->controller->updateTemp([
+            'target_temp_f' => 'hot',
+        ]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateTempReturns400WhenTemperatureTooLow(): void
+    {
+        $response = $this->controller->updateTemp([
+            'target_temp_f' => 79.0,
+        ]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertStringContainsString('between', $response['body']['error']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateTempReturns400WhenTemperatureTooHigh(): void
+    {
+        $response = $this->controller->updateTemp([
+            'target_temp_f' => 111.0,
+        ]);
+
+        $this->assertEquals(400, $response['status']);
+        $this->assertArrayHasKey('error', $response['body']);
+    }
+
+    /**
+     * @test
+     */
+    public function updateTempAcceptsIntegerTemperature(): void
+    {
+        $response = $this->controller->updateTemp([
+            'target_temp_f' => 104,
+        ]);
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertEquals(104.0, $response['body']['target_temp_f']);
+    }
+
     // ==================== Timezone Tests ====================
 
     /**

@@ -310,14 +310,23 @@ $router->put('/api/esp32/sensors/{address}', fn($params) => handleEsp32SensorUpd
 // Heat-target settings endpoints
 $router->get('/api/settings/heat-target', fn() => $heatTargetSettingsController->get(), $requireAuth);
 $router->put('/api/settings/heat-target', fn() => handleHeatTargetSettingsUpdate($heatTargetSettingsController), $requireAdmin);
+// Write-level: set ONLY the saved default target temp (Home dial). All other
+// heat-target config stays admin-only on the route above.
+$router->put('/api/settings/heat-target/temp', fn() => handleHeatTargetTempUpdate($heatTargetSettingsController), $requireWrite);
 
 // Protected schedule routes (reads → requireAuth; mutations → requireWrite)
 $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController), $requireWrite);
 $router->get('/api/schedule', fn() => $scheduleController->list(), $requireAuth);
 $router->delete('/api/schedule/{id}', fn($params) => $scheduleController->cancel($params['id']), $requireWrite);
 $router->put('/api/schedule/{id}/target-temp', fn($params) => handleScheduleUpdateTargetTemp($scheduleController, $params['id']), $requireWrite);
+// Move a one-off to a new time/temp in place (atomic; preserves the job id).
+$router->put('/api/schedule/{id}/reschedule', fn($params) => handleScheduleReschedule($scheduleController, $params['id']), $requireWrite);
 $router->post('/api/schedule/{id}/skip', fn($params) => $scheduleController->skip($params['id']), $requireWrite);
 $router->delete('/api/schedule/{id}/skip', fn($params) => $scheduleController->unskip($params['id']), $requireWrite);
+// "Adjust just the next run": skip the recurring + a mode-aware one-off override (POST);
+// undo back to the daily default (DELETE).
+$router->post('/api/schedule/{id}/override-next', fn($params) => handleScheduleOverrideNext($scheduleController, $params['id']), $requireWrite);
+$router->delete('/api/schedule/{id}/override-next', fn($params) => $scheduleController->clearOverride($params['id']), $requireWrite);
 
 // Admin-only user management routes
 $router->get('/api/users', fn() => $userController->list(), $requireAdmin);
@@ -487,10 +496,28 @@ function handleHeatTargetSettingsUpdate(HeatTargetSettingsController $controller
     return $controller->update($input);
 }
 
+function handleHeatTargetTempUpdate(HeatTargetSettingsController $controller): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->updateTemp($input);
+}
+
 function handleScheduleUpdateTargetTemp(ScheduleController $controller, string $jobId): array
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->updateTargetTemp($jobId, $input);
+}
+
+function handleScheduleReschedule(ScheduleController $controller, string $jobId): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->reschedule($jobId, $input);
+}
+
+function handleScheduleOverrideNext(ScheduleController $controller, string $jobId): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->overrideNext($jobId, $input);
 }
 
 function handleDtdtWakeUp(DtdtService $dtdtService): array
