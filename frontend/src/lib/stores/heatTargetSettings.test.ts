@@ -4,7 +4,8 @@ import type { HealthResponse } from '$lib/api';
 // Mock the api module before importing the store
 vi.mock('$lib/api', () => ({
 	api: {
-		updateHeatTargetSettings: vi.fn()
+		updateHeatTargetSettings: vi.fn(),
+		setDefaultTargetTemp: vi.fn()
 	}
 }));
 
@@ -12,6 +13,8 @@ vi.mock('$lib/api', () => ({
 import {
 	initFromHealthResponse,
 	updateSettings,
+	setTargetTempF,
+	persistDefaultTargetTemp,
 	getEnabled,
 	getTargetTempF,
 	getHeatButtonLabel,
@@ -447,6 +450,84 @@ describe('heatTargetSettings store', () => {
 				}
 			});
 			expect(getDynamicMode()).toBe(false);
+		});
+	});
+
+	describe('Home dial: setTargetTempF (local, synchronous)', () => {
+		it('updates the local target immediately', () => {
+			setTargetTempF(106);
+			expect(getTargetTempF()).toBe(106);
+		});
+
+		it('clamps below the minimum to 80', () => {
+			setTargetTempF(50);
+			expect(getTargetTempF()).toBe(80);
+		});
+
+		it('clamps above the maximum to 110', () => {
+			setTargetTempF(200);
+			expect(getTargetTempF()).toBe(110);
+		});
+	});
+
+	describe('Home dial: persistDefaultTargetTemp (write-level endpoint)', () => {
+		it('calls the write-level endpoint with the clamped temp', async () => {
+			vi.mocked(api.setDefaultTargetTemp).mockResolvedValue({
+				enabled: true,
+				target_temp_f: 110,
+				timezone: 'America/Los_Angeles',
+				message: 'Target temperature updated'
+			});
+
+			await persistDefaultTargetTemp(200);
+
+			expect(api.setDefaultTargetTemp).toHaveBeenCalledWith(110);
+		});
+
+		it('syncs the local target from the response', async () => {
+			vi.mocked(api.setDefaultTargetTemp).mockResolvedValue({
+				enabled: false,
+				target_temp_f: 104.25,
+				timezone: 'America/Los_Angeles',
+				message: 'Target temperature updated'
+			});
+
+			await persistDefaultTargetTemp(104.25);
+
+			expect(getTargetTempF()).toBe(104.25);
+		});
+
+		it('preserves the enabled flag — a temp change never force-toggles it', async () => {
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				heatTargetSettings: {
+					enabled: true,
+					target_temp_f: 103,
+					timezone: 'America/Los_Angeles'
+				}
+			});
+			vi.mocked(api.setDefaultTargetTemp).mockResolvedValue({
+				enabled: true,
+				target_temp_f: 105,
+				timezone: 'America/Los_Angeles',
+				message: 'Target temperature updated'
+			});
+
+			await persistDefaultTargetTemp(105);
+
+			expect(getEnabled()).toBe(true);
+			expect(getTargetTempF()).toBe(105);
+		});
+
+		it('throws and surfaces the error on API failure', async () => {
+			vi.mocked(api.setDefaultTargetTemp).mockRejectedValue(new Error('Network error'));
+
+			await expect(persistDefaultTargetTemp(104)).rejects.toThrow('Network error');
 		});
 	});
 });

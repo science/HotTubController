@@ -18,6 +18,7 @@ export interface ScheduledJob {
 		target_temp_f?: number;
 		ready_by_time?: string;
 		timezone?: string;
+		override_of?: string;
 	};
 	skipped?: boolean;
 	skipDate?: string;
@@ -326,6 +327,29 @@ export const api = {
 		put<ScheduledJob>(`/api/schedule/${jobId}/target-temp`, { target_temp_f: targetTempF }),
 	skipScheduledJob: (jobId: string) => post(`/api/schedule/${jobId}/skip`),
 	unskipScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}/skip`),
+	// "Adjust just the next run" of a recurring job: skip it + a mode-aware one-off
+	// override at the new HH:MM time/temp. clearOverrideNext undoes back to the default.
+	overrideNextOccurrence: (jobId: string, scheduledTime: string, target_temp_f: number) =>
+		postJson<{ success: boolean; override: ScheduledJob }>(
+			`/api/schedule/${jobId}/override-next`,
+			{ scheduledTime, target_temp_f }
+		),
+	clearOverrideNext: (jobId: string) => del(`/api/schedule/${jobId}/override-next`),
+	// Move a one-off to a new time (and optionally temp) in place — preserves the job id,
+	// so a heat is never dropped by a failed recreate. One-off (non-recurring) jobs only.
+	rescheduleOneOff: (jobId: string, scheduledTime: string, target_temp_f?: number) =>
+		put<{ success: boolean; job: ScheduledJob }>(`/api/schedule/${jobId}/reschedule`, {
+			scheduledTime,
+			...(target_temp_f !== undefined ? { target_temp_f } : {})
+		}),
+	// Change a recurring job's everyday daily time (and optionally temp) in place — same
+	// endpoint, but the time is a bare "HH:MM" wall clock. Ready-by parents recompute
+	// their wake-up cron server-side; the job id (and Home's override folding) survives.
+	rescheduleRecurring: (jobId: string, time: string, target_temp_f?: number) =>
+		put<{ success: boolean; job: ScheduledJob }>(`/api/schedule/${jobId}/reschedule`, {
+			scheduledTime: time,
+			...(target_temp_f !== undefined ? { target_temp_f } : {})
+		}),
 
 	// User management endpoints (admin only)
 	listUsers: () => get<UserListResponse>('/api/users'),
@@ -367,6 +391,12 @@ export const api = {
 			...(stall_timeout_minutes !== undefined && { stall_timeout_minutes }),
 			...(dynamic_mode !== undefined && { dynamic_mode }),
 			...(calibration_points !== undefined && { calibration_points })
+		}),
+	// Write-level: set ONLY the saved default target temp (Home "Heat now" dial).
+	// Leaves enabled + all admin-only config untouched; existing jobs keep their own temp.
+	setDefaultTargetTemp: (target_temp_f: number) =>
+		put<HeatTargetSettings & { message: string }>('/api/settings/heat-target/temp', {
+			target_temp_f
 		}),
 
 	// Heating characteristics analysis (admin only)

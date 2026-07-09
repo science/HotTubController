@@ -121,6 +121,48 @@ export async function updateSettings(
 }
 
 /**
+ * Set the saved default target temperature locally (synchronous, clamped to
+ * [MIN_TEMP_F, MAX_TEMP_F]).
+ *
+ * Updates the in-memory value immediately so the Heat button label, the ETA, and
+ * handleHeatOn reflect the dial the instant the user taps. Persist separately via
+ * persistDefaultTargetTemp() (the caller debounces it).
+ *
+ * @returns the clamped value actually applied
+ */
+export function setTargetTempF(newTargetTempF: number): number {
+	const clamped = Math.min(MAX_TEMP_F, Math.max(MIN_TEMP_F, newTargetTempF));
+	targetTempF = clamped;
+	return clamped;
+}
+
+/**
+ * Persist the saved default target temperature via the write-level endpoint.
+ *
+ * Available to any control role (admin/user/basic). The backend leaves `enabled`
+ * and all admin-only config untouched, and does not change already-created scheduled
+ * jobs — those keep their own per-job target. Syncs local state from the response.
+ *
+ * @throws Error if the API call fails
+ */
+export async function persistDefaultTargetTemp(newTargetTempF: number): Promise<void> {
+	const clamped = Math.min(MAX_TEMP_F, Math.max(MIN_TEMP_F, newTargetTempF));
+	isLoading = true;
+	error = null;
+
+	try {
+		const response = await api.setDefaultTargetTemp(clamped);
+		targetTempF = response.target_temp_f;
+		enabled = response.enabled;
+	} catch (e) {
+		error = e instanceof Error ? e.message : 'Failed to save target temperature';
+		throw e;
+	} finally {
+		isLoading = false;
+	}
+}
+
+/**
  * Check if heat-to-target mode is enabled.
  */
 export function getEnabled(): boolean {

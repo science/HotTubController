@@ -546,6 +546,36 @@ class SchedulerService
     }
 
     /**
+     * Read a single job's stored data, or null if it does not exist.
+     */
+    public function getJob(string $jobId): ?array
+    {
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+        if (!file_exists($jobFile)) {
+            return null;
+        }
+        $data = json_decode(file_get_contents($jobFile), true);
+        return is_array($data) ? $data : null;
+    }
+
+    /**
+     * Cancel the one-off "override" job created for a recurring parent — a one-off
+     * whose params.override_of equals $parentJobId. Used to replace a prior
+     * next-occurrence override idempotently. Returns the cancelled job id, or null.
+     */
+    public function cancelOverrideFor(string $parentJobId): ?string
+    {
+        foreach (glob($this->jobsDir . '/job-*.json') ?: [] as $file) {
+            $data = json_decode(file_get_contents($file), true);
+            if (is_array($data) && (($data['params']['override_of'] ?? null) === $parentJobId)) {
+                $this->cancelJob($data['jobId']);
+                return $data['jobId'];
+            }
+        }
+        return null;
+    }
+
+    /**
      * Update the target temperature for a heat-to-target job.
      *
      * @param string $jobId The job ID to update
@@ -578,6 +608,198 @@ class SchedulerService
         }
 
         $jobData['params'] = array_merge($jobData['params'] ?? [], ['target_temp_f' => $targetTempF]);
+
+        file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        return $jobData;
+    }
+
+    /**
+     * Reschedule a one-off job to a new time (and optionally a new target temp),
+     * preserving its job id and re-registering its cron entry at the new time.
+     *
+     * Atomic and in-place: the heat is never dropped by a failed recreate. Recurring
+     * jobs are rejected — change their next run via override-next, or their everyday
+     * default by recreating. Mirrors the one-off branch of scheduleJob().
+     *
+     * @param string $jobId The one-off job to move
+     * @param string $newScheduledTime ISO 8601 datetime (may carry a client offset)
+     * @param float|null $targetTempF Optional new target temp (heat-to-target only)
+     * @return array The updated job data
+     * @throws InvalidArgumentException If the job is missing, recurring, the time is past,
+     *                                  or the temp is out of range
+     */
+    public function rescheduleOneOff(string $jobId, string $newScheduledTime, ?float $targetTempF = null): array
+    {
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+        if (!file_exists($jobFile)) {
+            throw new InvalidArgumentException('Job not found: ' . $jobId);
+        }
+
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        if (($jobData['recurring'] ?? false) === true) {
+            throw new InvalidArgumentException(
+                'Cannot reschedule a recurring job; change its next run or recreate it'
+            );
+        }
+
+        if (new \DateTime($newScheduledTime) <= new \DateTime()) {
+            throw new InvalidArgumentException('Scheduled time must be in the future, not in the past');
+        }
+
+        if ($targetTempF !== null) {
+            if (($jobData['action'] ?? '') !== 'heat-to-target') {
+                throw new InvalidArgumentException('Can only set target temperature for heat-to-target jobs');
+            }
+            if ($targetTempF < TargetTemperatureService::MIN_TARGET_TEMP_F
+                || $targetTempF > TargetTemperatureService::MAX_TARGET_TEMP_F
+            ) {
+                throw new InvalidArgumentException(sprintf(
+                    'Target temperature must be between %.0f and %.0f°F',
+                    TargetTemperatureService::MIN_TARGET_TEMP_F,
+                    TargetTemperatureService::MAX_TARGET_TEMP_F
+                ));
+            }
+            $jobData['params'] = array_merge($jobData['params'] ?? [], ['target_temp_f' => $targetTempF]);
+        }
+
+        // Move the stored instant (UTC) and swap the cron entry — same job id throughout.
+        $utcDateTime = $this->timeConverter->toUtc($newScheduledTime);
+        $jobData['scheduledTime'] = $utcDateTime->format(\DateTime::ATOM);
+
+        $this->crontabAdapter->removeByPattern('HOTTUB:' . $jobId);
+        $actionLabel = self::ACTION_LABELS[$jobData['action']] ?? 'JOB';
+        $command = sprintf('%s %s', escapeshellarg($this->cronRunnerPath), escapeshellarg($jobId));
+        $comment = sprintf('HOTTUB:%s:%s:ONCE', $jobId, $actionLabel);
+        $this->cronSchedulingService->scheduleAt($utcDateTime->getTimestamp(), $command, $comment);
+
+        file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        return $jobData;
+    }
+
+    /**
+     * Reschedule a recurring job's daily time (and optionally its target temp) in
+     * place, preserving its job id. The recurring sibling of rescheduleOneOff():
+     * atomic on the job file, so the daily heat is never dropped by a failed
+     * recreate (which would also orphan Home's override folding, keyed on this id).
+     *
+     * Rewrites the daily cron entry via CronSchedulingService (DST-safe when the job
+     * stores an IANA timezone) and recreates the Healthchecks.io check to match the
+     * new fire time (the API has no schedule-update call; monitoring failure never
+     * blocks the reschedule, same as at creation).
+     *
+     * Ready-by (DTDT) jobs: $newTime is the new READY-BY wall clock; the caller must
+     * pass $cronTime = the recomputed wake-up time (see DtdtService::rescheduleReadyBy).
+     * Refuses a ready-by job without one — silently cronning at the ready-by time
+     * would start the heat hours late.
+     *
+     * @param string $jobId The recurring job to move
+     * @param string $newTime New daily time, bare "HH:MM" wall clock
+     * @param float|null $targetTempF Optional new target temp (heat-to-target only)
+     * @param string|null $cronTime Actual cron fire time when it differs (ready-by wake-up)
+     * @return array The updated job data
+     * @throws InvalidArgumentException If the job is missing, not recurring, the time is
+     *                                  malformed, the temp is out of range, or a ready-by
+     *                                  job is given no recomputed cron time
+     */
+    public function rescheduleRecurring(
+        string $jobId,
+        string $newTime,
+        ?float $targetTempF = null,
+        ?string $cronTime = null
+    ): array {
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+        if (!file_exists($jobFile)) {
+            throw new InvalidArgumentException('Job not found: ' . $jobId);
+        }
+
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        if (($jobData['recurring'] ?? false) !== true) {
+            throw new InvalidArgumentException(
+                'Can only reschedule recurring jobs here; move a one-off with rescheduleOneOff'
+            );
+        }
+
+        if (!preg_match('/^\d{2}:\d{2}$/', $newTime)) {
+            throw new InvalidArgumentException('Invalid time format: expected HH:MM, got ' . $newTime);
+        }
+
+        if (isset($jobData['params']['ready_by_time']) && $cronTime === null) {
+            throw new InvalidArgumentException(
+                'Ready-by jobs need a recomputed wake-up cron time; reschedule via DtdtService'
+            );
+        }
+
+        if ($targetTempF !== null) {
+            if (($jobData['action'] ?? '') !== 'heat-to-target') {
+                throw new InvalidArgumentException('Can only set target temperature for heat-to-target jobs');
+            }
+            if ($targetTempF < TargetTemperatureService::MIN_TARGET_TEMP_F
+                || $targetTempF > TargetTemperatureService::MAX_TARGET_TEMP_F
+            ) {
+                throw new InvalidArgumentException(sprintf(
+                    'Target temperature must be between %.0f and %.0f°F',
+                    TargetTemperatureService::MIN_TARGET_TEMP_F,
+                    TargetTemperatureService::MAX_TARGET_TEMP_F
+                ));
+            }
+            $jobData['params'] = array_merge($jobData['params'] ?? [], ['target_temp_f' => $targetTempF]);
+        }
+
+        // Both stored representations track the user-facing time.
+        $jobData['scheduledTime'] = $newTime;
+        if (isset($jobData['params']['ready_by_time'])) {
+            $jobData['params']['ready_by_time'] = $newTime;
+        }
+
+        // Swap the daily cron entry — same branches as creation (scheduleRecurringJob).
+        $timezone = $jobData['timezone'] ?? null;
+        $actualCronTime = $cronTime ?? $newTime;
+        $this->crontabAdapter->removeByPattern('HOTTUB:' . $jobId);
+        $actionLabel = self::ACTION_LABELS[$jobData['action']] ?? 'JOB';
+        $command = sprintf('%s %s', escapeshellarg($this->cronRunnerPath), escapeshellarg($jobId));
+        $comment = sprintf('HOTTUB:%s:%s:DAILY', $jobId, $actionLabel);
+
+        if ($timezone !== null) {
+            $this->cronSchedulingService->scheduleDailyInTimezone($actualCronTime, $timezone, $command, $comment);
+        } elseif (preg_match('/^\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $actualCronTime)) {
+            $this->cronSchedulingService->scheduleDaily($actualCronTime, $command, $comment);
+        } else {
+            $cronExpression = $this->formatDailyCronFromTime($actualCronTime);
+            $this->crontabAdapter->addEntry(sprintf('%s %s # %s', $cronExpression, $command, $comment));
+        }
+
+        // Re-point monitoring at the new fire time: the Healthchecks API has no
+        // schedule update, so delete + recreate. Never blocks the reschedule.
+        if (($jobData['healthcheckUuid'] ?? null) !== null
+            && $this->healthchecksClient !== null
+            && $this->healthchecksClient->isEnabled()
+        ) {
+            $this->healthchecksClient->delete($jobData['healthcheckUuid']);
+            unset($jobData['healthcheckUuid'], $jobData['healthcheckPingUrl']);
+
+            if ($timezone !== null) {
+                $serverDateTime = $this->timeConverter->parseTimeInTimezone($actualCronTime, $timezone, toServerTz: true);
+                $healthcheckCronExpression = $this->formatDailyCronExpression($serverDateTime);
+            } else {
+                $healthcheckCronExpression = $this->formatDailyCronFromTime($actualCronTime);
+            }
+            $checkName = $this->formatCheckName($jobId, $jobData['action'], true);
+            $healthcheckData = $this->createHealthCheck(
+                $checkName,
+                $healthcheckCronExpression,
+                TimeConverter::getSystemTimezone()
+            );
+            if (($healthcheckData['uuid'] ?? null) !== null) {
+                $jobData['healthcheckUuid'] = $healthcheckData['uuid'];
+            }
+            if (($healthcheckData['ping_url'] ?? null) !== null) {
+                $jobData['healthcheckPingUrl'] = $healthcheckData['ping_url'];
+            }
+        }
 
         file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
