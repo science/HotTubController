@@ -175,7 +175,7 @@ old UI stays live until Stage 5.
 - **Verify gate:** User creates one-off + recurring jobs; Guest has no Schedule tab; tests
   green. ✅
 
-### Stage 2.5 — Card parity (recurring ⇄ one-off) ← ACTIVE
+### Stage 2.5 — Card parity (recurring ⇄ one-off) ✅ (except F8)
 - Backend (TDD): atomic **in-place recurring reschedule** — change a recurring job's daily
   time (+ optional temp) preserving its id, mirroring `rescheduleOneOff`. Must rewrite the
   daily cron via `CronSchedulingService`/`scheduleDailyInTimezone`, keep the healthcheck
@@ -186,11 +186,15 @@ old UI stays live until Stage 5.
   Save/Discard for recurring heat-to-target as for one-offs (recurring differs only by the
   repeat indicator + Skip next). "Edit temp" input retires.
 - Also fold Home's adjust-bar into the selected card (review F8) so Home and Schedule share
-  one expanded-card interaction.
+  one expanded-card interaction. ← **remaining piece; do with Steve's eyes on the mockup**
 - **Verify gate:** recurring daily time/temp edit round-trips; skip/override flows intact;
-  tests green. **STOP.**
+  tests green. ✅ (backend + Schedule tab landed 2026-07-08; F8 open)
 
-### Stage 3 — Setup (Owner)
+### Stage 3 — Setup (Owner) — shell ✅, decomposition pending
+> Shipped as a shell first (2026-07-08): `v2/setup` gates on `canConfigure`, re-homes
+> `SettingsPanel` (as-is) + `SensorConfigPanel` under labeled sections, links the users
+> page, with owner/user E2E. Remaining: the decomposition below, plus deciding what
+> happens to the localStorage prefs (auto heat-off — Q2) that SettingsPanel drags along.
 - `v2/setup` route with sub-sections; decompose `SettingsPanel` → Heat targets / Sensors /
   Heating analysis / Users (reuse `SensorConfigPanel`, the `users` page, the
   `DynamicTargetCalculator` chart).
