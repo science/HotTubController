@@ -101,12 +101,14 @@ Not implemented tonight: it touches the selection/guard state machine and E2E sp
 better done deliberately as part of the Stage-2.5 card-parity work, where Home's expanded
 card and Schedule's card become the same component.
 
-### F9. Recurring vs one-off cards still lack parity — [in progress, per existing decision]
-On the Schedule tab a one-off gets inline ± time/temp steppers; a recurring card gets a
-modal-ish "Edit temp" input and *no* time adjustment (its daily time can only be changed
-by delete + re-add). The already-made decision (atomic in-place recurring reschedule
-endpoint, then identical steppers on both card types) is the right fix and is the next
-implementation step.
+### F9. Recurring vs one-off cards still lack parity — [fixed later the same night]
+On the Schedule tab a one-off got inline ± time/temp steppers; a recurring card got a
+modal-ish "Edit temp" input and *no* time adjustment (its daily time could only be changed
+by delete + re-add). Landed per the standing decision: atomic in-place recurring
+reschedule (`SchedulerService::rescheduleRecurring` + `DtdtService::rescheduleReadyBy`
+for ready-by wake-up recompute, TDD'd), `PUT /api/schedule/{id}/reschedule` branching on
+job type, and `EventCard` rendering identical steppers for recurring heat events (Skip
+next shows while clean). "Edit temp" is retired from adjustable cards.
 
 ### F10. Smaller notes
 - **Add sheet**: "+ Add" → what? Retitled the button "Add heating" per the copy rule
