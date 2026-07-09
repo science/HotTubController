@@ -262,6 +262,11 @@ test.describe('v2 Home (MVP)', () => {
 				// default, but the dial that would rewrite that default is absent.
 				await expect(guest.getByRole('button', { name: /Heat to 103/ })).toBeVisible();
 				await expect(guest.getByTestId('target-dial')).toHaveCount(0);
+
+				// Role matrix: Guest is Home-only — with a single tab there is no tab bar at all.
+				await expect(guest.getByTestId('tab-schedule')).toHaveCount(0);
+				await expect(guest.getByTestId('tab-setup')).toHaveCount(0);
+				await expect(guest.getByTestId('tab-home')).toHaveCount(0);
 			} finally {
 				await guestContext.close();
 				await page.request.delete(`/tub/backend/public/api/users/${username}`);
