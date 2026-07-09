@@ -6,7 +6,7 @@
 	import { registerPendingEdit, clearPendingEdit } from '$lib/stores/pendingEdits.svelte';
 	import CompactControlButton from '$lib/components/CompactControlButton.svelte';
 	import EquipmentStatusBar from '$lib/components/EquipmentStatusBar.svelte';
-	import TempHero from '$lib/components/TempHero.svelte';
+	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
 	import { api, type TargetTemperatureState, type ScheduledJob } from '$lib/api';
 	import { canControl, canSchedule, canTuneTarget } from '$lib/roles';
 	import { foldScheduledEvents, formatNextFire, type LogicalEvent } from '$lib/scheduleUtils';
@@ -492,8 +492,10 @@
 {/snippet}
 
 <section data-testid="v2-home" class="flex flex-col gap-3">
-	<!-- Temperature hero -->
-	<TempHero />
+	<!-- Temperature readout: the plain instrument-panel card, on purpose. Steve rejected
+	     a big-number "hero" treatment here (2026-07-08) — this UI is a functional control
+	     panel, and the dense labeled readout is the desired look. -->
+	<TemperaturePanel />
 
 	<!-- Primary controls: heat now / off / pump -->
 	{#if canAct}

@@ -20,9 +20,8 @@ test.describe('v2 Home (MVP)', () => {
 		await expect(page.getByTestId('v2-home')).toBeVisible({ timeout: 15000 });
 	});
 
-	test('shows the temperature hero and primary controls', async ({ page }) => {
-		await expect(page.getByTestId('temp-hero')).toBeVisible();
-		await expect(page.getByTestId('hero-water')).toBeVisible();
+	test('shows the temperature panel and primary controls', async ({ page }) => {
+		await expect(page.getByRole('heading', { name: 'Temperature' })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Heat/Pump Off' })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Pump (2h)' })).toBeVisible();
 	});

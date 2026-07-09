@@ -54,13 +54,18 @@ v2 frontend is designed for Owner / User / Guest only**.
 ### Screens
 
 **Home** (Guest, User, Owner):
+
+> **Superseded detail (2026-07-08):** the big-number temperature treatment sketched below
+> was built, reviewed, and rejected by Steve. v2 Home uses the plain `TemperaturePanel`
+> card unchanged. See the design principle under "Visual & components".
+
 ```
 ┌───────────────────────────┐
 │ ●live   Hot Tub     ⚙  ☰  │
 ├───────────────────────────┤
 │        ╭─────────╮        │
-│        │  102°   │ water  │   temp hero (reuse TemperaturePanel
-│        ╰─────────╯        │   data + staleness logic)
+│        │  102°   │ water  │   ← superseded: plain TemperaturePanel
+│        ╰─────────╯        │     card instead
 │      air 58°  ·  2m ago   │
 │   ┌───────────────────┐   │
 │   │   ◉ HEAT to 104   │   │   single Heat button, label via
@@ -94,6 +99,12 @@ automatically." QuickSchedule is gone.
 
 ### Visual & components
 
+- **Design principle (owner decision, 2026-07-08): utilitarian instrument panel.** This
+  UI should read like the panel of a functional machine — a tractor or an airplane —
+  not a consumer product. Dense, labeled, factual readouts win over visual drama; never
+  remove information (timestamps, source labels, technical detail) to create hierarchy.
+  Concretely: the big-number temperature display was built and rejected; v2 Home keeps
+  the plain `TemperaturePanel` card.
 - Keep the dark-slate palette and existing panel/button styling
   (`bg-slate-800/50 rounded-xl border border-slate-700`). The only visual-adjacent change is
   a DRY cleanup: merge the duplicated button variant/color objects into **one token module**
@@ -119,11 +130,11 @@ automatically." QuickSchedule is gone.
 - **Keep as-is (data + logic):** `lib/api.ts`, `lib/stores/*` (+ new capability helpers in
   `auth.svelte.ts`), `lib/scheduleUtils.ts`, `lib/autoHeatOff.ts`, `lib/settings.ts`,
   `lib/config.ts`.
-- **Keep, re-home:** `CompactControlButton`, `EquipmentStatusBar`, `SensorConfigPanel`,
-  `SettingsPanel` (decomposed). `TemperaturePanel` stays for v1; v2 Home uses the new
-  `TempHero` (v1 panel's sensor detail moves to Setup).
+- **Keep, re-home:** `TemperaturePanel` (v2 Home uses it unchanged — see design principle
+  below), `CompactControlButton`, `EquipmentStatusBar`, `SensorConfigPanel`,
+  `SettingsPanel` (decomposed).
 - **New:** v2 layout shell + tab bar, `Home/Schedule/Setup` routes, role-capability helpers
-  (`lib/roles.ts`), `EventCard`, `TempHero`, `pendingEdits` store + `UnsavedChangesModal`,
+  (`lib/roles.ts`), `EventCard`, `pendingEdits` store + `UnsavedChangesModal`,
   shared button-token module.
 - **Delete at cutover:** `QuickSchedulePanel.svelte` (dead), `ControlButton.svelte`
   (superseded), `SchedulePanel.svelte` (superseded by the card-based Schedule tab).

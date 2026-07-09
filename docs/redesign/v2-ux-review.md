@@ -33,14 +33,15 @@ severities; on the Schedule tab both were visible simultaneously. Renamed the de
 action to **Remove** with clearer danger styling on hover; "Cancel" now always means
 "back out of this UI".
 
-### F2. Temperature hero isn't a hero — [fixed]
-The plan's Home sketch centers a big water temperature with "air 58° · 2m ago" beneath.
-What shipped is the v1 `TemperaturePanel`: small numbers, an "ESP32" chip + implementation
-labels ("Water:", "Ambient:"), an absolute timestamp ("Last reading: Jul 7, 10:35 PM"),
-and a refresh icon. On the "now" surface the water temp *is* the product. Added a v2
-`TempHero` (big water reading, `air 55° · 2m ago` subline, relative age, amber stale
-state ≥10 min with plain-language copy, error state per the plan's voice). ESP32/sensor
-detail stays in Setup where it belongs.
+### F2. Temperature display — [reverted by owner decision, 2026-07-08]
+I originally replaced the v1 `TemperaturePanel` on the v2 Home screen with a large
+single-number temperature display (per the plan's original Home sketch). Steve reviewed
+it and rejected it: this interface is meant to read like a functional instrument panel —
+his words, "a functional tractor or airplane" — not a consumer product. The dense labeled
+card (source label, water and ambient readings, absolute timestamp, refresh button) is
+the intended look, so v2 Home uses `TemperaturePanel` unchanged and the big-number
+component was deleted. **Design principle recorded for all future v2 work: utilitarian
+instrument-panel styling; never trade visible information for visual drama.**
 
 ### F3. Schedule cards repeat the same time three times — [fixed]
 A recurring card read: title `Heat to 102.25°F`, then `start6:30 AM` (note the missing
