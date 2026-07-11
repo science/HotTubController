@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { api, type ScheduledJob } from '$lib/api';
 	import { canSchedule } from '$lib/roles';
-	import { getNextOccurrence, getTimezoneOffset } from '$lib/scheduleUtils';
+	import { foldScheduledEvents, getTimezoneOffset, type LogicalEvent } from '$lib/scheduleUtils';
+	import { skipEvent, cancelEvent, makePermanentEvent } from '$lib/scheduleActions';
 	import { fetchStatus } from '$lib/stores/equipmentStatus.svelte';
 	import {
 		getTargetTempF,
@@ -17,10 +18,9 @@
 	let jobs = $state<ScheduledJob[]>([]);
 	let error = $state<string | null>(null);
 
-	// Single list, "which runs next?" first — a recurring event appears once.
-	const sortedJobs = $derived(
-		[...jobs].sort((a, b) => getNextOccurrence(a).getTime() - getNextOccurrence(b).getTime())
-	);
+	// Logical events, "which runs next?" first — a recurring event appears once, and a
+	// recurring parent + its override one-off fold into ONE adjusted card.
+	const events = $derived(foldScheduledEvents(jobs));
 
 	async function loadJobs() {
 		try {
@@ -36,28 +36,46 @@
 		loadJobs();
 	});
 
-	async function handleSkip(jobId: string) {
+	async function handleSkip(e: LogicalEvent) {
 		try {
-			await api.skipScheduledJob(jobId);
+			await skipEvent(e);
 			await loadJobs();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to skip';
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to skip';
 		}
 	}
-	async function handleUnskip(jobId: string) {
+	async function handleUnskip(e: LogicalEvent) {
 		try {
-			await api.unskipScheduledJob(jobId);
+			await api.unskipScheduledJob(e.key);
 			await loadJobs();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to unskip';
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to unskip';
 		}
 	}
-	async function handleCancel(jobId: string) {
+	async function handleCancel(e: LogicalEvent) {
 		try {
-			await api.cancelScheduledJob(jobId);
+			await cancelEvent(e);
 			await loadJobs();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to cancel';
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to cancel';
+		}
+	}
+	// Override management for adjusted cards (an override is created on Home, but it's
+	// managed wherever the card renders).
+	async function handleClearOverride(e: LogicalEvent) {
+		try {
+			await api.clearOverrideNext(e.key);
+			await loadJobs();
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to reset';
+		}
+	}
+	async function handleMakePermanent(e: LogicalEvent) {
+		try {
+			await makePermanentEvent(e);
+			await loadJobs();
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to make permanent';
 		}
 	}
 	async function handleSaveTemp(jobId: string, tempF: number) {
@@ -249,15 +267,15 @@
 			</div>
 		{/if}
 
-		{#if sortedJobs.length === 0}
+		{#if events.length === 0}
 			<p class="text-sm text-slate-500" data-testid="schedule-empty">
 				No heating scheduled. Add a time to heat automatically.
 			</p>
 		{:else}
 			<div class="flex flex-col gap-2">
-				{#each sortedJobs as job (job.jobId)}
+				{#each events as event (event.key)}
 					<EventCard
-						{job}
+						{event}
 						canAdjust={allowed}
 						onSkip={handleSkip}
 						onUnskip={handleUnskip}
@@ -265,6 +283,8 @@
 						onSaveTemp={handleSaveTemp}
 						onReschedule={handleReschedule}
 						onRescheduleRecurring={handleRescheduleRecurring}
+						onClearOverride={handleClearOverride}
+						onMakePermanent={handleMakePermanent}
 					/>
 				{/each}
 			</div>

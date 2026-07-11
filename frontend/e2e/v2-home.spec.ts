@@ -70,7 +70,9 @@ test.describe('v2 Home (MVP)', () => {
 			await page.reload();
 			const nextUp = page.getByTestId('v2-next-up');
 			await expect(nextUp).toBeVisible({ timeout: 15000 });
-			await expect(nextUp.getByTestId('next-card-title')).toHaveText(/Heat to 101\.5/);
+			await expect(nextUp.getByTestId('event-title')).toHaveText(/Heat to 101\.5/);
+			// One paradigm everywhere: no floating control bar — the card carries its controls.
+			await expect(page.getByTestId('next-controls')).toHaveCount(0);
 		});
 	});
 
@@ -82,11 +84,10 @@ test.describe('v2 Home (MVP)', () => {
 			}
 		});
 
-		test('nudging stages the next run; Save overrides it as one folded card; reset returns to the daily default', async ({
-			page
-		}) => {
-			// Clear leftovers, then create a daily event whose time has already passed today
-			// (so the skip + override land tomorrow and are always in the future).
+		// Clear leftovers, then create a daily event whose time has already passed today
+		// (so the skip + override land tomorrow and are always in the future). Returns
+		// the parent job id and its daily HH:MM.
+		async function createDaily(page: import('@playwright/test').Page) {
 			const list = await (await page.request.get('/tub/backend/public/api/schedule')).json();
 			for (const j of list.jobs ?? []) {
 				await page.request.delete(`/tub/backend/public/api/schedule/${j.jobId}`);
@@ -104,30 +105,81 @@ test.describe('v2 Home (MVP)', () => {
 				}
 			});
 			expect(res.ok()).toBeTruthy();
+			const jobId = (await res.json()).jobId as string;
+			const plus15 = new Date(past.getTime() + 15 * 60 * 1000);
+			const hhmmPlus15 = `${String(plus15.getHours()).padStart(2, '0')}:${String(plus15.getMinutes()).padStart(2, '0')}`;
+			return { jobId, hhmm, hhmmPlus15 };
+		}
+
+		test('nudging the card stages the next run; Save overrides it as one folded card; reset returns to the daily default', async ({
+			page
+		}) => {
+			await createDaily(page);
 
 			await page.reload();
-			// The control bar auto-selects the only adjustable event — no manual select needed.
-			const controls = page.getByTestId('next-controls');
-			await expect(controls).toBeVisible({ timeout: 15000 });
-			await expect(page.getByTestId('next-card')).toHaveCount(1);
-			await expect(page.getByTestId('next-reset')).toHaveCount(0); // not yet overridden
+			const nextUp = page.getByTestId('v2-next-up');
+			await expect(nextUp).toBeVisible({ timeout: 15000 });
+			// One paradigm: the card carries its own controls — no floating control bar,
+			// no selection step.
+			await expect(page.getByTestId('next-controls')).toHaveCount(0);
+			const card = nextUp.getByTestId('event-card');
+			await expect(card).toHaveCount(1);
+			await expect(card.getByTestId('event-reset')).toHaveCount(0); // not yet overridden
 
 			// Nudge 15 minutes later → staged locally only; nothing persists until Save.
-			await controls.getByRole('button', { name: '15 minutes later' }).click();
-			await expect(page.getByTestId('next-save')).toBeVisible({ timeout: 10000 });
-			await expect(page.getByTestId('next-card-adjusted')).toHaveCount(0); // not committed yet
+			await card.getByRole('button', { name: '15 minutes later' }).click();
+			await expect(card.getByTestId('event-oneoff-save')).toBeVisible({ timeout: 10000 });
+			await expect(card.getByTestId('event-adjusted')).toHaveCount(0); // not committed yet
 
 			// Save → the override is created, folded into the SAME one card.
-			await page.getByTestId('next-save').click();
-			await expect(page.getByTestId('next-reset')).toBeVisible({ timeout: 10000 });
-			await expect(page.getByTestId('next-card-adjusted')).toBeVisible();
+			await card.getByTestId('event-oneoff-save').click();
+			await expect(card.getByTestId('event-reset')).toBeVisible({ timeout: 10000 });
+			await expect(card.getByTestId('event-adjusted')).toBeVisible();
+			await expect(card.getByTestId('event-resets-line')).toBeVisible();
 			// Regression: the override does NOT split the daily into a second card.
-			await expect(page.getByTestId('next-card')).toHaveCount(1);
+			await expect(nextUp.getByTestId('event-card')).toHaveCount(1);
 
 			// Reset → back to the daily default (no override, still one card).
-			await page.getByTestId('next-reset').click();
-			await expect(page.getByTestId('next-reset')).toHaveCount(0, { timeout: 10000 });
-			await expect(page.getByTestId('next-card')).toHaveCount(1);
+			await card.getByTestId('event-reset').click();
+			await expect(card.getByTestId('event-reset')).toHaveCount(0, { timeout: 10000 });
+			await expect(nextUp.getByTestId('event-card')).toHaveCount(1);
+		});
+
+		test('Make permanent promotes the override into the daily default and clears it', async ({
+			page
+		}) => {
+			const { jobId, hhmmPlus15 } = await createDaily(page);
+
+			await page.reload();
+			const nextUp = page.getByTestId('v2-next-up');
+			await expect(nextUp).toBeVisible({ timeout: 15000 });
+			const card = nextUp.getByTestId('event-card');
+			await expect(card).toHaveCount(1);
+
+			// Create the override through the card: nudge +15 → Save.
+			await card.getByRole('button', { name: '15 minutes later' }).click();
+			await card.getByTestId('event-oneoff-save').click();
+			await expect(card.getByTestId('event-make-permanent')).toBeVisible({ timeout: 10000 });
+
+			// Promote → the adjusted state clears; still ONE card.
+			await card.getByTestId('event-make-permanent').click();
+			await expect(card.getByTestId('event-adjusted')).toHaveCount(0, { timeout: 10000 });
+			await expect(card.getByTestId('event-make-permanent')).toHaveCount(0);
+			await expect(nextUp.getByTestId('event-card')).toHaveCount(1);
+
+			// Backend truth: the parent's daily time moved to the override's clock, and no
+			// override one-off survives.
+			const jobs = (await (await page.request.get('/tub/backend/public/api/schedule')).json())
+				.jobs as Array<{
+				jobId: string;
+				scheduledTime: string;
+				skipped?: boolean;
+				params?: { override_of?: string };
+			}>;
+			const parent = jobs.find((j) => j.jobId === jobId);
+			expect(parent?.scheduledTime).toBe(hhmmPlus15);
+			expect(parent?.skipped).toBeFalsy();
+			expect(jobs.some((j) => j.params?.override_of)).toBe(false);
 		});
 	});
 
@@ -139,7 +191,7 @@ test.describe('v2 Home (MVP)', () => {
 			}
 		});
 
-		test('a one-off heat event is adjustable on Home: nudging stages, Save moves it in place', async ({
+		test('a one-off heat event is adjustable on Home: nudging stages, Save moves it in place, Remove deletes it', async ({
 			page
 		}) => {
 			// Clear leftovers, then create a one-off heat-to-target tomorrow at a unique temp so we
@@ -162,16 +214,13 @@ test.describe('v2 Home (MVP)', () => {
 			const jobId = (await res.json()).jobId;
 
 			await page.reload();
-			// Select our one-off by its stable key (the only event present after the clear).
-			const card = page.locator(`[data-testid="next-card"][data-key="${jobId}"]`);
+			// The card carries its own controls — no selection step, no floating bar.
+			const card = page.locator(`[data-testid="event-card"][data-key="${jobId}"]`);
 			await expect(card).toBeVisible({ timeout: 15000 });
-			await card.click();
-
-			const controls = page.getByTestId('next-controls');
-			await expect(controls).toBeVisible();
+			await expect(page.getByTestId('next-controls')).toHaveCount(0);
 			// A one-off offers ±, but NOT the recurring-only Skip, and never the "edit on the
 			// Schedule tab" redirect (the bug this test pins down).
-			await expect(page.getByTestId('next-skip')).toHaveCount(0);
+			await expect(card.getByTestId('event-skip')).toHaveCount(0);
 			await expect(page.getByText('edit it on the Schedule tab')).toHaveCount(0);
 
 			const tempOf = async () => {
@@ -181,16 +230,21 @@ test.describe('v2 Home (MVP)', () => {
 			};
 
 			// Nudge temp + time → staged locally; the backend is untouched until Save.
-			await controls.getByRole('button', { name: 'half a degree warmer' }).click();
-			await controls.getByRole('button', { name: '15 minutes later' }).click();
-			await expect(page.getByTestId('next-save')).toBeVisible();
+			await card.getByRole('button', { name: 'a quarter degree warmer' }).click();
+			await card.getByRole('button', { name: '15 minutes later' }).click();
+			await expect(card.getByTestId('event-oneoff-save')).toBeVisible();
 			expect(await tempOf()).toBe(108.25);
 
-			// Save → moved in place: SAME job id (not recreated), backend now 108.75.
-			await page.getByTestId('next-save').click();
-			await expect(page.getByTestId('next-save')).toHaveCount(0, { timeout: 10000 });
-			await expect(page.locator(`[data-testid="next-card"][data-key="${jobId}"]`)).toBeVisible();
-			expect(await tempOf()).toBe(108.75);
+			// Save → moved in place: SAME job id (not recreated), backend now 108.50.
+			await card.getByTestId('event-oneoff-save').click();
+			await expect(card.getByTestId('event-oneoff-save')).toHaveCount(0, { timeout: 10000 });
+			await expect(card).toBeVisible();
+			expect(await tempOf()).toBe(108.50);
+
+			// Full parity: Remove works from Home too.
+			await card.getByTestId('event-cancel').click();
+			await expect(card).toHaveCount(0, { timeout: 10000 });
+			expect(await tempOf()).toBeUndefined();
 		});
 	});
 
@@ -219,10 +273,10 @@ test.describe('v2 Home (MVP)', () => {
 			await expect(page.getByTestId('target-value')).toHaveText('103°F');
 			await expect(page.getByRole('button', { name: 'Heat to 103°F' })).toBeVisible();
 
-			// Raise by one step (+0.5°F): label updates immediately.
+			// Raise by one step (+0.25°F): label updates immediately.
 			await dial.getByRole('button', { name: 'Raise target temperature' }).click();
-			await expect(page.getByTestId('target-value')).toHaveText('103.5°F');
-			await expect(page.getByRole('button', { name: 'Heat to 103.5°F' })).toBeVisible();
+			await expect(page.getByTestId('target-value')).toHaveText('103.25°F');
+			await expect(page.getByRole('button', { name: 'Heat to 103.25°F' })).toBeVisible();
 
 			// The new default persists to the backend (debounced write-level endpoint).
 			await expect
@@ -230,7 +284,7 @@ test.describe('v2 Home (MVP)', () => {
 					const res = await page.request.get('/tub/backend/public/api/settings/heat-target');
 					return (await res.json()).target_temp_f;
 				})
-				.toBe(103.5);
+				.toBe(103.25);
 		});
 
 		test('a Guest can heat to the default but gets no dial to rewrite it', async ({

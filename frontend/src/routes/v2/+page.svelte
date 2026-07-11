@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
-	import UnsavedChangesModal from '$lib/components/UnsavedChangesModal.svelte';
-	import { registerPendingEdit, clearPendingEdit } from '$lib/stores/pendingEdits.svelte';
 	import CompactControlButton from '$lib/components/CompactControlButton.svelte';
 	import EquipmentStatusBar from '$lib/components/EquipmentStatusBar.svelte';
 	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
+	import EventCard from '$lib/components/EventCard.svelte';
 	import { api, type TargetTemperatureState, type ScheduledJob } from '$lib/api';
 	import { canControl, canSchedule, canTuneTarget } from '$lib/roles';
-	import { foldScheduledEvents, formatNextFire, type LogicalEvent } from '$lib/scheduleUtils';
+	import { foldScheduledEvents, type LogicalEvent } from '$lib/scheduleUtils';
+	import { skipEvent, cancelEvent, makePermanentEvent } from '$lib/scheduleActions';
 	import {
 		fetchStatus,
 		getHeaterOn,
@@ -42,7 +42,7 @@
 	// dynamic (an absolute dial is meaningless against an ambient-derived target).
 	// Owner/User only: the dial rewrites the *persistent household default* — a Guest
 	// heats to it but doesn't redefine it (roles.canTuneTarget).
-	const TEMP_STEP_F = 0.5;
+	const TEMP_STEP_F = 0.25;
 	let targetEnabled = $derived(getTargetTempEnabled());
 	let dynamicMode = $derived(getDynamicMode());
 	let showDial = $derived(canTuneTarget(data.user?.role) && targetEnabled && !dynamicMode);
@@ -86,96 +86,13 @@
 
 	// ── Next up ────────────────────────────────────────────────────────────────
 	// Upcoming events, folded so each recurring event (with or without an override)
-	// is ONE card. Display is for everyone; the adjust controls are User/Owner only.
+	// is ONE card. Each card carries its own controls (EventCard — the same paradigm
+	// as the Schedule tab). Display is for everyone; the adjust controls are
+	// User/Owner only. Here a recurring Save means "override just the next run"
+	// (onOverrideNext); the daily default changes only via Make permanent.
 	let scheduledJobs = $state<ScheduledJob[]>([]);
 	const events = $derived(foldScheduledEvents(scheduledJobs));
 	const canSched = $derived(canSchedule(data.user?.role));
-
-	// Selection is keyed by the *stable* logical-event key (the recurring parent id),
-	// so it survives the override churn instead of re-binding to whatever sorts to the top.
-	let selectedKey = $state<string | null>(null);
-	const selected = $derived(events.find((e) => e.key === selectedKey) ?? null);
-	let adjusting = $state(false);
-
-	// Keep a valid selection: if the selected card disappears, fall back to the soonest
-	// adjustable event so the common case ("tweak the next run") needs no extra tap.
-	$effect(() => {
-		if (!canSched) return;
-		if (selectedKey && events.some((e) => e.key === selectedKey)) return;
-		const firstAdjustable = events.find((e) => e.adjustable);
-		selectedKey = firstAdjustable?.key ?? events[0]?.key ?? null;
-	});
-
-	const TEMP_MIN = 80;
-	const TEMP_MAX = 110;
-	const clampTemp = (t: number) => Math.min(TEMP_MAX, Math.max(TEMP_MIN, t));
-	const pad2 = (n: number) => String(n).padStart(2, '0');
-
-	function formatTemp(t: number): string {
-		return Number.isInteger(t) ? `${t}` : t.toFixed(2).replace(/\.?0+$/, '');
-	}
-	function formatClock(hhmm: string): string {
-		const [h, m] = hhmm.split(':').map(Number);
-		const d = new Date();
-		d.setHours(h, m, 0, 0);
-		return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-	}
-	function shiftClock(hhmm: string, deltaMin: number): string {
-		const [h, m] = hhmm.split(':').map(Number);
-		const total = (h * 60 + m + deltaMin + 1440) % 1440;
-		return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
-	}
-	// Recompose a one-off's instant from its existing calendar date + a new local HH:MM, so a
-	// Home nudge moves it in place via rescheduleOneOff. Nudges stay within the day; a larger
-	// move belongs on the Schedule tab.
-	function oneOffIso(job: ScheduledJob, clock: string): string {
-		const d = new Date(job.scheduledTime);
-		const [h, m] = clock.split(':').map(Number);
-		d.setHours(h, m, 0, 0);
-		return d.toISOString();
-	}
-
-	const ACTION_LABELS: Record<string, string> = {
-		'heater-on': 'Heater on',
-		'heater-off': 'Heater off',
-		'pump-run': 'Run pump'
-	};
-	function jobTitle(job: ScheduledJob): string {
-		if (job.action === 'heat-to-target' && job.params?.target_temp_f != null) {
-			const tilde = getDynamicMode() ? '~' : '';
-			return `Heat to ${tilde}${formatTemp(job.params.target_temp_f)}°F`;
-		}
-		return ACTION_LABELS[job.action] ?? job.action;
-	}
-
-	// Clock time of a job: ready-by time, the recurring HH:MM, else the one-off's local clock.
-	function jobClock(job: ScheduledJob): string {
-		if (job.params?.ready_by_time) return job.params.ready_by_time;
-		if (job.recurring) return job.scheduledTime;
-		const d = new Date(job.scheduledTime);
-		return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-	}
-	const eventTemp = (e: LogicalEvent) => e.job.params?.target_temp_f ?? getTargetTempF();
-
-	// "6:55 AM · 102.25°F" — the everyday default that an override leaves untouched.
-	function baseSummary(e: LogicalEvent): string {
-		const parts = [formatClock(jobClock(e.baseJob))];
-		if (e.baseJob.params?.target_temp_f != null) {
-			parts.push(`${formatTemp(e.baseJob.params.target_temp_f)}°F`);
-		}
-		return parts.join(' · ');
-	}
-	function resumeLabel(iso?: string): string {
-		if (!iso) return '';
-		// Use the date part — skip/resume timestamps carry a misleading +00:00 offset.
-		const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
-		return new Date(y, mo - 1, d).toLocaleDateString(undefined, {
-			weekday: 'short',
-			month: 'short',
-			day: 'numeric'
-		});
-	}
-	const skipLabel = (e: LogicalEvent) => resumeLabel(e.baseJob.skipDate);
 
 	async function reloadJobs() {
 		try {
@@ -191,174 +108,56 @@
 		setTimeout(() => (status = null), 3000);
 	}
 
-	// Staged next-run edit for the selected card. The ± steppers mutate this draft; an
-	// explicit Save commits it as ONE override (skip + one-off) — we never auto-send each
-	// tap, since an override rewrites the crontab (slow on the host). See pendingEdits.svelte.
-	let draftClock = $state<string | null>(null);
-	let draftTemp = $state<number | null>(null);
-
-	// Re-seed the draft whenever the selection (or its underlying job) changes, so switching
-	// cards or reloading after Save starts clean. Reads `selected` only — mutating the draft
-	// can't feed back into this effect.
-	$effect(() => {
-		const e = selected;
-		draftClock = e ? jobClock(e.job) : null;
-		draftTemp = e ? eventTemp(e) : null;
-	});
-
-	const homeDirty = $derived(
-		!!selected &&
-			selected.adjustable &&
-			!selected.skipped &&
-			(draftClock !== jobClock(selected.job) || draftTemp !== eventTemp(selected))
-	);
-
-	function draftSummary(): string {
-		const e = selected;
-		if (!e) return 'Next run change';
-		const tail = draftTemp != null ? ` · ${formatTemp(draftTemp)}°F` : '';
-		return `${jobTitle(e.job)} → ${formatClock(draftClock ?? jobClock(e.job))}${tail}`;
+	// Reschedule paths: errors propagate to the card, which shows them inline (and
+	// rethrows so the navigation guard's Save-all halts on failure).
+	async function handleOverrideNext(jobId: string, clock: string, tempF: number) {
+		await api.overrideNextOccurrence(jobId, clock, tempF);
+		await reloadJobs();
+	}
+	async function handleRescheduleOneOff(jobId: string, scheduledTime: string, tempF?: number) {
+		await api.rescheduleOneOff(jobId, scheduledTime, tempF);
+		await reloadJobs();
 	}
 
-	// All actions operate on the SELECTED event's stable key — never a sort position.
-	// ± taps mutate the local draft only; nothing hits the backend until Save.
-	function adjustSelected(deltaMin: number, deltaTemp: number) {
-		const e = selected;
-		if (!e || !e.adjustable || e.skipped) return;
-		if (deltaMin) draftClock = shiftClock(draftClock ?? jobClock(e.job), deltaMin);
-		if (deltaTemp) draftTemp = clampTemp((draftTemp ?? eventTemp(e)) + deltaTemp);
-	}
-
-	async function saveSelected() {
-		const e = selected;
-		if (!e || !homeDirty || adjusting) return;
-		adjusting = true;
+	// Button actions: the card has no inline error slot for these, so failures toast.
+	async function handleSkip(e: LogicalEvent) {
 		try {
-			if (e.recurring) {
-				// Skip the next recurrence + write a one-off at the new time/temp (atomic server-side).
-				await api.overrideNextOccurrence(e.key, draftClock!, draftTemp!);
-			} else {
-				// A one-off has no recurrence to override — move it in place, preserving its id.
-				await api.rescheduleOneOff(e.key, oneOffIso(e.job, draftClock!), draftTemp ?? undefined);
-			}
-			await reloadJobs(); // reload → reseed effect → draft goes clean
-		} catch (err) {
-			failToast("Couldn't adjust the next run. Try again.");
-			throw err; // let the guard's Save-all halt navigation when a save fails
-		} finally {
-			adjusting = false;
-		}
-	}
-
-	function discardSelected() {
-		const e = selected;
-		draftClock = e ? jobClock(e.job) : null;
-		draftTemp = e ? eventTemp(e) : null;
-	}
-
-	// Register the next-run draft while dirty so the tab-switch guard can prompt before it's
-	// lost. Tracks `homeDirty` (a boolean edge), not every tap.
-	$effect(() => {
-		if (homeDirty) {
-			registerPendingEdit({
-				id: 'home-next-run',
-				describe: draftSummary,
-				save: saveSelected,
-				discard: discardSelected
-			});
-		} else {
-			clearPendingEdit('home-next-run');
-		}
-	});
-	onDestroy(() => clearPendingEdit('home-next-run'));
-
-	// Switching the selected card while the draft is dirty would lose it — prompt first.
-	let switchModalOpen = $state(false);
-	let switchBusy = $state(false);
-	let switchError = $state<string | null>(null);
-	let pendingKey = $state<string | null>(null);
-	const switchLines = $derived(homeDirty ? [draftSummary()] : []);
-
-	function requestSelect(key: string) {
-		if (key === selectedKey) return;
-		if (homeDirty) {
-			pendingKey = key;
-			switchError = null;
-			switchModalOpen = true;
-			return;
-		}
-		selectedKey = key;
-	}
-
-	async function switchSave() {
-		switchBusy = true;
-		switchError = null;
-		try {
-			await saveSelected();
-			selectedKey = pendingKey;
-			switchModalOpen = false;
-			pendingKey = null;
-		} catch {
-			switchError = "Couldn't save the change. Try again.";
-		} finally {
-			switchBusy = false;
-		}
-	}
-
-	function switchDiscard() {
-		discardSelected();
-		selectedKey = pendingKey;
-		switchModalOpen = false;
-		pendingKey = null;
-	}
-
-	function switchStay() {
-		switchModalOpen = false;
-		pendingKey = null;
-		switchError = null;
-	}
-
-	async function skipSelected() {
-		const e = selected;
-		// Skip applies to a recurrence only; a one-off has nothing to skip to.
-		if (!e || !e.adjustable || !e.recurring || adjusting) return;
-		adjusting = true;
-		try {
-			await api.clearOverrideNext(e.key).catch(() => {}); // drop any override (also unskips)
-			await api.skipScheduledJob(e.key); // then skip the next run
+			await skipEvent(e);
 			await reloadJobs();
 		} catch {
 			failToast("Couldn't skip the next run. Try again.");
-		} finally {
-			adjusting = false;
 		}
 	}
-
-	async function resetSelected() {
-		const e = selected;
-		if (!e || !e.overridden || adjusting) return;
-		adjusting = true;
-		try {
-			await api.clearOverrideNext(e.key);
-			await reloadJobs();
-		} catch {
-			failToast("Couldn't reset to the daily default. Try again.");
-		} finally {
-			adjusting = false;
-		}
-	}
-
-	async function resumeSelected() {
-		const e = selected;
-		if (!e || !e.skipped || adjusting) return;
-		adjusting = true;
+	async function handleUnskip(e: LogicalEvent) {
 		try {
 			await api.unskipScheduledJob(e.key);
 			await reloadJobs();
 		} catch {
 			failToast("Couldn't resume the next run. Try again.");
-		} finally {
-			adjusting = false;
+		}
+	}
+	async function handleCancel(e: LogicalEvent) {
+		try {
+			await cancelEvent(e);
+			await reloadJobs();
+		} catch {
+			failToast("Couldn't remove the event. Try again.");
+		}
+	}
+	async function handleClearOverride(e: LogicalEvent) {
+		try {
+			await api.clearOverrideNext(e.key);
+			await reloadJobs();
+		} catch {
+			failToast("Couldn't reset to the daily default. Try again.");
+		}
+	}
+	async function handleMakePermanent(e: LogicalEvent) {
+		try {
+			await makePermanentEvent(e);
+			await reloadJobs();
+		} catch {
+			failToast("Couldn't make the change permanent. Try again.");
 		}
 	}
 
@@ -439,57 +238,6 @@
 		}
 	}
 </script>
-
-{#snippet repeatIcon()}
-	<svg
-		viewBox="0 0 24 24"
-		fill="none"
-		stroke="currentColor"
-		stroke-width="2"
-		stroke-linecap="round"
-		stroke-linejoin="round"
-		class="h-3.5 w-3.5 shrink-0 text-slate-500"
-		aria-hidden="true"
-	>
-		<path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path
-			d="M21 13v1a4 4 0 0 1-4 4H3"
-		/>
-	</svg>
-{/snippet}
-
-{#snippet eventRow(e: LogicalEvent)}
-	<div class="flex items-start justify-between gap-3">
-		<div class="min-w-0">
-			<p
-				class="flex items-center gap-1.5 truncate font-semibold text-slate-100"
-				data-testid="next-card-title"
-			>
-				{jobTitle(e.job)}
-				{#if e.recurring}<span title="Repeats daily">{@render repeatIcon()}</span>{/if}
-			</p>
-			<p class="text-sm text-slate-400">{formatNextFire(e.nextFire)}</p>
-			{#if e.overridden}
-				<p class="mt-0.5 text-xs text-orange-300/80" data-testid="next-card-resets">
-					resets to {baseSummary(e)} daily
-				</p>
-			{:else if e.skipped}
-				<p class="mt-0.5 text-xs text-amber-300/80" data-testid="next-card-skip-info">
-					skips {skipLabel(e)}
-				</p>
-			{/if}
-		</div>
-		{#if e.overridden}
-			<span
-				class="shrink-0 rounded-full bg-orange-500/15 px-2 py-0.5 text-xs text-orange-300"
-				data-testid="next-card-adjusted">adjusted</span
-			>
-		{:else if e.skipped}
-			<span class="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
-				>skipped</span
-			>
-		{/if}
-	</div>
-{/snippet}
 
 <section data-testid="v2-home" class="flex flex-col gap-3">
 	<!-- Temperature readout: the plain instrument-panel card, on purpose. Steve rejected
@@ -595,174 +343,26 @@
 		</div>
 	{/if}
 
-	<!-- Next up: folded events. Select a card; the control bar above acts on that card. -->
+	<!-- Next up: folded events, each card carrying its own controls (same paradigm as
+	     the Schedule tab). Guests get display-only cards. -->
 	{#if events.length > 0}
 		<section class="flex flex-col gap-2" data-testid="v2-next-up">
 			<h2 class="text-xs uppercase tracking-wide text-slate-400">Next up</h2>
-
-			{#if canSched && selected}
-				<!-- Control bar — bound to the SELECTED card by its stable key, not its position. -->
-				<div
-					class="rounded-xl border border-slate-700 bg-slate-800/50 p-3"
-					data-testid="next-controls"
-				>
-					<p class="text-xs text-slate-400">
-						{selected.recurring ? 'Adjusting just the next run' : 'Adjusting this one-time event'} ·
-						<span class="text-slate-200" data-testid="next-controls-target"
-							>{jobTitle(selected.job)} · {formatNextFire(selected.nextFire)}</span
-						>
-					</p>
-
-					{#if selected.skipped}
-						<div class="mt-2 flex items-center gap-3">
-							<span class="text-xs text-amber-300"
-								>Skipped — resumes {resumeLabel(selected.resumeDate)}</span
-							>
-							<button
-								type="button"
-								onclick={resumeSelected}
-								disabled={adjusting}
-								data-testid="next-resume"
-								class="ml-auto rounded-lg border border-amber-600/50 px-3 py-1 text-sm text-amber-300 hover:bg-amber-600/10 disabled:opacity-40"
-								>Resume next run</button
-							>
-						</div>
-					{:else if selected.adjustable}
-						<div class="mt-2 grid grid-cols-2 gap-2">
-							<div
-								class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5"
-							>
-								<button
-									type="button"
-									aria-label="15 minutes earlier"
-									onclick={() => adjustSelected(-15, 0)}
-									disabled={adjusting}
-									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
-									>&minus;</button
-								>
-								<span class="text-xs text-slate-400"
-									>{formatClock(draftClock ?? jobClock(selected.job))}</span
-								>
-								<button
-									type="button"
-									aria-label="15 minutes later"
-									onclick={() => adjustSelected(15, 0)}
-									disabled={adjusting}
-									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
-									>+</button
-								>
-							</div>
-							<div
-								class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5"
-							>
-								<button
-									type="button"
-									aria-label="half a degree cooler"
-									onclick={() => adjustSelected(0, -0.5)}
-									disabled={adjusting}
-									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
-									>&minus;</button
-								>
-								<span class="text-xs text-slate-400">{formatTemp(draftTemp ?? eventTemp(selected))}°F</span>
-								<button
-									type="button"
-									aria-label="half a degree warmer"
-									onclick={() => adjustSelected(0, 0.5)}
-									disabled={adjusting}
-									class="h-7 w-7 rounded text-lg leading-none text-slate-200 hover:bg-slate-700 disabled:opacity-40"
-									>+</button
-								>
-							</div>
-						</div>
-						{#if homeDirty}
-							<div class="mt-2 flex items-center gap-3 text-xs">
-								<span class="text-orange-300/80"
-									>{selected.recurring
-										? 'Unsaved — Save rewrites the schedule'
-										: 'Unsaved — Save moves this event'}</span
-								>
-								<button
-									type="button"
-									onclick={discardSelected}
-									disabled={adjusting}
-									data-testid="next-discard"
-									class="ml-auto rounded-lg px-2 py-1 text-slate-400 hover:text-slate-200 disabled:opacity-40"
-									>Discard</button
-								>
-								<button
-									type="button"
-									onclick={saveSelected}
-									disabled={adjusting}
-									data-testid="next-save"
-									class="rounded-lg bg-orange-600 px-3 py-1 font-medium text-white hover:bg-orange-500 disabled:opacity-50"
-									>{adjusting ? 'Saving…' : 'Save'}</button
-								>
-							</div>
-						{:else if selected.recurring}
-							<div class="mt-2 flex items-center gap-3 text-xs">
-								<button
-									type="button"
-									onclick={skipSelected}
-									disabled={adjusting}
-									data-testid="next-skip"
-									class="text-slate-400 hover:text-amber-300 disabled:opacity-40"
-									>Skip next run</button
-								>
-								{#if selected.overridden}
-									<button
-										type="button"
-										onclick={resetSelected}
-										disabled={adjusting}
-										data-testid="next-reset"
-										class="text-slate-400 hover:text-slate-200 disabled:opacity-40"
-										>Reset to daily</button
-									>
-								{/if}
-								<span class="ml-auto text-slate-500">default stays {baseSummary(selected)}</span>
-							</div>
-						{:else}
-							<p class="mt-2 text-xs text-slate-500" data-testid="next-oneoff-hint">
-								One-time event — moves in place when you save.
-							</p>
-						{/if}
-					{:else}
-						<p class="mt-1 text-xs text-slate-500">
-							One-time event — edit it on the Schedule tab.
-						</p>
-					{/if}
-				</div>
-			{/if}
-
-			<!-- Cards: selectable (radio-like) for schedulers, plain display for Guests. -->
-			<ul class="flex flex-col gap-2">
-				{#each events as e (e.key)}
-					<li>
-						{#if canSched}
-							<button
-								type="button"
-								onclick={() => requestSelect(e.key)}
-								aria-pressed={selectedKey === e.key}
-								data-testid="next-card"
-								data-key={e.key}
-								class="w-full rounded-xl border p-3 text-left transition-colors {selectedKey ===
-								e.key
-									? 'border-orange-500/70 bg-slate-800'
-									: 'border-slate-700 bg-slate-800/40 hover:border-slate-600'}"
-							>
-								{@render eventRow(e)}
-							</button>
-						{:else}
-							<div
-								class="rounded-xl border border-slate-700 bg-slate-800/40 p-3"
-								data-testid="next-card"
-								data-key={e.key}
-							>
-								{@render eventRow(e)}
-							</div>
-						{/if}
-					</li>
+			<div class="flex flex-col gap-2">
+				{#each events as event (event.key)}
+					<EventCard
+						{event}
+						canAdjust={canSched}
+						onOverrideNext={handleOverrideNext}
+						onReschedule={handleRescheduleOneOff}
+						onSkip={handleSkip}
+						onUnskip={handleUnskip}
+						onCancel={handleCancel}
+						onClearOverride={handleClearOverride}
+						onMakePermanent={handleMakePermanent}
+					/>
 				{/each}
-			</ul>
+			</div>
 		</section>
 	{/if}
 
@@ -811,14 +411,4 @@
 		</div>
 	{/if}
 
-	<!-- Prompt before switching the selected card abandons an unsaved next-run edit. -->
-	<UnsavedChangesModal
-		open={switchModalOpen}
-		lines={switchLines}
-		busy={switchBusy}
-		error={switchError}
-		onSave={switchSave}
-		onDiscard={switchDiscard}
-		onStay={switchStay}
-	/>
 </section>

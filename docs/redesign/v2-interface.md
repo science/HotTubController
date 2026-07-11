@@ -147,9 +147,10 @@ automatically." QuickSchedule is gone.
 Each stage is TDD red/green per `CLAUDE.md`; tests run **only** via `./scripts/test.sh`. The
 old UI stays live until Stage 5.
 
-> **Status (2026-07-08):** Stages 0–2 are ✅ done (with deliberate deviations noted
-> below). Stage 2.5 (card parity) is the active work. Stages 3–5 remain. A UX review of
-> the shipped stages lives in `v2-ux-review.md`; open decisions in `v2-open-questions.md`.
+> **Status (2026-07-09):** Stages 0–2.5 are ✅ done (with deliberate deviations noted
+> below), including the F8 control-paradigm unification. Stage 3 decomposition and
+> Stages 4–5 remain. A UX review of the shipped stages lives in `v2-ux-review.md`; open
+> decisions in `v2-open-questions.md`.
 
 ### Stage 0 — Branch + scaffold ✅
 - Create `feature/v2-interface`; commit this doc.
@@ -186,7 +187,7 @@ old UI stays live until Stage 5.
 - **Verify gate:** User creates one-off + recurring jobs; Guest has no Schedule tab; tests
   green. ✅
 
-### Stage 2.5 — Card parity (recurring ⇄ one-off) ✅ (except F8)
+### Stage 2.5 — Card parity (recurring ⇄ one-off) ✅ (complete, incl. F8)
 - Backend (TDD): atomic **in-place recurring reschedule** — change a recurring job's daily
   time (+ optional temp) preserving its id, mirroring `rescheduleOneOff`. Must rewrite the
   daily cron via `CronSchedulingService`/`scheduleDailyInTimezone`, keep the healthcheck
@@ -197,9 +198,17 @@ old UI stays live until Stage 5.
   Save/Discard for recurring heat-to-target as for one-offs (recurring differs only by the
   repeat indicator + Skip next). "Edit temp" input retires.
 - Also fold Home's adjust-bar into the selected card (review F8) so Home and Schedule share
-  one expanded-card interaction. ← **remaining piece; do with Steve's eyes on the mockup**
+  one expanded-card interaction. ✅ Shipped 2026-07-09, per Steve's call: went further than
+  the tap-to-expand sketch — every card shows its controls (no selection state at all).
+  Home renders `EventCard` per folded event; `next-controls`, the radio-card selection, and
+  the switch-guard modal are deleted. Both pages fold via `foldScheduledEvents`. Recurring
+  Save semantics stay per-page via callback choice (`onOverrideNext` on Home = just the next
+  run; `onRescheduleRecurring` on Schedule = the daily default), and an adjusted card offers
+  **Reset to daily** + **Make permanent** (promote the override into the daily default, then
+  clear it — composed client-side in `lib/scheduleActions.ts`, reschedule before clear so a
+  partial failure never loses the adjustment). Home cards gained Remove (full parity).
 - **Verify gate:** recurring daily time/temp edit round-trips; skip/override flows intact;
-  tests green. ✅ (backend + Schedule tab landed 2026-07-08; F8 open)
+  tests green. ✅ (backend + Schedule tab landed 2026-07-08; F8 landed 2026-07-09)
 
 ### Stage 3 — Setup (Owner) — shell ✅, decomposition pending
 > Shipped as a shell first (2026-07-08): `v2/setup` gates on `canConfigure`, re-homes
