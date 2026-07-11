@@ -4,7 +4,15 @@ import {
 	getTimezoneOffset,
 	getNextOccurrence,
 	formatNextFire,
-	foldScheduledEvents
+	foldScheduledEvents,
+	formatTemp,
+	shiftHHMM,
+	formatClockHHMM,
+	jobTitle,
+	resumeLabel,
+	jobClock,
+	baseSummary,
+	oneOffIso
 } from './scheduleUtils';
 import type { ScheduledJob } from './api';
 
@@ -321,6 +329,170 @@ describe('scheduleUtils', () => {
 			expect(events[0].key).toBe('job-9');
 			// It's a real heat-to-target one-off, so it can still be moved in place from Home.
 			expect(events[0].adjustable).toBe(true);
+		});
+	});
+
+	// Shared display/clock helpers, consolidated from Home and EventCard (review F10).
+	describe('formatTemp', () => {
+		it('drops the decimals from whole degrees', () => {
+			expect(formatTemp(102)).toBe('102');
+		});
+
+		it('keeps quarter-degree precision without trailing zeros', () => {
+			expect(formatTemp(102.25)).toBe('102.25');
+			expect(formatTemp(102.5)).toBe('102.5');
+		});
+	});
+
+	describe('shiftHHMM', () => {
+		it('shifts within the day', () => {
+			expect(shiftHHMM('06:55', 15)).toBe('07:10');
+			expect(shiftHHMM('06:55', -15)).toBe('06:40');
+		});
+
+		it('wraps forward past midnight', () => {
+			expect(shiftHHMM('23:45', 15)).toBe('00:00');
+		});
+
+		it('wraps backward past midnight, even for repeated large steps', () => {
+			expect(shiftHHMM('00:00', -15)).toBe('23:45');
+			expect(shiftHHMM('00:00', -1440 * 3)).toBe('00:00');
+		});
+	});
+
+	describe('formatClockHHMM', () => {
+		it('renders an HH:MM wall clock in the locale time format', () => {
+			const expected = new Date(2026, 0, 1, 6, 55).toLocaleTimeString(undefined, {
+				hour: 'numeric',
+				minute: '2-digit'
+			});
+			expect(formatClockHHMM('06:55')).toBe(expected);
+		});
+	});
+
+	describe('jobTitle', () => {
+		const heatJob = {
+			jobId: 'j1',
+			action: 'heat-to-target',
+			scheduledTime: '06:55',
+			createdAt: '2026-06-20T00:00:00Z',
+			recurring: true,
+			params: { target_temp_f: 102.25 }
+		} as ScheduledJob;
+
+		it('names a heat-to-target job by its target', () => {
+			expect(jobTitle(heatJob, false)).toBe('Heat to 102.25°F');
+		});
+
+		it('marks the target approximate in dynamic mode', () => {
+			expect(jobTitle(heatJob, true)).toBe('Heat to ~102.25°F');
+		});
+
+		it('uses the action label for non-target jobs', () => {
+			expect(jobTitle({ ...heatJob, action: 'pump-run', params: undefined }, false)).toBe(
+				'Run pump'
+			);
+		});
+
+		it('falls back to the raw action name', () => {
+			expect(jobTitle({ ...heatJob, action: 'mystery-op', params: undefined }, false)).toBe(
+				'mystery-op'
+			);
+		});
+	});
+
+	describe('resumeLabel', () => {
+		it('formats the calendar date, immune to the misleading +00:00 offset', () => {
+			// The stored date part is the local calendar date; naive Date parsing could
+			// land a day early west of UTC.
+			const label = resumeLabel('2026-06-27T06:55:00+00:00');
+			expect(label).toContain('27');
+			expect(label).toContain('Jun');
+		});
+
+		it('returns an empty string for a missing date', () => {
+			expect(resumeLabel(undefined)).toBe('');
+		});
+	});
+
+	describe('jobClock', () => {
+		it('prefers the ready-by time', () => {
+			const job = {
+				jobId: 'j1',
+				action: 'heat-to-target',
+				scheduledTime: '05:40',
+				createdAt: '2026-06-20T00:00:00Z',
+				recurring: true,
+				params: { target_temp_f: 102, ready_by_time: '07:30' }
+			} as ScheduledJob;
+			expect(jobClock(job)).toBe('07:30');
+		});
+
+		it('uses the recurring HH:MM directly', () => {
+			const job = {
+				jobId: 'j1',
+				action: 'heat-to-target',
+				scheduledTime: '06:55',
+				createdAt: '2026-06-20T00:00:00Z',
+				recurring: true
+			} as ScheduledJob;
+			expect(jobClock(job)).toBe('06:55');
+		});
+
+		it('derives a padded local wall clock from a one-off instant', () => {
+			const job = {
+				jobId: 'j1',
+				action: 'heat-to-target',
+				scheduledTime: new Date(2026, 5, 26, 7, 5).toISOString(),
+				createdAt: '2026-06-20T00:00:00Z',
+				recurring: false
+			} as ScheduledJob;
+			expect(jobClock(job)).toBe('07:05');
+		});
+	});
+
+	describe('baseSummary', () => {
+		it('summarizes the everyday default as clock · temp', () => {
+			const base = {
+				jobId: 'rec-1',
+				action: 'heat-to-target',
+				scheduledTime: '06:55',
+				createdAt: '2026-06-20T00:00:00Z',
+				recurring: true,
+				params: { target_temp_f: 102.25 }
+			} as ScheduledJob;
+			const [event] = foldScheduledEvents([base]);
+			expect(baseSummary(event)).toBe(`${formatClockHHMM('06:55')} · 102.25°F`);
+		});
+
+		it('omits the temp when the base job has none', () => {
+			const base = {
+				jobId: 'rec-1',
+				action: 'pump-run',
+				scheduledTime: '21:00',
+				createdAt: '2026-06-20T00:00:00Z',
+				recurring: true
+			} as ScheduledJob;
+			const [event] = foldScheduledEvents([base]);
+			expect(baseSummary(event)).toBe(formatClockHHMM('21:00'));
+		});
+	});
+
+	describe('oneOffIso', () => {
+		it("recomposes the job's calendar date with a new local wall clock", () => {
+			const job = {
+				jobId: 'j1',
+				action: 'heat-to-target',
+				scheduledTime: new Date(2026, 5, 26, 7, 5).toISOString(),
+				createdAt: '2026-06-20T00:00:00Z',
+				recurring: false
+			} as ScheduledJob;
+			const result = new Date(oneOffIso(job, '19:30'));
+			expect(result.getFullYear()).toBe(2026);
+			expect(result.getMonth()).toBe(5);
+			expect(result.getDate()).toBe(26);
+			expect(result.getHours()).toBe(19);
+			expect(result.getMinutes()).toBe(30);
 		});
 	});
 });

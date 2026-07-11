@@ -294,6 +294,103 @@ export function foldScheduledEvents(jobs: ScheduledJob[], now: Date = new Date()
 	return events.sort((a, b) => a.nextFire.getTime() - b.nextFire.getTime());
 }
 
+// ── Shared display/clock helpers (consolidated from Home and EventCard — review F10) ──
+
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/**
+ * Format a temperature without trailing zeros: 102 → "102", 102.25 → "102.25".
+ */
+export function formatTemp(t: number): string {
+	return Number.isInteger(t) ? `${t}` : t.toFixed(2).replace(/\.?0+$/, '');
+}
+
+/**
+ * Shift an "HH:MM" wall clock by whole minutes, wrapping at midnight in either
+ * direction (safe against arbitrarily large negative deltas).
+ */
+export function shiftHHMM(hhmm: string, deltaMin: number): string {
+	const { hours, minutes } = parseClockTime(hhmm);
+	const total = (hours * 60 + minutes + deltaMin + 1440 * 100) % 1440;
+	return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
+}
+
+/**
+ * Render an "HH:MM" wall clock in the locale time format ("06:55" → "6:55 AM").
+ */
+export function formatClockHHMM(hhmm: string): string {
+	const { hours, minutes } = parseClockTime(hhmm);
+	const d = new Date();
+	d.setHours(hours, minutes, 0, 0);
+	return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+const ACTION_LABELS: Record<string, string> = {
+	'heater-on': 'Heater on',
+	'heater-off': 'Heater off',
+	'pump-run': 'Run pump'
+};
+
+/**
+ * "Heat to 102.25°F" (with `tilde` for dynamic-mode approximate targets), else the
+ * plain action label. The caller passes the dynamic-mode flag — this module must
+ * stay free of store imports.
+ */
+export function jobTitle(job: ScheduledJob, tilde: boolean): string {
+	if (job.action === 'heat-to-target' && job.params?.target_temp_f != null) {
+		return `Heat to ${tilde ? '~' : ''}${formatTemp(job.params.target_temp_f)}°F`;
+	}
+	return ACTION_LABELS[job.action] ?? job.action;
+}
+
+/**
+ * Format a skip/resume date. Uses the date part only — those timestamps carry a
+ * misleading +00:00 offset (the date is the local calendar date), so `new Date(iso)`
+ * would land a day early west of UTC.
+ */
+export function resumeLabel(iso?: string): string {
+	if (!iso) return '';
+	const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
+	return new Date(y, mo - 1, d).toLocaleDateString(undefined, {
+		weekday: 'short',
+		month: 'short',
+		day: 'numeric'
+	});
+}
+
+/**
+ * The user-facing "HH:MM" wall clock of a job: its ready-by time, the recurring
+ * HH:MM, else the one-off instant's local clock.
+ */
+export function jobClock(job: ScheduledJob): string {
+	if (job.params?.ready_by_time) return job.params.ready_by_time;
+	if (job.recurring) return job.scheduledTime;
+	const d = new Date(job.scheduledTime);
+	return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/**
+ * "6:55 AM · 102.25°F" — the everyday default that an override leaves untouched.
+ */
+export function baseSummary(e: LogicalEvent): string {
+	const parts = [formatClockHHMM(jobClock(e.baseJob))];
+	if (e.baseJob.params?.target_temp_f != null) {
+		parts.push(`${formatTemp(e.baseJob.params.target_temp_f)}°F`);
+	}
+	return parts.join(' · ');
+}
+
+/**
+ * Recompose a one-off's instant from its existing calendar date + a new local "HH:MM",
+ * so a nudge moves it in place via rescheduleOneOff. Nudges stay within the day.
+ */
+export function oneOffIso(job: ScheduledJob, clock: string): string {
+	const d = new Date(job.scheduledTime);
+	const { hours, minutes } = parseClockTime(clock);
+	d.setHours(hours, minutes, 0, 0);
+	return d.toISOString();
+}
+
 /**
  * Quick schedule options available in the UI
  */

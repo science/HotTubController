@@ -75,7 +75,7 @@ now Owner/User; Guests see the target inside the Heat button label and can still
 it. Backend still permits `basic` writes to that endpoint — flagged as a question (UI-only
 gate vs. tightening the endpoint).
 
-### F8. Home's adjust bar floats above the thing it edits — [proposal]
+### F8. Home's adjust bar floats above the thing it edits — [fixed 2026-07-09]
 The "Adjusting just the next run" control bar sits *above* the card list and acts on the
 selected card *below* it. The bar reads as its own card; the target of the ± steppers is
 spatially inverted, and selection ("radio-card") is an unusual pattern to discover.
@@ -98,9 +98,13 @@ NEXT UP                                 NEXT UP
 │ Thu, Jul 9 3:00 PM       │             expands, controls move)
 └──────────────────────────┘
 ```
-Not implemented tonight: it touches the selection/guard state machine and E2E specs;
-better done deliberately as part of the Stage-2.5 card-parity work, where Home's expanded
-card and Schedule's card become the same component.
+Landed 2026-07-09, going further than the sketch on Steve's call: instead of tap-to-expand,
+every Home card shows its controls (the Schedule tab's paradigm, verbatim) — the control
+bar, radio-card selection, and switch-guard modal are deleted outright. Home and Schedule
+now both render `EventCard` over `foldScheduledEvents`. Save on Home still overrides just
+the next run; an adjusted card offers **Reset to daily** and a new **Make permanent**
+(promotes the override into the daily default — `lib/scheduleActions.ts`). Home cards also
+gained Remove (full parity).
 
 ### F9. Recurring vs one-off cards still lack parity — [fixed later the same night]
 On the Schedule tab a one-off got inline ± time/temp steppers; a recurring card got a
@@ -126,4 +130,7 @@ next shows while clean). "Edit temp" is retired from adjustable cards.
   plain `heater-on` mode has no v2 auto-off. [question]
 - **DRY**: `formatTemp`/`formatClock`/`resumeLabel`/repeat-icon/`ACTION_LABELS` are
   duplicated between Home and EventCard — fold into `scheduleUtils`/a shared snippet
-  during the parity refactor.
+  during the parity refactor. [done 2026-07-09 — helpers live in `scheduleUtils.ts`
+  (`formatTemp`, `shiftHHMM`, `formatClockHHMM`, `jobTitle`, `resumeLabel`, `jobClock`,
+  `baseSummary`, `oneOffIso`); Home no longer has its own copies, and the repeat icon
+  renders only inside `EventCard`]
