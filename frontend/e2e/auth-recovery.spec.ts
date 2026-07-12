@@ -86,6 +86,9 @@ test.describe('Auth State Recovery', () => {
 		await page.fill('#password', 'password');
 		// Use keyboard Enter for more reliable form submission
 		await page.press('#password', 'Enter');
+		// Login lands on the v2 home (root); these specs exercise the v1 interface.
+		await page.waitForURL(/\/tub\/?$/);
+		await page.goto('/tub/v1/');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
 
 		// Should show username and logout button

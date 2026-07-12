@@ -139,7 +139,7 @@
 	<header class="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
 		<h1 class="text-xl font-bold text-slate-100 tracking-wide">USER MANAGEMENT</h1>
 		<div class="flex items-center gap-4">
-			<a href="{base}/" class="text-slate-400 hover:text-slate-200 text-sm underline">
+			<a href="{base}/v1/" class="text-slate-400 hover:text-slate-200 text-sm underline">
 				Back to Controls
 			</a>
 			{#if data.user}

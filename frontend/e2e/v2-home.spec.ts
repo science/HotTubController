@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Smoke test for the Stage 1 v2 Home screen (/tub/v2).
+ * Smoke test for the Stage 1 v2 Home screen (/tub, the root mount).
  *
  * Verifies the new tabbed-app Home renders for an authenticated user and that a
  * hardware control works end to end (stub mode). Full per-role tab gating is
@@ -16,7 +16,7 @@ test.describe('v2 Home (MVP)', () => {
 		// Wait until authenticated — the Logout button only exists once signed in (the
 		// login page shares the "HOT TUB CONTROL" heading, so it can't gate on that).
 		await expect(page.getByRole('button', { name: 'Logout' })).toBeVisible({ timeout: 15000 });
-		await page.goto('/tub/v2');
+		await page.goto('/tub/');
 		await expect(page.getByTestId('v2-home')).toBeVisible({ timeout: 15000 });
 	});
 
@@ -308,7 +308,7 @@ test.describe('v2 Home (MVP)', () => {
 				await expect(guest.getByRole('button', { name: 'Logout' })).toBeVisible({
 					timeout: 15000
 				});
-				await guest.goto('/tub/v2');
+				await guest.goto('/tub/');
 				await expect(guest.getByTestId('v2-home')).toBeVisible({ timeout: 15000 });
 
 				// Heat-to-target is on (beforeEach): the Heat button carries the household

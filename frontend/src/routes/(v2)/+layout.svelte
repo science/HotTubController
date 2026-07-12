@@ -25,14 +25,14 @@
 	};
 
 	function tabHref(tab: Tab): string {
-		return `${base}/v2${TAB_META[tab].path}`;
+		return `${base}${TAB_META[tab].path}/`;
 	}
 
 	// Which tab the current URL belongs to, for active-state styling.
 	const activeTab = $derived.by((): Tab => {
 		const path = $page.url.pathname.replace(/\/+$/, '');
-		if (path.endsWith('/v2/schedule')) return 'schedule';
-		if (path.endsWith('/v2/setup')) return 'setup';
+		if (path.endsWith('/schedule')) return 'schedule';
+		if (path.endsWith('/setup')) return 'setup';
 		return 'home';
 	});
 
