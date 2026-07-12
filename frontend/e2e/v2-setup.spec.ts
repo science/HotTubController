@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Stage 3 (shell) smoke for the Owner-only v2 Setup tab (/tub/v2/setup).
+ * Stage 3 (shell) smoke for the Owner-only v2 Setup tab (/tub/setup).
  *
  * Owner sees the re-homed admin surfaces (heat targets, sensors, users link);
  * a User-role account has no Setup tab and hits the denied message when
@@ -15,7 +15,7 @@ test.describe('v2 Setup tab', () => {
 		await page.press('#password', 'Enter');
 		await expect(page.getByRole('button', { name: 'Logout' })).toBeVisible({ timeout: 15000 });
 
-		await page.goto('/tub/v2/setup');
+		await page.goto('/tub/setup/');
 		await expect(page.getByTestId('v2-setup')).toBeVisible({ timeout: 15000 });
 
 		await expect(page.getByTestId('setup-heat-targets')).toBeVisible();
@@ -52,13 +52,13 @@ test.describe('v2 Setup tab', () => {
 				timeout: 15000
 			});
 
-			await member.goto('/tub/v2');
+			await member.goto('/tub/');
 			await expect(member.getByTestId('v2-home')).toBeVisible({ timeout: 15000 });
 			await expect(member.getByTestId('tab-schedule')).toBeVisible();
 			await expect(member.getByTestId('tab-setup')).toHaveCount(0);
 
 			// The route itself refuses too — tab hiding isn't the only gate.
-			await member.goto('/tub/v2/setup');
+			await member.goto('/tub/setup/');
 			await expect(member.getByTestId('setup-denied')).toBeVisible({ timeout: 15000 });
 			await expect(member.getByTestId('setup-heat-targets')).toHaveCount(0);
 		} finally {

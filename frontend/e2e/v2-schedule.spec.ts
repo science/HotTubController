@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Stage 2 smoke for the card-based v2 Schedule tab (/tub/v2/schedule).
+ * Stage 2 smoke for the card-based v2 Schedule tab (/tub/schedule).
  *
  * Exercises the full lifecycle on existing endpoints: add a daily heat-to-target
  * event, see it as a card, skip the next occurrence, unskip, then cancel.
@@ -17,7 +17,7 @@ test.describe('v2 Schedule tab', () => {
 		await page.fill('#password', 'password');
 		await page.press('#password', 'Enter');
 		await expect(page.getByRole('button', { name: 'Logout' })).toBeVisible({ timeout: 15000 });
-		await page.goto('/tub/v2/schedule');
+		await page.goto('/tub/schedule/');
 		await expect(page.getByTestId('v2-schedule')).toBeVisible({ timeout: 15000 });
 	});
 

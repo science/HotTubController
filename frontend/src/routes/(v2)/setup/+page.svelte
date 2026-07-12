@@ -37,7 +37,7 @@
 		<section class="flex flex-col gap-2" data-testid="setup-users">
 			<h3 class="text-xs uppercase tracking-wide text-slate-400">Users</h3>
 			<a
-				href="{base}/users"
+				href="{base}/v1/users/"
 				data-testid="setup-users-link"
 				class="rounded-xl border border-slate-700 bg-slate-800/50 p-3 text-sm text-slate-200 transition-colors hover:border-slate-600"
 			>

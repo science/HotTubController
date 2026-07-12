@@ -27,6 +27,9 @@ test.describe('Basic User Role', () => {
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.press('#password', 'Enter');
+		// Login lands on the v2 home (root); these specs exercise the v1 interface.
+		await page.waitForURL(/\/tub\/?$/);
+		await page.goto('/tub/v1/');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 15000 });
 
 		// Navigate to user management
@@ -61,6 +64,9 @@ test.describe('Basic User Role', () => {
 		await page.fill('#username', basicUsername);
 		await page.fill('#password', basicPassword);
 		await page.press('#password', 'Enter');
+		// Login lands on the v2 home (root); these specs exercise the v1 interface.
+		await page.waitForURL(/\/tub\/?$/);
+		await page.goto('/tub/v1/');
 
 		// Wait for main page - note: basic users won't see Schedule heading
 		await expect(page.getByRole('heading', { name: 'HOT TUB CONTROL' })).toBeVisible({ timeout: 15000 });
@@ -143,6 +149,9 @@ test.describe('Basic User Role', () => {
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.press('#password', 'Enter');
+		// Login lands on the v2 home (root); these specs exercise the v1 interface.
+		await page.waitForURL(/\/tub\/?$/);
+		await page.goto('/tub/v1/');
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 15000 });
 
 		// Navigate to user management

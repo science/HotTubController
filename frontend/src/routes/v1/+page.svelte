@@ -169,7 +169,7 @@
 			<div class="flex items-center gap-2">
 				<span class="text-slate-400 text-sm">{data.user.username}</span>
 				{#if data.user.role === 'admin'}
-					<a href="{base}/users" class="text-slate-500 hover:text-slate-300 text-sm underline">
+					<a href="{base}/v1/users/" class="text-slate-500 hover:text-slate-300 text-sm underline">
 						Users
 					</a>
 				{/if}

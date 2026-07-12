@@ -23,6 +23,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
@@ -59,6 +62,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
@@ -133,6 +139,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
@@ -163,6 +172,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
@@ -226,6 +238,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
@@ -246,6 +261,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', testUsername);
 			await page.fill('#password', 'testpass123');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
@@ -259,6 +277,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
@@ -273,6 +294,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
@@ -299,6 +323,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
@@ -341,6 +368,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
@@ -446,6 +476,9 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await page.fill('#username', 'admin');
 			await page.fill('#password', 'password');
 			await page.press('#password', 'Enter');
+			// Login lands on the v2 home (root); these specs exercise the v1 interface.
+			await page.waitForURL(/\/tub\/?$/);
+			await page.goto('/tub/v1/');
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});

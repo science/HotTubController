@@ -24,6 +24,9 @@ test.describe('Scheduler Integration', () => {
 		await page.fill('#username', 'admin');
 		await page.fill('#password', 'password');
 		await page.press('#password', 'Enter');
+		// Login lands on the v2 home (root); these specs exercise the v1 interface.
+		await page.waitForURL(/\/tub\/?$/);
+		await page.goto('/tub/v1/');
 
 		// Wait for redirect to main page
 		await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({ timeout: 10000 });
