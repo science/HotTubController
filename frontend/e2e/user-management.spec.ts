@@ -129,6 +129,60 @@ test.describe('User Management', () => {
 		await expect(page.locator(`li:has-text("${uniqueUsername}")`)).not.toBeVisible({ timeout: 5000 });
 	});
 
+	test('admin can reset a user password', async ({ page, request }) => {
+		// Navigate to users page
+		await page.click('a:has-text("Users")', { force: true });
+		await expect(page.getByRole('heading', { name: 'USER MANAGEMENT' })).toBeVisible({
+			timeout: 10000
+		});
+
+		// Create a user whose password we'll reset
+		const uniqueUsername = `testuser_pwreset_${Date.now()}`;
+		await page.fill('#username', uniqueUsername);
+		await page.fill('#password', 'originalpass123');
+		await page.click('button:has-text("Create User")', { force: true });
+		await expect(page.locator('text=User Created Successfully')).toBeVisible({ timeout: 10000 });
+		await page.click('button:has-text("Done")', { force: true });
+
+		// Open the reset-password form for that user
+		await page
+			.locator(`li:has-text("${uniqueUsername}")`)
+			.locator('button:has-text("Reset")')
+			.click({ force: true });
+
+		// Enter the new password and confirm
+		await page.fill('#reset-password', 'newpass456');
+		await page.click('button:has-text("Reset Password")', { force: true });
+
+		// The credentials modal shows the new password for sharing
+		await expect(page.locator('text=Password Reset Successfully')).toBeVisible({ timeout: 10000 });
+		await expect(page.locator(`code:has-text("${uniqueUsername}")`)).toBeVisible();
+		await expect(page.locator('code:has-text("newpass456")')).toBeVisible();
+		await page.click('button:has-text("Done")', { force: true });
+
+		// The old password no longer works; the new one does. The `request` fixture
+		// has its own cookie jar, so these logins don't clobber the admin session.
+		const oldLogin = await request.post('/tub/backend/public/api/auth/login', {
+			data: { username: uniqueUsername, password: 'originalpass123' }
+		});
+		expect(oldLogin.status()).toBe(401);
+
+		const newLogin = await request.post('/tub/backend/public/api/auth/login', {
+			data: { username: uniqueUsername, password: 'newpass456' }
+		});
+		expect(newLogin.ok()).toBe(true);
+
+		// Clean up
+		page.on('dialog', (dialog) => dialog.accept());
+		await page
+			.locator(`li:has-text("${uniqueUsername}")`)
+			.locator('button:has-text("Delete")')
+			.click({ force: true });
+		await expect(page.locator(`li:has-text("${uniqueUsername}")`)).not.toBeVisible({
+			timeout: 5000
+		});
+	});
+
 	test('admin cannot delete themselves', async ({ page }) => {
 		// Navigate to users page
 		await page.click('a:has-text("Users")', { force: true });
@@ -152,8 +206,8 @@ test.describe('User Management', () => {
 		// Click back link
 		await page.click('a:has-text("Back to Controls")', { force: true });
 
-		// Should be back on main page
-		await expect(page.getByRole('heading', { name: 'HOT TUB CONTROL' })).toBeVisible({
+		// Should land on the default interface (v2 Home at the root), not /v1
+		await expect(page.getByTestId('v2-home')).toBeVisible({
 			timeout: 10000
 		});
 	});

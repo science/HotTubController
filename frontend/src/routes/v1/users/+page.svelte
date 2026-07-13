@@ -16,10 +16,16 @@
 	let newRole = $state<'user' | 'admin' | 'basic' | 'readonly'>('user');
 	let isCreating = $state(false);
 
-	// Credential display modal
+	// Credential display modal (shown after create and after password reset)
 	let showCredentials = $state(false);
 	let createdCredentials = $state<CreateUserResponse | null>(null);
+	let credentialsTitle = $state('User Created Successfully');
 	let loginUrl = $state('');
+
+	// Password reset form state
+	let resetUsername = $state<string | null>(null);
+	let resetPassword = $state('');
+	let isResetting = $state(false);
 
 	// Refresh button tooltip state
 	let showRefreshTooltip = $state(false);
@@ -62,6 +68,7 @@
 			error = null;
 			const result = await api.createUser(newUsername, newPassword, newRole);
 			createdCredentials = result;
+			credentialsTitle = 'User Created Successfully';
 			// Compute login URL (window.location.origin + base path + /login)
 			loginUrl = window.location.origin + base + '/login';
 			showCredentials = true;
@@ -77,6 +84,48 @@
 			}
 		} finally {
 			isCreating = false;
+		}
+	}
+
+	function openReset(username: string) {
+		resetUsername = username;
+		resetPassword = '';
+		error = null;
+	}
+
+	function cancelReset() {
+		resetUsername = null;
+		resetPassword = '';
+	}
+
+	async function resetUserPassword() {
+		if (!resetUsername || !resetPassword) {
+			error = 'Password is required';
+			return;
+		}
+
+		try {
+			isResetting = true;
+			error = null;
+			await api.updateUserPassword(resetUsername, resetPassword);
+			// Reuse the credentials modal so the new password can be shared,
+			// same as after creating a user.
+			createdCredentials = {
+				username: resetUsername,
+				password: resetPassword,
+				role: '',
+				message: ''
+			};
+			credentialsTitle = 'Password Reset Successfully';
+			loginUrl = window.location.origin + base + '/login';
+			showCredentials = true;
+			cancelReset();
+		} catch (e) {
+			if (e instanceof Error) {
+				error = e.message;
+			}
+		} finally {
+			isResetting = false;
 		}
 	}
 
@@ -139,7 +188,7 @@
 	<header class="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
 		<h1 class="text-xl font-bold text-slate-100 tracking-wide">USER MANAGEMENT</h1>
 		<div class="flex items-center gap-4">
-			<a href="{base}/v1/" class="text-slate-400 hover:text-slate-200 text-sm underline">
+			<a href="{base}/" class="text-slate-400 hover:text-slate-200 text-sm underline">
 				Back to Controls
 			</a>
 			{#if data.user}
@@ -246,22 +295,65 @@
 				{:else}
 					<ul class="space-y-2">
 						{#each users as user}
-							<li class="flex items-center justify-between bg-slate-700/50 rounded p-3">
-								<div>
-									<span class="text-slate-100 font-medium">{user.username}</span>
-									<span class="ml-2 px-2 py-0.5 text-xs rounded {user.role === 'admin' ? 'bg-amber-500/20 text-amber-400' : user.role === 'basic' ? 'bg-cyan-500/20 text-cyan-400' : user.role === 'readonly' ? 'bg-violet-500/20 text-violet-400' : 'bg-slate-600 text-slate-300'}">
-										{user.role}
-									</span>
+							<li class="bg-slate-700/50 rounded p-3">
+								<div class="flex items-center justify-between">
+									<div>
+										<span class="text-slate-100 font-medium">{user.username}</span>
+										<span class="ml-2 px-2 py-0.5 text-xs rounded {user.role === 'admin' ? 'bg-amber-500/20 text-amber-400' : user.role === 'basic' ? 'bg-cyan-500/20 text-cyan-400' : user.role === 'readonly' ? 'bg-violet-500/20 text-violet-400' : 'bg-slate-600 text-slate-300'}">
+											{user.role}
+										</span>
+									</div>
+									<div class="flex items-center gap-3">
+										<button
+											onclick={() => openReset(user.username)}
+											class="text-cyan-400 hover:text-cyan-300 text-sm"
+										>
+											Reset
+										</button>
+										{#if user.username !== data.user?.username}
+											<button
+												onclick={() => deleteUser(user.username)}
+												class="text-red-400 hover:text-red-300 text-sm"
+											>
+												Delete
+											</button>
+										{:else}
+											<span class="text-slate-500 text-sm">(you)</span>
+										{/if}
+									</div>
 								</div>
-								{#if user.username !== data.user?.username}
-									<button
-										onclick={() => deleteUser(user.username)}
-										class="text-red-400 hover:text-red-300 text-sm"
+								{#if resetUsername === user.username}
+									<form
+										onsubmit={(e) => { e.preventDefault(); resetUserPassword(); }}
+										class="mt-3 flex items-end gap-2"
 									>
-										Delete
-									</button>
-								{:else}
-									<span class="text-slate-500 text-sm">(you)</span>
+										<div class="flex-1">
+											<label for="reset-password" class="block text-sm text-slate-400 mb-1">
+												New password
+											</label>
+											<input
+												type="text"
+												id="reset-password"
+												bind:value={resetPassword}
+												class="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-slate-100 focus:outline-none focus:border-cyan-500"
+												placeholder="Enter new password"
+											/>
+										</div>
+										<button
+											type="submit"
+											disabled={isResetting}
+											class="py-2 px-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 text-white rounded text-sm font-medium transition-colors whitespace-nowrap"
+										>
+											{isResetting ? 'Resetting...' : 'Reset Password'}
+										</button>
+										<button
+											type="button"
+											onclick={cancelReset}
+											class="py-2 px-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm font-medium transition-colors"
+										>
+											Cancel
+										</button>
+									</form>
 								{/if}
 							</li>
 						{/each}
@@ -276,7 +368,7 @@
 {#if showCredentials && createdCredentials}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
 		<div class="bg-slate-800 rounded-lg p-6 max-w-md w-full border border-slate-700">
-			<h2 class="text-lg font-semibold text-slate-100 mb-4">User Created Successfully</h2>
+			<h2 class="text-lg font-semibold text-slate-100 mb-4">{credentialsTitle}</h2>
 			<p class="text-slate-400 text-sm mb-4">Share these credentials with the user:</p>
 
 			<div class="bg-slate-900 rounded p-4 mb-4 space-y-2">
