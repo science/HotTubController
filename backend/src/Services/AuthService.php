@@ -66,6 +66,22 @@ class AuthService
             throw new \RuntimeException('Invalid token: role mismatch');
         }
 
+        // The token must postdate the user row. This makes delete-then-recreate
+        // a real revocation: tokens minted for the deleted account carry an iat
+        // older than the recreated row's created_at and stay dead forever.
+        // (Password changes deliberately do NOT revoke tokens — delete/recreate
+        // is this app's revocation mechanism.) Rows without created_at (legacy)
+        // can't anchor the check and are accepted.
+        $createdAt = isset($user['created_at']) ? strtotime($user['created_at']) : false;
+        if ($createdAt !== false) {
+            if (!isset($claims['iat'])) {
+                throw new \RuntimeException('Invalid token: missing iat');
+            }
+            if ((int) $claims['iat'] < $createdAt) {
+                throw new \RuntimeException('Invalid token: predates the user account');
+            }
+        }
+
         return $claims;
     }
 }
