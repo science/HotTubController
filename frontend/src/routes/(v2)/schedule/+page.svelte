@@ -1,19 +1,21 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type ScheduledJob } from '$lib/api';
-	import { canSchedule } from '$lib/roles';
+	import { canSchedule, canConfigure } from '$lib/roles';
 	import { foldScheduledEvents, getTimezoneOffset, type LogicalEvent } from '$lib/scheduleUtils';
 	import { skipEvent, cancelEvent, makePermanentEvent } from '$lib/scheduleActions';
 	import { fetchStatus } from '$lib/stores/equipmentStatus.svelte';
 	import {
 		getTargetTempF,
 		getScheduleMode,
+		getDynamicMode,
 		getTimezone as getConfiguredTimezone
 	} from '$lib/stores/heatTargetSettings.svelte';
 	import EventCard from '$lib/components/EventCard.svelte';
 
 	let { data } = $props();
 	const allowed = $derived(canSchedule(data.user?.role));
+	const owner = $derived(canConfigure(data.user?.role));
 
 	let jobs = $state<ScheduledJob[]>([]);
 	let error = $state<string | null>(null);
@@ -96,11 +98,18 @@
 		await api.rescheduleRecurring(jobId, time, tempF);
 		await loadJobs();
 	}
+	// Switch ONE job between a fixed temperature and the ambient curve; the household
+	// default in Setup is untouched.
+	async function handleSetHeatMode(jobId: string, dynamic: boolean) {
+		await api.setScheduledJobHeatMode(jobId, dynamic);
+		await loadJobs();
+	}
 
 	// ---- Add-heating sheet ----
 	let showAdd = $state(false);
 	let addAction = $state<'heat-to-target' | 'pump-run'>('heat-to-target');
 	let addTemp = $state(103);
+	let addDynamic = $state(false);
 	let addTime = $state('06:30');
 	let addRecurring = $state(true);
 	let addDate = $state('');
@@ -112,6 +121,8 @@
 	function openAdd() {
 		addAction = 'heat-to-target';
 		addTemp = getTargetTempF();
+		// Seeded from the household default; the job keeps whatever it's created with.
+		addDynamic = getDynamicMode();
 		addTime = '06:30';
 		addRecurring = true;
 		const tomorrow = new Date();
@@ -133,7 +144,10 @@
 		adding = true;
 		addError = null;
 		try {
-			const params = addAction === 'heat-to-target' ? { target_temp_f: addTemp } : undefined;
+			const params =
+				addAction === 'heat-to-target'
+					? { target_temp_f: addTemp, dynamic: addDynamic }
+					: undefined;
 			if (addRecurring) {
 				await api.scheduleJob(addAction, addTime, true, params, getConfiguredTimezone());
 			} else {
@@ -192,8 +206,31 @@
 				</div>
 
 				{#if addAction === 'heat-to-target'}
+					<!-- The mode is stamped onto the job now, so it keeps this setting even if
+					     the household default changes later. -->
+					<div class="grid grid-cols-2 gap-2">
+						<button
+							type="button"
+							onclick={() => (addDynamic = false)}
+							data-testid="add-mode-fixed"
+							aria-pressed={!addDynamic}
+							class="rounded-lg border px-3 py-2 text-sm {!addDynamic
+								? 'border-orange-500 bg-orange-500/10 text-orange-300'
+								: 'border-slate-600 text-slate-300'}">Fixed temperature</button
+						>
+						<button
+							type="button"
+							onclick={() => (addDynamic = true)}
+							data-testid="add-mode-dynamic"
+							aria-pressed={addDynamic}
+							class="rounded-lg border px-3 py-2 text-sm {addDynamic
+								? 'border-sky-500 bg-sky-500/10 text-sky-300'
+								: 'border-slate-600 text-slate-300'}">Based on ambient temp</button
+						>
+					</div>
+
 					<label class="flex items-center justify-between text-sm text-slate-300">
-						Heat to
+						{addDynamic ? 'If the air sensor is down, heat to' : 'Heat to'}
 						<span class="flex items-center gap-1">
 							<input
 								type="number"
@@ -277,6 +314,8 @@
 					<EventCard
 						{event}
 						canAdjust={allowed}
+						canConfigureCurve={owner}
+						onSetHeatMode={handleSetHeatMode}
 						onSkip={handleSkip}
 						onUnskip={handleUnskip}
 						onCancel={handleCancel}

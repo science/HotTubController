@@ -1690,4 +1690,219 @@ class TargetTemperatureServiceTest extends TestCase
         rmdir($stateDir);
         rmdir($tempDir);
     }
+
+    // ── Per-job dynamic heat mode ──────────────────────────────────────────────
+    //
+    // The heat mode is a property of each scheduled job, so start() takes an
+    // override: true/false decide for this heat alone, null inherits the global
+    // default (the no-migration path for jobs created before per-job mode).
+
+    public function testStartWithDynamicOverrideTrueUsesCurveWhileGlobalIsOff(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(false);
+        $service = $this->createServiceWithDynamic($heatSettings);
+
+        // Ambient 52.5F (cold-segment midpoint) → 103.0F
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $service->start(102.0, true);
+
+        $state = $service->getState();
+        $this->assertEqualsWithDelta(103.0, $state['target_temp_f'], 0.01);
+        $this->assertArrayHasKey('dynamic_target_info', $state);
+        $this->assertSame('per_job', $state['dynamic_target_info']['source']);
+    }
+
+    public function testStartWithDynamicOverrideFalseUsesStaticWhileGlobalIsOn(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $service->start(102.0, false);
+
+        $state = $service->getState();
+        $this->assertEqualsWithDelta(102.0, $state['target_temp_f'], 0.01);
+        $this->assertArrayNotHasKey('dynamic_target_info', $state);
+    }
+
+    public function testStartWithNullDynamicFollowsGlobalWhenOn(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $service->start(102.0, null);
+
+        $state = $service->getState();
+        $this->assertEqualsWithDelta(103.0, $state['target_temp_f'], 0.01);
+        $this->assertSame('global_default', $state['dynamic_target_info']['source']);
+    }
+
+    public function testStartWithNullDynamicFollowsGlobalWhenOff(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(false);
+        $service = $this->createServiceWithDynamic($heatSettings);
+
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $service->start(102.0, null);
+
+        $state = $service->getState();
+        $this->assertEqualsWithDelta(102.0, $state['target_temp_f'], 0.01);
+        $this->assertArrayNotHasKey('dynamic_target_info', $state);
+    }
+
+    // ── previewDynamicTarget() ────────────────────────────────────────────────
+
+    public function testPreviewDynamicTargetIsNullWithoutSettings(): void
+    {
+        $service = new TargetTemperatureService($this->stateFile);
+
+        $this->assertNull($service->previewDynamicTarget());
+    }
+
+    /**
+     * Scheduled heat-to-target jobs outlive the household "Enable heat to target"
+     * toggle, so gating the projection on it would blank cards that still heat.
+     */
+    public function testPreviewDynamicTargetStillComputesWhenHeatToTargetIsDisabled(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $heatSettings->updateSettings(false, 102.0); // heat-to-target feature off
+        $service = $this->createServiceWithDynamic($heatSettings);
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+
+        $this->assertEqualsWithDelta(103.0, $service->previewDynamicTarget()['computed_target_f'], 0.01);
+    }
+
+    /**
+     * The projection must survive the global default being off — that's the whole
+     * point of per-job mode: leave the household default fixed, mark single jobs
+     * as ambient-matched. Gating the preview on dynamic_mode would blank exactly
+     * the cards that need a number.
+     */
+    public function testPreviewDynamicTargetStillComputesWhenGlobalDefaultIsOff(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(false);
+        $service = $this->createServiceWithDynamic($heatSettings);
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+
+        $preview = $service->previewDynamicTarget();
+
+        $this->assertNotNull($preview);
+        $this->assertEqualsWithDelta(103.0, $preview['computed_target_f'], 0.01);
+    }
+
+    public function testPreviewDynamicTargetInterpolatesColdSegment(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+
+        $preview = $service->previewDynamicTarget();
+
+        $this->assertNotNull($preview);
+        $this->assertEqualsWithDelta(52.5, $preview['ambient_temp_f'], 0.01);
+        $this->assertEqualsWithDelta(103.0, $preview['computed_target_f'], 0.01);
+        $this->assertSame('cold', $preview['segment']);
+        $this->assertFalse($preview['clamped']);
+        $this->assertFalse($preview['fallback']);
+    }
+
+    public function testPreviewDynamicTargetInterpolatesHotSegment(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+        // Ambient 67.5F (midpoint of comfort 60 → hot 75) → (102.0 + 100.5) / 2
+        $this->storeEsp32ReadingWithAmbient(90.0, 67.5);
+
+        $preview = $service->previewDynamicTarget();
+
+        $this->assertEqualsWithDelta(101.25, $preview['computed_target_f'], 0.01);
+        $this->assertSame('hot', $preview['segment']);
+    }
+
+    public function testPreviewDynamicTargetClampsLow(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+        $this->storeEsp32ReadingWithAmbient(90.0, 30.0);
+
+        $preview = $service->previewDynamicTarget();
+
+        $this->assertEqualsWithDelta(104.0, $preview['computed_target_f'], 0.01);
+        $this->assertSame('clamp_low', $preview['segment']);
+        $this->assertTrue($preview['clamped']);
+    }
+
+    public function testPreviewDynamicTargetClampsHigh(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+        $this->storeEsp32ReadingWithAmbient(90.0, 95.0);
+
+        $preview = $service->previewDynamicTarget();
+
+        $this->assertEqualsWithDelta(100.5, $preview['computed_target_f'], 0.01);
+        $this->assertSame('clamp_high', $preview['segment']);
+        $this->assertTrue($preview['clamped']);
+    }
+
+    public function testPreviewDynamicTargetFallsBackWhenAmbientMissing(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+        $this->storeEsp32Reading(90.0); // water only
+
+        $preview = $service->previewDynamicTarget();
+
+        $this->assertNotNull($preview);
+        $this->assertTrue($preview['fallback']);
+        $this->assertSame('ambient_sensor_unavailable', $preview['fallback_reason']);
+        $this->assertNull($preview['ambient_temp_f']);
+        $this->assertArrayNotHasKey('segment', $preview);
+    }
+
+    public function testPreviewDynamicTargetHonorsAmbientCalibrationOffset(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+
+        $uncalibrated = $service->previewDynamicTarget();
+
+        // +5°C offset on the ambient sensor → +9°F on the reading
+        $this->esp32Config->setCalibrationOffset('28:BB:CC:DD:EE:FF:00:11', 5.0);
+        $calibrated = $service->previewDynamicTarget();
+
+        $this->assertEqualsWithDelta(
+            $uncalibrated['ambient_temp_f'] + 9.0,
+            $calibrated['ambient_temp_f'],
+            0.01
+        );
+    }
+
+    public function testPreviewDynamicTargetMatchesWhatStartWrites(): void
+    {
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings);
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $preview = $service->previewDynamicTarget();
+        $service->start(102.0);
+
+        $this->assertEqualsWithDelta(
+            $preview['computed_target_f'],
+            $service->getState()['target_temp_f'],
+            0.001
+        );
+    }
 }

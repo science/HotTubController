@@ -246,6 +246,65 @@ test.describe('v2 Home (MVP)', () => {
 			await expect(card).toHaveCount(0, { timeout: 10000 });
 			expect(await tempOf()).toBeUndefined();
 		});
+
+		// Home passes EventCard a different callback set than the Schedule tab, so a prop
+		// wired at only one site means Home quietly loses the control.
+		test('an ambient-matched card explains itself and can be switched from Home', async ({
+			page
+		}) => {
+			const list = await (await page.request.get('/tub/backend/public/api/schedule')).json();
+			for (const j of list.jobs ?? []) {
+				await page.request.delete(`/tub/backend/public/api/schedule/${j.jobId}`);
+			}
+			// Pin the curve: heat-target-settings.spec.ts persists its own (40°→105 …), and
+			// global-setup only resets once per RUN, so the projection isn't otherwise stable.
+			await page.request.put('/tub/backend/public/api/settings/heat-target', {
+				data: {
+					enabled: false,
+					target_temp_f: 103.0,
+					dynamic_mode: false,
+					calibration_points: {
+						cold: { ambient_f: 45.0, water_target_f: 104.0 },
+						comfort: { ambient_f: 60.0, water_target_f: 102.0 },
+						hot: { ambient_f: 75.0, water_target_f: 100.5 }
+					}
+				}
+			});
+			const when = new Date(Date.now() + 24 * 3600 * 1000);
+			when.setHours(16, 30, 0, 0);
+			const res = await page.request.post('/tub/backend/public/api/schedule', {
+				data: {
+					action: 'heat-to-target',
+					scheduledTime: when.toISOString(),
+					recurring: false,
+					target_temp_f: 109.25,
+					dynamic: true
+				}
+			});
+			expect(res.ok()).toBeTruthy();
+			const jobId = (await res.json()).jobId;
+
+			await page.reload();
+			const card = page.locator(`[data-testid="event-card"][data-key="${jobId}"]`);
+			await expect(card).toBeVisible({ timeout: 15000 });
+			await expect(card.getByTestId('event-title')).toHaveText('Heat based on ambient temp');
+
+			// The fixture's 55.004°F ambient interpolates to 102.67°F on the default curve.
+			await card.getByTestId('event-dynamic-chip').click();
+			await expect(card.getByTestId('event-dynamic-projection')).toContainText('≈102.67°F now');
+			await expect(card.getByTestId('event-dynamic-setup-link')).toBeVisible(); // admin
+
+			// Switching back to a fixed temperature restores the saved number and the stepper.
+			await card.getByTestId('event-dynamic-mode-switch').click();
+			await expect(card.getByTestId('event-title')).toHaveText('Heat to 109.25°F', {
+				timeout: 10000
+			});
+			await expect(card.getByTestId('event-oneoff-temp')).toBeVisible();
+
+			const saved = (await (await page.request.get('/tub/backend/public/api/schedule')).json())
+				.jobs as Array<{ jobId: string; params?: { dynamic?: boolean } }>;
+			expect(saved.find((j) => j.jobId === jobId)?.params?.dynamic).toBe(false);
+		});
 	});
 
 	test.describe('Heat-now target dial', () => {

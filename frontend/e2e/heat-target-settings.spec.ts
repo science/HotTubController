@@ -378,7 +378,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 
 		test('displays target mode radio buttons for admin', async ({ page }) => {
 			await expect(page.getByLabel('Static target')).toBeVisible({ timeout: 10000 });
-			await expect(page.getByLabel('Dynamic (ambient-adjusted)')).toBeVisible();
+			await expect(page.getByLabel('Based on ambient temp')).toBeVisible();
 		});
 
 		test('static mode is selected by default', async ({ page }) => {
@@ -391,7 +391,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await expect(page.getByLabel('Target temp', { exact: true })).toBeVisible({ timeout: 10000 });
 
 			// Switch to dynamic
-			await page.getByLabel('Dynamic (ambient-adjusted)').click();
+			await page.getByLabel('Based on ambient temp').click();
 
 			// Slider should be hidden, calibration inputs should appear
 			await expect(page.getByLabel('Target temp', { exact: true })).not.toBeVisible();
@@ -402,7 +402,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 
 		test('switching to dynamic mode marks settings as dirty', async ({ page }) => {
 			await expect(page.getByLabel('Static target')).toBeVisible({ timeout: 10000 });
-			await page.getByLabel('Dynamic (ambient-adjusted)').click();
+			await page.getByLabel('Based on ambient temp').click();
 			await expect(page.getByRole('button', { name: 'Save Settings' })).toBeVisible();
 		});
 
@@ -410,7 +410,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await expect(page.getByLabel('Static target')).toBeVisible({ timeout: 10000 });
 
 			// Switch to dynamic and save
-			await page.getByLabel('Dynamic (ambient-adjusted)').click();
+			await page.getByLabel('Based on ambient temp').click();
 			await page.getByRole('button', { name: 'Save Settings' }).click();
 
 			// Wait for save to complete (button disappears when not dirty)
@@ -421,7 +421,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible({
 				timeout: 10000
 			});
-			await expect(page.getByLabel('Dynamic (ambient-adjusted)')).toBeChecked({ timeout: 5000 });
+			await expect(page.getByLabel('Based on ambient temp')).toBeChecked({ timeout: 5000 });
 		});
 
 		test('calibration point values persist after save and reload', async ({ page }) => {
@@ -447,7 +447,7 @@ test.describe('Heat Target Settings (Admin Only)', () => {
 			});
 
 			// Verify dynamic mode is active
-			await expect(page.getByLabel('Dynamic (ambient-adjusted)')).toBeChecked({ timeout: 5000 });
+			await expect(page.getByLabel('Based on ambient temp')).toBeChecked({ timeout: 5000 });
 
 			// Verify calibration values loaded
 			await expect(page.getByLabel('Cold ambient temp')).toHaveValue('40');

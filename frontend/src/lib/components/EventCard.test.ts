@@ -4,9 +4,26 @@ import EventCard from './EventCard.svelte';
 import { foldScheduledEvents, type LogicalEvent } from '$lib/scheduleUtils';
 import type { ScheduledJob } from '$lib/api';
 
-// Non-dynamic heat-to-target so the ± adjust branch renders.
+// The store mock is exhaustive by omission — anything the component imports and this
+// factory doesn't provide fails at IMPORT time, taking every test in the file with it.
+// Default: household default is "fixed", with a live projection available.
+const DEFAULT_PREVIEW = {
+	ambient_temp_f: 55.004,
+	computed_target_f: 102.67,
+	segment: 'cold',
+	clamped: false,
+	fallback: false
+};
+const DEFAULT_CALIBRATION_POINTS = {
+	cold: { ambient_f: 45, water_target_f: 104 },
+	comfort: { ambient_f: 60, water_target_f: 102 },
+	hot: { ambient_f: 75, water_target_f: 100.5 }
+};
 vi.mock('$lib/stores/heatTargetSettings.svelte', () => ({
-	getDynamicMode: vi.fn(() => false)
+	getDynamicMode: vi.fn(() => false),
+	getDynamicPreview: vi.fn(() => DEFAULT_PREVIEW),
+	getProjectedTargetF: vi.fn(() => DEFAULT_PREVIEW.computed_target_f),
+	getCalibrationPoints: vi.fn(() => DEFAULT_CALIBRATION_POINTS)
 }));
 
 // The registry is exercised by its own unit test; here we just spy on registration so
@@ -314,5 +331,208 @@ describe('EventCard overridden ("adjusted") card management', () => {
 		expect(screen.queryByTestId('event-make-permanent')).toBeNull();
 		expect(screen.getByTestId('event-oneoff-save')).toBeTruthy();
 		expect(screen.getByTestId('event-oneoff-discard')).toBeTruthy();
+	});
+});
+
+describe('EventCard ambient-matched (dynamic) heat mode', () => {
+	beforeEach(() => vi.clearAllMocks());
+
+	const dynamicOneOff = () => oneOffJob({ params: { target_temp_f: 102.25, dynamic: true } });
+	const fixedOneOff = () => oneOffJob({ params: { target_temp_f: 102.25, dynamic: false } });
+
+	it('titles an ambient-matched card by its mode, never by the stored number', () => {
+		render(EventCard, { props: { event: toEvent(dynamicOneOff()) } });
+
+		const title = screen.getByTestId('event-title').textContent ?? '';
+		expect(title).toBe('Heat based on ambient temp');
+		expect(title).not.toContain('102.25');
+	});
+
+	it('titles a fixed card by its target', () => {
+		render(EventCard, { props: { event: toEvent(fixedOneOff()) } });
+
+		expect(screen.getByTestId('event-title').textContent).toBe('Heat to 102.25°F');
+	});
+
+	it('shows the disclosure control only on an ambient-matched heat card', () => {
+		const { unmount } = render(EventCard, { props: { event: toEvent(dynamicOneOff()) } });
+		expect(screen.getByTestId('event-dynamic-chip')).toBeTruthy();
+		unmount();
+
+		render(EventCard, { props: { event: toEvent(fixedOneOff()) } });
+		expect(screen.queryByTestId('event-dynamic-chip')).toBeNull();
+	});
+
+	it('never shows the disclosure on a non-heat card', () => {
+		render(EventCard, {
+			props: { event: toEvent(oneOffJob({ action: 'pump-run', params: undefined })) }
+		});
+
+		expect(screen.queryByTestId('event-dynamic-chip')).toBeNull();
+	});
+
+	it('toggles the explanation, wiring aria-expanded to the region it controls', async () => {
+		render(EventCard, { props: { event: toEvent(dynamicOneOff()) } });
+
+		const chip = screen.getByTestId('event-dynamic-chip');
+		expect(chip.getAttribute('aria-expanded')).toBe('false');
+		expect(screen.queryByTestId('event-dynamic-detail')).toBeNull();
+
+		await fireEvent.click(chip);
+
+		expect(chip.getAttribute('aria-expanded')).toBe('true');
+		const detail = screen.getByTestId('event-dynamic-detail');
+		expect(chip.getAttribute('aria-controls')).toBe(detail.id);
+	});
+
+	// A real <button> is used precisely so the keyboard works without hand-rolled handlers.
+	it('opens from the keyboard', async () => {
+		render(EventCard, { props: { event: toEvent(dynamicOneOff()) } });
+
+		const chip = screen.getByTestId('event-dynamic-chip');
+		chip.focus();
+		await fireEvent.click(chip); // what Enter/Space dispatch on a native button
+
+		expect(screen.getByTestId('event-dynamic-detail')).toBeTruthy();
+	});
+
+	it('shows the live projection and highlights the active curve segment', async () => {
+		render(EventCard, { props: { event: toEvent(dynamicOneOff()) } });
+		await fireEvent.click(screen.getByTestId('event-dynamic-chip'));
+
+		expect(screen.getByTestId('event-dynamic-projection').textContent).toContain('≈102.67°F now');
+
+		const points = screen.getAllByTestId('event-dynamic-curve-point');
+		expect(points).toHaveLength(3);
+		const active = points.filter((p) => p.getAttribute('data-active') === 'true');
+		expect(active).toHaveLength(1);
+		expect(active[0].getAttribute('data-point')).toBe('cold');
+	});
+
+	it('is visible to a guest, who gets the explanation but no mode switch', async () => {
+		render(EventCard, { props: { event: toEvent(dynamicOneOff()), canAdjust: false } });
+
+		await fireEvent.click(screen.getByTestId('event-dynamic-chip'));
+		expect(screen.getByTestId('event-dynamic-explainer')).toBeTruthy();
+		expect(screen.queryByTestId('event-dynamic-mode-switch')).toBeNull();
+	});
+
+	it('switches an ambient-matched job back to a fixed temperature', async () => {
+		const onSetHeatMode = vi.fn().mockResolvedValue(undefined);
+		render(EventCard, {
+			props: { event: toEvent(dynamicOneOff()), canAdjust: true, onReschedule: vi.fn(), onSetHeatMode }
+		});
+
+		await fireEvent.click(screen.getByTestId('event-dynamic-chip'));
+		await fireEvent.click(screen.getByTestId('event-dynamic-mode-switch'));
+
+		await waitFor(() => expect(onSetHeatMode).toHaveBeenCalledTimes(1));
+		expect(onSetHeatMode).toHaveBeenCalledWith('job-1', false);
+	});
+
+	it('offers a fixed card the switch to ambient matching', async () => {
+		const onSetHeatMode = vi.fn().mockResolvedValue(undefined);
+		render(EventCard, {
+			props: { event: toEvent(fixedOneOff()), canAdjust: true, onReschedule: vi.fn(), onSetHeatMode }
+		});
+
+		await fireEvent.click(screen.getByTestId('event-dynamic-mode-switch'));
+
+		await waitFor(() => expect(onSetHeatMode).toHaveBeenCalledTimes(1));
+		expect(onSetHeatMode).toHaveBeenCalledWith('job-1', true);
+	});
+
+	// The time stepper vanishing in dynamic mode was a plain bug: when a heat starts has
+	// nothing to do with how its target is chosen.
+	it('keeps the time stepper but drops the temp stepper for an ambient-matched card', () => {
+		render(EventCard, {
+			props: { event: toEvent(dynamicOneOff()), canAdjust: true, onReschedule: vi.fn() }
+		});
+
+		expect(screen.getByTestId('event-oneoff-time')).toBeTruthy();
+		expect(screen.queryByTestId('event-oneoff-temp')).toBeNull();
+		expect(screen.getByRole('button', { name: '15 minutes later' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'a quarter degree warmer' })).toBeNull();
+	});
+
+	it('still saves a time-only nudge for an ambient-matched card', async () => {
+		const onReschedule = vi.fn().mockResolvedValue(undefined);
+		render(EventCard, {
+			props: { event: toEvent(dynamicOneOff()), canAdjust: true, onReschedule }
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: '15 minutes later' }));
+		await fireEvent.click(screen.getByTestId('event-oneoff-save'));
+
+		await waitFor(() => expect(onReschedule).toHaveBeenCalledTimes(1));
+		expect(onReschedule.mock.calls[0][2]).toBeUndefined(); // no temp argument
+	});
+
+	it('keeps both steppers on a fixed card', () => {
+		render(EventCard, {
+			props: { event: toEvent(fixedOneOff()), canAdjust: true, onReschedule: vi.fn() }
+		});
+
+		expect(screen.getByTestId('event-oneoff-time')).toBeTruthy();
+		expect(screen.getByTestId('event-oneoff-temp')).toBeTruthy();
+	});
+
+	it('explains why the temperature control is missing', async () => {
+		render(EventCard, {
+			props: { event: toEvent(dynamicOneOff()), canAdjust: true, onReschedule: vi.fn() }
+		});
+
+		await fireEvent.click(screen.getByTestId('event-dynamic-chip'));
+		expect(screen.getByTestId('event-dynamic-steppers-note').textContent).toContain('102.25');
+	});
+
+	it('links an owner to the curve setup', async () => {
+		render(EventCard, {
+			props: { event: toEvent(dynamicOneOff()), canAdjust: true, canConfigureCurve: true }
+		});
+
+		await fireEvent.click(screen.getByTestId('event-dynamic-chip'));
+		expect(screen.getByTestId('event-dynamic-setup-link')).toBeTruthy();
+	});
+
+	it('hides the curve setup link from a non-owner', async () => {
+		render(EventCard, { props: { event: toEvent(dynamicOneOff()), canAdjust: true } });
+
+		await fireEvent.click(screen.getByTestId('event-dynamic-chip'));
+		expect(screen.queryByTestId('event-dynamic-setup-link')).toBeNull();
+	});
+
+	// An adjusted card is TWO backend jobs. It reads its mode from the run about to fire,
+	// and a flip has to move both or the card claims a mode the next run doesn't use.
+	it('reads an adjusted card’s mode from the override, and flips both jobs together', async () => {
+		const onSetHeatMode = vi.fn().mockResolvedValue(undefined);
+		const event = toEvent(
+			recurringJob({ params: { target_temp_f: 102, dynamic: true } }),
+			overrideJob({ params: { target_temp_f: 102.25, override_of: 'rec-1', dynamic: true } })
+		);
+		render(EventCard, {
+			props: { event, canAdjust: true, onOverrideNext: vi.fn(), onSetHeatMode }
+		});
+
+		expect(screen.getByTestId('event-title').textContent).toBe('Heat based on ambient temp');
+
+		await fireEvent.click(screen.getByTestId('event-dynamic-mode-switch'));
+
+		await waitFor(() => expect(onSetHeatMode).toHaveBeenCalledTimes(2));
+		expect(onSetHeatMode).toHaveBeenNthCalledWith(1, 'rec-1', false);
+		expect(onSetHeatMode).toHaveBeenNthCalledWith(2, 'ovr-1', false);
+	});
+
+	it('describes an unsaved change with the fixed-form title, not the mode name', async () => {
+		const { registerPendingEdit } = await import('$lib/stores/pendingEdits.svelte');
+		render(EventCard, {
+			props: { event: toEvent(fixedOneOff()), canAdjust: true, onReschedule: vi.fn() }
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: '15 minutes later' }));
+
+		await waitFor(() => expect(registerPendingEdit).toHaveBeenCalled());
+		const registered = vi.mocked(registerPendingEdit).mock.calls.at(-1)![0];
+		expect(registered.describe()).toContain('Heat to');
 	});
 });

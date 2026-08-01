@@ -572,6 +572,200 @@ class DtdtServiceTest extends TestCase
         $this->assertEquals('America/Los_Angeles', $jobData['params']['timezone']);
     }
 
+    // ==================== Per-job heat mode propagation ====================
+    //
+    // handleWakeUp() and startImmediately() both build their params/args from
+    // scratch, so the job's heat mode has to be carried across explicitly or a
+    // ready-by ambient-matched job quietly heats to a fixed temperature.
+
+    /**
+     * @test
+     */
+    public function wakeUpCarriesDynamicOntoThePrecisionOneOff(): void
+    {
+        $this->writeHeatingChars([
+            'heating_velocity_f_per_min' => 0.5,
+            'startup_lag_minutes' => 5.0,
+            'max_cooling_k' => 0.0005,
+        ]);
+
+        $service = $this->createService(null, $this->createMockCalibratedService(98.0, 50.0));
+        $readyByTime = (new \DateTime('+3 hours', new \DateTimeZone('UTC')))->format('H:i') . '+00:00';
+
+        $result = $service->handleWakeUp([
+            'ready_by_time' => $readyByTime,
+            'target_temp_f' => 103.0,
+            'dynamic' => true,
+        ]);
+
+        $this->assertEquals('precision_scheduled', $result['status']);
+        $jobData = json_decode(file_get_contents($this->jobsDir . '/' . $result['jobId'] . '.json'), true);
+        $this->assertTrue($jobData['params']['dynamic']);
+        // The stored temp stays the STATIC fallback — the curve is re-read at heat start,
+        // not frozen here at wake-up.
+        $this->assertEquals(103.0, $jobData['params']['target_temp_f']);
+    }
+
+    /**
+     * @test
+     */
+    public function wakeUpCarriesFixedModeOntoThePrecisionOneOff(): void
+    {
+        $this->writeHeatingChars([
+            'heating_velocity_f_per_min' => 0.5,
+            'startup_lag_minutes' => 5.0,
+            'max_cooling_k' => 0.0005,
+        ]);
+
+        $service = $this->createService(null, $this->createMockCalibratedService(98.0, 50.0));
+        $readyByTime = (new \DateTime('+3 hours', new \DateTimeZone('UTC')))->format('H:i') . '+00:00';
+
+        $result = $service->handleWakeUp([
+            'ready_by_time' => $readyByTime,
+            'target_temp_f' => 103.0,
+            'dynamic' => false,
+        ]);
+
+        $jobData = json_decode(file_get_contents($this->jobsDir . '/' . $result['jobId'] . '.json'), true);
+        $this->assertFalse($jobData['params']['dynamic']);
+    }
+
+    /**
+     * A job predating per-job mode carries no flag; the one-off must not invent one,
+     * so it keeps inheriting the global default at heat time.
+     */
+    public function testWakeUpOmitsDynamicForLegacyJobs(): void
+    {
+        $this->writeHeatingChars([
+            'heating_velocity_f_per_min' => 0.5,
+            'startup_lag_minutes' => 5.0,
+            'max_cooling_k' => 0.0005,
+        ]);
+
+        $service = $this->createService(null, $this->createMockCalibratedService(98.0, 50.0));
+        $readyByTime = (new \DateTime('+3 hours', new \DateTimeZone('UTC')))->format('H:i') . '+00:00';
+
+        $result = $service->handleWakeUp([
+            'ready_by_time' => $readyByTime,
+            'target_temp_f' => 103.0,
+        ]);
+
+        $jobData = json_decode(file_get_contents($this->jobsDir . '/' . $result['jobId'] . '.json'), true);
+        $this->assertArrayNotHasKey('dynamic', $jobData['params']);
+    }
+
+    /**
+     * @test
+     */
+    public function startImmediatelyPassesTheJobsHeatModeThrough(): void
+    {
+        $this->writeHeatingChars([
+            'heating_velocity_f_per_min' => 0.5,
+            'startup_lag_minutes' => 5.0,
+        ]);
+
+        $targetService = $this->createMock(TargetTemperatureService::class);
+        $targetService->expects($this->once())
+            ->method('start')
+            ->with(103.0, true)
+            ->willReturn([]);
+
+        // No calibrated temp service → no water reading → conservative immediate start.
+        $service = $this->createService($targetService, null);
+
+        $result = $service->handleWakeUp([
+            'ready_by_time' => (new \DateTime('+3 hours', new \DateTimeZone('UTC')))->format('H:i') . '+00:00',
+            'target_temp_f' => 103.0,
+            'dynamic' => true,
+        ]);
+
+        $this->assertEquals('started_immediately', $result['status']);
+    }
+
+    /**
+     * Lead-time correctness: the cooling projection and precision start were computed
+     * from the STATIC temp while the heat later aimed at the ambient-derived one. When
+     * the curve calls for a materially hotter target, that made the tub late to its
+     * ready-by time.
+     *
+     * @test
+     */
+    public function wakeUpComputesLeadTimeAgainstTheProjectedTarget(): void
+    {
+        $this->writeHeatingChars([
+            'heating_velocity_f_per_min' => 0.5,
+            'startup_lag_minutes' => 5.0,
+            'max_cooling_k' => 0.0005,
+        ]);
+
+        // Cold outside: the curve wants 106°F, six degrees above the stored 100°F.
+        $targetService = $this->createMock(TargetTemperatureService::class);
+        $targetService->method('previewDynamicTarget')->willReturn([
+            'ambient_temp_f' => 38.0,
+            'computed_target_f' => 106.0,
+            'segment' => 'clamp_low',
+            'clamped' => true,
+            'fallback' => false,
+        ]);
+
+        $readyByTime = (new \DateTime('+3 hours', new \DateTimeZone('UTC')))->format('H:i') . '+00:00';
+
+        $dynamicResult = $this->createService($targetService, $this->createMockCalibratedService(98.0, 38.0))
+            ->handleWakeUp([
+                'ready_by_time' => $readyByTime,
+                'target_temp_f' => 100.0,
+                'dynamic' => true,
+            ]);
+
+        $fixedResult = $this->createService($targetService, $this->createMockCalibratedService(98.0, 38.0))
+            ->handleWakeUp([
+                'ready_by_time' => $readyByTime,
+                'target_temp_f' => 100.0,
+                'dynamic' => false,
+            ]);
+
+        $this->assertEquals('precision_scheduled', $dynamicResult['status']);
+        $this->assertEquals('precision_scheduled', $fixedResult['status']);
+        // 6°F further to climb at 0.5°F/min ≈ 12 extra minutes of lead time.
+        $this->assertGreaterThan($fixedResult['heat_minutes'] + 10, $dynamicResult['heat_minutes']);
+        $this->assertEquals(106.0, $dynamicResult['target_temp_f']);
+    }
+
+    /**
+     * A dynamic job whose ambient sensor is down must fall back to the stored temp for
+     * the lead-time math rather than skipping the heat or crashing.
+     *
+     * @test
+     */
+    public function wakeUpFallsBackToStaticTargetWhenTheProjectionIsUnavailable(): void
+    {
+        $this->writeHeatingChars([
+            'heating_velocity_f_per_min' => 0.5,
+            'startup_lag_minutes' => 5.0,
+            'max_cooling_k' => 0.0005,
+        ]);
+
+        $targetService = $this->createMock(TargetTemperatureService::class);
+        $targetService->method('previewDynamicTarget')->willReturn([
+            'ambient_temp_f' => null,
+            'computed_target_f' => 103.0,
+            'clamped' => false,
+            'fallback' => true,
+            'fallback_reason' => 'ambient_sensor_unavailable',
+        ]);
+
+        $service = $this->createService($targetService, $this->createMockCalibratedService(98.0, 50.0));
+
+        $result = $service->handleWakeUp([
+            'ready_by_time' => (new \DateTime('+3 hours', new \DateTimeZone('UTC')))->format('H:i') . '+00:00',
+            'target_temp_f' => 103.0,
+            'dynamic' => true,
+        ]);
+
+        $this->assertEquals('precision_scheduled', $result['status']);
+        $this->assertEquals(103.0, $result['target_temp_f']);
+    }
+
     // ==================== Helper Methods ====================
 
     private function createMockCalibratedService(float $waterTempF, float $ambientTempF): Esp32CalibratedTemperatureService

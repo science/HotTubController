@@ -1,12 +1,19 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { getDynamicMode } from '$lib/stores/heatTargetSettings.svelte';
+	import { base } from '$app/paths';
+	import {
+		getDynamicMode,
+		getDynamicPreview,
+		getCalibrationPoints
+	} from '$lib/stores/heatTargetSettings.svelte';
 	import {
 		formatNextFire,
 		formatTemp,
 		formatClockHHMM,
 		shiftHHMM,
 		jobTitle,
+		jobIsDynamic,
+		dynamicProjectionLabel,
 		jobClock,
 		resumeLabel,
 		baseSummary,
@@ -30,6 +37,8 @@
 	interface Props {
 		event: LogicalEvent;
 		canAdjust?: boolean;
+		/** Owner-only: link out to the shared ambient curve in Setup. */
+		canConfigureCurve?: boolean;
 		onSkip?: (event: LogicalEvent) => void;
 		onUnskip?: (event: LogicalEvent) => void;
 		onCancel?: (event: LogicalEvent) => void;
@@ -39,10 +48,13 @@
 		onOverrideNext?: (jobId: string, time: string, tempF: number) => Promise<void> | void;
 		onClearOverride?: (event: LogicalEvent) => void;
 		onMakePermanent?: (event: LogicalEvent) => void;
+		/** Flip THIS job between a fixed temperature and the ambient curve. */
+		onSetHeatMode?: (jobId: string, dynamic: boolean) => Promise<void> | void;
 	}
 	let {
 		event,
 		canAdjust = false,
+		canConfigureCurve = false,
 		onSkip,
 		onUnskip,
 		onCancel,
@@ -51,13 +63,20 @@
 		onRescheduleRecurring,
 		onOverrideNext,
 		onClearOverride,
-		onMakePermanent
+		onMakePermanent,
+		onSetHeatMode
 	}: Props = $props();
 
 	// Adjustability is a property of the underlying schedule (the base job); the title
 	// and next-fire line describe the *effective* next run (the override when present).
 	const isHeatToTarget = $derived(event.baseJob.action === 'heat-to-target');
-	const title = $derived(jobTitle(event.job, getDynamicMode()));
+
+	// The heat mode belongs to the job, not the household: getDynamicMode() is only the
+	// fallback for jobs created before per-job mode existed. Read from the EFFECTIVE next
+	// run (the override when present), matching what the title and next-fire line describe;
+	// toggleHeatMode writes both jobs so the two can't drift apart.
+	const followsCurve = $derived(isHeatToTarget && jobIsDynamic(event.job, getDynamicMode()));
+	const title = $derived(jobTitle(event.job, followsCurve));
 
 	// "ready by" when the recurring parent is in ready-by mode, else "start"/one-off.
 	const whenVerb = $derived(
@@ -125,17 +144,18 @@
 	// heat events render the SAME steppers (card parity); they differ only in what
 	// Save means: move the instant, override the next run, or change the daily default.
 	const overrideMode = $derived(!!onOverrideNext);
-	const oneOffAdjustable = $derived(
-		isHeatToTarget && !event.recurring && !getDynamicMode() && !!onReschedule
-	);
+	const oneOffAdjustable = $derived(isHeatToTarget && !event.recurring && !!onReschedule);
 	const recurringAdjustable = $derived(
 		isHeatToTarget &&
 			event.recurring &&
 			!event.skipped &&
-			!getDynamicMode() &&
 			(overrideMode || !!onRescheduleRecurring)
 	);
 	const stepperAdjustable = $derived(oneOffAdjustable || recurringAdjustable);
+	// Only the TEMP stepper depends on the heat mode — when the curve picks the target
+	// there's nothing to nudge. Time-of-day has nothing to do with how the target is
+	// chosen, so the time stepper stays (its disappearing was a plain bug).
+	const tempAdjustable = $derived(stepperAdjustable && !followsCurve);
 
 	// Override mode edits the *effective* next run (the override one-off when present);
 	// permanent mode edits the everyday default (the base job).
@@ -215,7 +235,9 @@
 	function describeChange(): string {
 		const parts = [draftClockDisplay];
 		if (draftTemp != null) parts.push(`${formatTemp(draftTemp)}°F`);
-		return `${title} → ${parts.join(' · ')}`;
+		// The static form: "Heat based on ambient temp → 7:00 AM · 102.25°F" would read
+		// as nonsense in the unsaved-changes prompt.
+		return `${jobTitle(event.job)} → ${parts.join(' · ')}`;
 	}
 	$effect(() => {
 		const id = `card:${event.key}`;
@@ -231,6 +253,49 @@
 		}
 	});
 	onDestroy(() => clearPendingEdit(`card:${event.key}`));
+
+	// ── Heat-mode disclosure ────────────────────────────────────────────────────
+	// The projection lives INSIDE the expanded region, never in the title: a daily
+	// 6:30 AM heat uses 6:30 AM's air, not right now's, and a number that drifts
+	// between page loads reads as instability.
+	let detailOpen = $state(false);
+	const detailId = $derived(`event-dynamic-detail-${event.key}`);
+	const preview = $derived(getDynamicPreview());
+	// The fallback that matters is the one the run about to fire will use.
+	const savedTempF = $derived(event.job.params?.target_temp_f ?? null);
+	const projectionLabel = $derived(dynamicProjectionLabel(preview, savedTempF));
+
+	// The three shared calibration points as chips, with the segment the current air
+	// sits on highlighted. clamp_low/clamp_high light the endpoint they're held at.
+	const CURVE_KEYS = ['cold', 'comfort', 'hot'] as const;
+	const activeSegment = $derived(preview?.fallback ? null : (preview?.segment ?? null));
+	function pointIsActive(key: (typeof CURVE_KEYS)[number]): boolean {
+		if (activeSegment === null) return false;
+		if (activeSegment === 'clamp_low') return key === 'cold';
+		if (activeSegment === 'clamp_high') return key === 'hot';
+		// Interpolating segments are named for the point they start from.
+		return activeSegment === key;
+	}
+
+	let modeSwitching = $state(false);
+	let modeError = $state<string | null>(null);
+	async function toggleHeatMode() {
+		if (modeSwitching) return;
+		modeSwitching = true;
+		modeError = null;
+		try {
+			const next = !followsCurve;
+			// An adjusted card is two backend jobs (the daily parent + the one-off for the
+			// next run). Flipping only one would leave the card claiming a mode the next
+			// run doesn't use, so both move together.
+			await onSetHeatMode?.(event.baseJob.jobId, next);
+			if (event.overrideJob) await onSetHeatMode?.(event.overrideJob.jobId, next);
+		} catch (e) {
+			modeError = e instanceof Error ? e.message : 'Failed to change heat mode';
+		} finally {
+			modeSwitching = false;
+		}
+	}
 </script>
 
 <div
@@ -245,6 +310,46 @@
 		<div class="min-w-0">
 			<div class="flex items-center gap-1.5">
 				<p class="truncate font-semibold text-slate-100" data-testid="event-title">{title}</p>
+				{#if followsCurve}
+					<!-- A real button: focus, Enter/Space and the right role come for free.
+					     Its icons are aria-hidden — a labelled button must not have its
+					     accessible name doubled by child icon labels, which is why these
+					     depart from the role="img" convention the recurring icon uses. -->
+					<button
+						type="button"
+						onclick={() => (detailOpen = !detailOpen)}
+						aria-expanded={detailOpen}
+						aria-controls={detailId}
+						aria-label="How the ambient target is chosen"
+						data-testid="event-dynamic-chip"
+						class="flex min-h-[24px] shrink-0 items-center gap-0.5 rounded px-1 text-sky-300/90 hover:bg-slate-700/60 hover:text-sky-200"
+					>
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							class="h-3.5 w-3.5"
+							aria-hidden="true"
+						>
+							<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" />
+						</svg>
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							class="h-3 w-3 transition-transform {detailOpen ? 'rotate-180' : ''}"
+							aria-hidden="true"
+						>
+							<path d="m6 9 6 6 6-6" />
+						</svg>
+					</button>
+				{/if}
 				{#if event.recurring}
 					<svg
 						viewBox="0 0 24 24"
@@ -288,6 +393,57 @@
 		{/if}
 	</div>
 
+	<!-- Explanation before controls, and outside the canAdjust gate so a Guest can still
+	     find out what "based on ambient temp" means on a card they can't change. -->
+	{#if followsCurve && detailOpen}
+		<div
+			id={detailId}
+			data-testid="event-dynamic-detail"
+			class="mt-3 rounded-lg border border-slate-700 bg-slate-900/40 p-3 text-xs text-slate-400"
+		>
+			<p data-testid="event-dynamic-explainer">
+				The water target follows the outdoor air temperature, and is chosen when this heat
+				starts — not now.
+			</p>
+
+			<p class="mt-2 font-medium text-slate-300" data-testid="event-dynamic-projection">
+				{projectionLabel}
+			</p>
+
+			<div class="mt-2 flex flex-wrap gap-1.5">
+				{#each CURVE_KEYS as key (key)}
+					{@const point = getCalibrationPoints()[key]}
+					<span
+						data-testid="event-dynamic-curve-point"
+						data-point={key}
+						data-active={pointIsActive(key)}
+						class="rounded px-1.5 py-0.5 {pointIsActive(key)
+							? 'bg-sky-500/20 text-sky-200'
+							: 'bg-slate-800 text-slate-500'}"
+						>{formatTemp(point.ambient_f)}° air → {formatTemp(point.water_target_f)}°F</span
+					>
+				{/each}
+			</div>
+
+			{#if savedTempF != null}
+				<p class="mt-2" data-testid="event-dynamic-steppers-note">
+					There's no ± temperature control because the curve sets the target. The saved
+					{formatTemp(savedTempF)}°F is used only if the air sensor is unavailable.
+				</p>
+			{/if}
+
+			{#if canConfigureCurve}
+				<p class="mt-2">
+					<a
+						href="{base}/setup"
+						data-testid="event-dynamic-setup-link"
+						class="text-sky-300 underline hover:text-sky-200">Adjust the curve in Setup</a
+					>
+				</p>
+			{/if}
+		</div>
+	{/if}
+
 	{#if canAdjust}
 		{#if editing}
 			<div class="mt-3 flex items-center gap-2">
@@ -320,7 +476,7 @@
 			<!-- Heat-to-target quick ± time / temp adjust — identical for one-time and
 			     recurring (card parity); clean recurring cards add Skip next / override
 			     management below. -->
-			<div class="mt-3 grid grid-cols-2 gap-2">
+			<div class="mt-3 grid gap-2 {tempAdjustable ? 'grid-cols-2' : 'grid-cols-1'}">
 				<div class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5">
 					<button
 						type="button"
@@ -340,6 +496,7 @@
 						>+</button
 					>
 				</div>
+				{#if tempAdjustable}
 				<div class="flex items-center justify-between rounded-lg bg-slate-900/50 px-2 py-1.5">
 					<button
 						type="button"
@@ -361,6 +518,7 @@
 						>+</button
 					>
 				</div>
+				{/if}
 			</div>
 			<div class="mt-2 flex items-center gap-3 text-xs">
 				{#if rescheduleError}<span class="text-red-400">{rescheduleError}</span>{/if}
@@ -434,7 +592,7 @@
 						>
 					{/if}
 				{/if}
-				{#if isHeatToTarget && !getDynamicMode()}
+				{#if isHeatToTarget && !followsCurve}
 					<button
 						type="button"
 						onclick={startEdit}
@@ -450,6 +608,27 @@
 					class="ml-auto rounded-lg px-3 py-1 text-slate-400 hover:bg-red-500/10 hover:text-red-300"
 					>Remove</button
 				>
+			</div>
+		{/if}
+
+		<!-- One home for the mode switch, whichever control row rendered above — a fixed
+		     card has no disclosure to open it from, and duplicating it inside the
+		     expanded region would give ambient-matched cards two of the same button. -->
+		{#if isHeatToTarget && onSetHeatMode && !editing}
+			<div class="mt-2 text-xs">
+				<button
+					type="button"
+					onclick={toggleHeatMode}
+					disabled={modeSwitching}
+					data-testid="event-dynamic-mode-switch"
+					class="rounded-lg px-1 py-0.5 text-slate-400 underline decoration-slate-600 underline-offset-2 hover:text-slate-200 disabled:opacity-50"
+					>{modeSwitching
+						? 'Saving…'
+						: followsCurve
+							? 'Use a fixed temperature instead'
+							: 'Heat based on ambient temp instead'}</button
+				>
+				{#if modeError}<span class="ml-2 text-red-400">{modeError}</span>{/if}
 			</div>
 		{/if}
 	{/if}

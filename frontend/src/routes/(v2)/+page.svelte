@@ -7,7 +7,7 @@
 	import TemperaturePanel from '$lib/components/TemperaturePanel.svelte';
 	import EventCard from '$lib/components/EventCard.svelte';
 	import { api, type TargetTemperatureState, type ScheduledJob } from '$lib/api';
-	import { canControl, canSchedule, canTuneTarget } from '$lib/roles';
+	import { canControl, canSchedule, canTuneTarget, canConfigure } from '$lib/roles';
 	import { foldScheduledEvents, type LogicalEvent } from '$lib/scheduleUtils';
 	import { skipEvent, cancelEvent, makePermanentEvent } from '$lib/scheduleActions';
 	import {
@@ -93,6 +93,7 @@
 	let scheduledJobs = $state<ScheduledJob[]>([]);
 	const events = $derived(foldScheduledEvents(scheduledJobs));
 	const canSched = $derived(canSchedule(data.user?.role));
+	const canConfigureCurve = $derived(canConfigure(data.user?.role));
 
 	async function reloadJobs() {
 		try {
@@ -116,6 +117,12 @@
 	}
 	async function handleRescheduleOneOff(jobId: string, scheduledTime: string, tempF?: number) {
 		await api.rescheduleOneOff(jobId, scheduledTime, tempF);
+		await reloadJobs();
+	}
+	// Flips the job itself, not the household default — Home's dial and Heat button
+	// still follow the global setting.
+	async function handleSetHeatMode(jobId: string, dynamic: boolean) {
+		await api.setScheduledJobHeatMode(jobId, dynamic);
 		await reloadJobs();
 	}
 
@@ -353,6 +360,8 @@
 					<EventCard
 						{event}
 						canAdjust={canSched}
+						{canConfigureCurve}
+						onSetHeatMode={handleSetHeatMode}
 						onOverrideNext={handleOverrideNext}
 						onReschedule={handleRescheduleOneOff}
 						onSkip={handleSkip}

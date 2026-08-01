@@ -615,6 +615,39 @@ class SchedulerService
     }
 
     /**
+     * Switch a heat-to-target job between a fixed temperature and the ambient curve.
+     *
+     * array_merge preserves sibling params (target_temp_f, ready_by_time, override_of,
+     * timezone), which is also why temp edits and reschedules carry `dynamic` through
+     * untouched without any change of their own.
+     *
+     * @param string $jobId The job ID to update
+     * @param bool $dynamic True to follow the ambient curve, false for the stored temp
+     * @return array Updated job data
+     * @throws InvalidArgumentException If the job is missing or not heat-to-target
+     */
+    public function updateJobDynamic(string $jobId, bool $dynamic): array
+    {
+        $jobFile = $this->jobsDir . '/' . $jobId . '.json';
+
+        if (!file_exists($jobFile)) {
+            throw new InvalidArgumentException('Job not found: ' . $jobId);
+        }
+
+        $jobData = json_decode(file_get_contents($jobFile), true);
+
+        if (($jobData['action'] ?? '') !== 'heat-to-target') {
+            throw new InvalidArgumentException('Can only set heat mode for heat-to-target jobs');
+        }
+
+        $jobData['params'] = array_merge($jobData['params'] ?? [], ['dynamic' => $dynamic]);
+
+        file_put_contents($jobFile, json_encode($jobData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        return $jobData;
+    }
+
+    /**
      * Reschedule a one-off job to a new time (and optionally a new target temp),
      * preserving its job id and re-registering its cron entry at the new time.
      *

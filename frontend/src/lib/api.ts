@@ -19,6 +19,12 @@ export interface ScheduledJob {
 		ready_by_time?: string;
 		timezone?: string;
 		override_of?: string;
+		/**
+		 * This job's own heat mode: true → follow the ambient curve, false → heat to
+		 * target_temp_f. Absent on jobs created before per-job mode existed — those
+		 * inherit the household default at run time (see jobIsDynamic).
+		 */
+		dynamic?: boolean;
 	};
 	skipped?: boolean;
 	skipDate?: string;
@@ -112,8 +118,14 @@ export interface HeatTargetSettings {
 	schedule_mode?: 'start_at' | 'ready_by';
 	stall_grace_period_minutes?: number;
 	stall_timeout_minutes?: number;
+	/** The DEFAULT stamped onto new jobs (and the mode for manual "Heat now") — not retroactive. */
 	dynamic_mode?: boolean;
 	calibration_points?: CalibrationPoints;
+	/**
+	 * What the ambient curve would pick right now. Present only for an authenticated
+	 * caller (it carries an outdoor-air reading), and null when heat-to-target is off.
+	 */
+	dynamic_preview?: DynamicTargetPreview | null;
 }
 
 export interface LastStallEvent {
@@ -141,7 +153,18 @@ export interface DynamicTargetInfo {
 	clamped: boolean;
 	fallback: boolean;
 	fallback_reason?: string;
+	/** Why this target was chosen: the job's own flag, or the household default. */
+	source?: 'per_job' | 'global_default';
 }
+
+/**
+ * A live projection of the curve — the same shape a heat records, minus the fields that
+ * only exist once a specific heat has committed to a static fallback.
+ */
+export type DynamicTargetPreview = Omit<
+	DynamicTargetInfo,
+	'dynamic_mode' | 'static_target_f' | 'source'
+>;
 
 export interface TargetTemperatureState {
 	active: boolean;
@@ -318,13 +341,17 @@ export const api = {
 		action: string,
 		scheduledTime: string,
 		recurring: boolean = false,
-		params?: { target_temp_f?: number },
+		params?: { target_temp_f?: number; dynamic?: boolean },
 		timezone?: string
 	) => postJson<ScheduledJob>('/api/schedule', { action, scheduledTime, recurring, ...params, ...(timezone ? { timezone } : {}) }),
 	listScheduledJobs: () => get<ScheduleListResponse>('/api/schedule'),
 	cancelScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}`),
 	updateScheduledJobTemp: (jobId: string, targetTempF: number) =>
 		put<ScheduledJob>(`/api/schedule/${jobId}/target-temp`, { target_temp_f: targetTempF }),
+	// Switch one job between a fixed temperature and the ambient-matched curve. Affects
+	// only that job — the household default in Setup is untouched.
+	setScheduledJobHeatMode: (jobId: string, dynamic: boolean) =>
+		put<ScheduledJob>(`/api/schedule/${jobId}/heat-mode`, { dynamic }),
 	skipScheduledJob: (jobId: string) => post(`/api/schedule/${jobId}/skip`),
 	unskipScheduledJob: (jobId: string) => del(`/api/schedule/${jobId}/skip`),
 	// "Adjust just the next run" of a recurring job: skip it + a mode-aware one-off

@@ -149,6 +149,11 @@ class DtdtService
         $readyByTime = $params['ready_by_time'] ?? null;
         $targetTempF = (float) ($params['target_temp_f'] ?? 103.0);
         $timezone = $params['timezone'] ?? null;
+        // This job's own heat mode. Absent (a job predating per-job mode) stays null so
+        // the heat still inherits the global default when it starts.
+        $dynamic = array_key_exists('dynamic', $params) && $params['dynamic'] !== null
+            ? (bool) $params['dynamic']
+            : null;
 
         if ($readyByTime === null) {
             return ['error' => 'Missing ready_by_time parameter'];
@@ -168,15 +173,26 @@ class DtdtService
 
         // Fallback: no data → start immediately (conservative)
         if ($waterTempF === null || $chars === null) {
-            return $this->startImmediately($targetTempF, 'No temperature data or heating characteristics');
+            return $this->startImmediately(
+                $targetTempF,
+                'No temperature data or heating characteristics',
+                $dynamic
+            );
         }
 
+        // All the timing below must aim at the temperature this heat will ACTUALLY
+        // target. For an ambient-matched job that's the curve's answer, which on a cold
+        // morning can sit well above the stored temp — projecting against the stored one
+        // left the tub short of its ready-by time. The stored $targetTempF stays the
+        // fallback written into the precision job's params; only the math moves.
+        $projectedTargetF = $this->resolveProjectedTarget($targetTempF, $dynamic);
+
         // Already at target → nothing to do
-        if ($waterTempF >= $targetTempF) {
+        if ($waterTempF >= $projectedTargetF) {
             return [
                 'status' => 'already_at_target',
                 'water_temp_f' => $waterTempF,
-                'target_temp_f' => $targetTempF,
+                'target_temp_f' => $projectedTargetF,
             ];
         }
 
@@ -191,46 +207,78 @@ class DtdtService
         }
 
         // If projected temp stays above target → no heating needed
-        if ($projectedTempF >= $targetTempF) {
+        if ($projectedTempF >= $projectedTargetF) {
             return [
                 'status' => 'stays_warm',
                 'water_temp_f' => $waterTempF,
                 'projected_temp_f' => round($projectedTempF, 1),
-                'target_temp_f' => $targetTempF,
+                'target_temp_f' => $projectedTargetF,
             ];
         }
 
         // Calculate heat time needed
         $velocity = $chars['heating_velocity_f_per_min'];
         $lag = $chars['startup_lag_minutes'] ?? 0;
-        $heatMinutes = ($targetTempF - $projectedTempF) / $velocity + $lag;
+        $heatMinutes = ($projectedTargetF - $projectedTempF) / $velocity + $lag;
         $startTimestamp = $readyByTimestamp - (int) ceil($heatMinutes * 60);
 
         // If start time is now or in the past → start immediately
         if ($startTimestamp <= $now) {
-            return $this->startImmediately($targetTempF, 'Calculated start time is now or past');
+            return $this->startImmediately(
+                $targetTempF,
+                'Calculated start time is now or past',
+                $dynamic
+            );
         }
 
         // Schedule a precision one-off cron at the calculated start time
         $startDateTime = new \DateTime('@' . $startTimestamp);
         $startDateTime->setTimezone(new \DateTimeZone('UTC'));
 
+        // The one-off stores the STATIC temp plus the mode — the curve is re-read when
+        // the heat actually starts, not frozen here at wake-up.
+        $precisionParams = ['target_temp_f' => $targetTempF];
+        if ($dynamic !== null) {
+            $precisionParams['dynamic'] = $dynamic;
+        }
+
         $result = $this->schedulerService->scheduleJob(
             'heat-to-target',
             $startDateTime->format(\DateTime::ATOM),
             recurring: false,
-            params: ['target_temp_f' => $targetTempF]
+            params: $precisionParams
         );
 
         return [
             'status' => 'precision_scheduled',
             'water_temp_f' => $waterTempF,
             'projected_temp_f' => round($projectedTempF, 1),
-            'target_temp_f' => $targetTempF,
+            'target_temp_f' => $projectedTargetF,
             'heat_minutes' => round($heatMinutes, 1),
             'start_time' => $startDateTime->format(\DateTime::ATOM),
             'jobId' => $result['jobId'],
         ];
+    }
+
+    /**
+     * The temperature this heat will actually aim at, for lead-time math only.
+     *
+     * Only an explicitly ambient-matched job re-resolves; a job with no stored mode
+     * ($dynamic === null) keeps the pre-per-job-mode behaviour, and a sensor-unavailable
+     * projection falls back to the stored temp rather than dropping the heat.
+     */
+    private function resolveProjectedTarget(float $staticTargetF, ?bool $dynamic): float
+    {
+        if ($dynamic !== true) {
+            return $staticTargetF;
+        }
+
+        $preview = $this->targetTemperatureService?->previewDynamicTarget();
+        if ($preview === null || $preview['fallback']) {
+            return $staticTargetF;
+        }
+
+        return (float) $preview['computed_target_f'];
     }
 
     /**
@@ -360,11 +408,13 @@ class DtdtService
 
     /**
      * Start heating immediately by calling TargetTemperatureService.
+     *
+     * @param bool|null $dynamic The job's heat mode; null inherits the global default
      */
-    private function startImmediately(float $targetTempF, string $reason): array
+    private function startImmediately(float $targetTempF, string $reason, ?bool $dynamic = null): array
     {
         if ($this->targetTemperatureService !== null) {
-            $this->targetTemperatureService->start($targetTempF);
+            $this->targetTemperatureService->start($targetTempF, $dynamic);
         }
 
         return [

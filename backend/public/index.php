@@ -254,7 +254,7 @@ $requireWrite = fn() => $authMiddleware->requireWrite($headers, $cookies);
 $router = new Router();
 
 // Public routes
-$router->get('/api/health', function() use ($equipmentController, $blindsController, $heatTargetSettingsService, $stallEventFile) {
+$router->get('/api/health', function() use ($equipmentController, $blindsController, $heatTargetSettingsService, $stallEventFile, $targetTemperatureService, $authMiddleware, $headers, $cookies) {
     $response = $equipmentController->health();
     $response['body']['blindsEnabled'] = $blindsController->isEnabled();
     $response['body']['heatTargetSettings'] = [
@@ -267,6 +267,15 @@ $router->get('/api/health', function() use ($equipmentController, $blindsControl
         'dynamic_mode' => $heatTargetSettingsService->isDynamicMode(),
         'calibration_points' => $heatTargetSettingsService->getCalibrationPoints(),
     ];
+    // The card's live "what would the curve pick right now" projection. /api/health is
+    // public, and this carries an outdoor-air reading plus a sensor-offline signal —
+    // telemetry the rest of the API keeps behind auth — so it's attached only for a
+    // recognised caller. A soft check: authenticate() returns null instead of an error
+    // envelope, so anonymous callers still get a normal health response.
+    if ($authMiddleware->authenticate($headers, $cookies) !== null) {
+        $response['body']['heatTargetSettings']['dynamic_preview'] =
+            $targetTemperatureService->previewDynamicTarget();
+    }
     // Include last stall event if it exists
     if (file_exists($stallEventFile)) {
         $stallData = json_decode(file_get_contents($stallEventFile), true);
@@ -319,6 +328,8 @@ $router->post('/api/schedule', fn() => handleScheduleCreate($scheduleController)
 $router->get('/api/schedule', fn() => $scheduleController->list(), $requireAuth);
 $router->delete('/api/schedule/{id}', fn($params) => $scheduleController->cancel($params['id']), $requireWrite);
 $router->put('/api/schedule/{id}/target-temp', fn($params) => handleScheduleUpdateTargetTemp($scheduleController, $params['id']), $requireWrite);
+// Switch one job between a fixed temperature and the ambient-matched curve.
+$router->put('/api/schedule/{id}/heat-mode', fn($params) => handleScheduleUpdateHeatMode($scheduleController, $params['id']), $requireWrite);
 // Move a one-off to a new time/temp in place (atomic; preserves the job id).
 $router->put('/api/schedule/{id}/reschedule', fn($params) => handleScheduleReschedule($scheduleController, $params['id']), $requireWrite);
 $router->post('/api/schedule/{id}/skip', fn($params) => $scheduleController->skip($params['id']), $requireWrite);
@@ -506,6 +517,12 @@ function handleScheduleUpdateTargetTemp(ScheduleController $controller, string $
 {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     return $controller->updateTargetTemp($jobId, $input);
+}
+
+function handleScheduleUpdateHeatMode(ScheduleController $controller, string $jobId): array
+{
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    return $controller->updateHeatMode($jobId, $input);
 }
 
 function handleScheduleReschedule(ScheduleController $controller, string $jobId): array

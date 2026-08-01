@@ -172,12 +172,18 @@ fi
 FULL_URL="${API_BASE_URL}${ENDPOINT}"
 
 # Extract params object if present (for heat-to-target jobs)
-# This extracts the entire params JSON object: {"target_temp_f": 103.5}
+# This extracts the entire params JSON object: {"target_temp_f": 103.5, "dynamic": true}
+#
+# CONSTRAINT: params MUST stay FLAT (scalars only).
+# The [^}]* below stops at the FIRST closing brace, so a nested object inside params
+# yields truncated, invalid JSON and the heat silently fires with an empty body.
+# Adding e.g. a per-job calibration curve requires rewriting this parsing first
+# (jq is not available on the shared host).
 REQUEST_BODY=""
 if grep -q '"params"' "$JOB_FILE" 2>/dev/null; then
-    # Extract the params value - handles nested JSON object
+    # Extract the params value
     # Use tr to collapse multi-line JSON to single line first (JSON_PRETTY_PRINT creates multi-line)
-    # Then sed extracts everything between "params": and the matching closing brace
+    # Then sed extracts everything between "params": and the first closing brace
     REQUEST_BODY=$(tr -d '\n' < "$JOB_FILE" | sed -n 's/.*"params"[[:space:]]*:[[:space:]]*\({[^}]*}\).*/\1/p' || true)
     if [ -n "$REQUEST_BODY" ]; then
         log "Using request body: $REQUEST_BODY"

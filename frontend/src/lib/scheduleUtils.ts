@@ -1,4 +1,4 @@
-import type { ScheduledJob } from './api';
+import type { DynamicTargetPreview, ScheduledJob } from './api';
 
 /**
  * Get the local timezone offset in ISO 8601 format (e.g., "+05:30", "-08:00")
@@ -332,15 +332,56 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 /**
- * "Heat to 102.25°F" (with `tilde` for dynamic-mode approximate targets), else the
- * plain action label. The caller passes the dynamic-mode flag — this module must
- * stay free of store imports.
+ * Whether a job heats to an ambient-derived target rather than its stored number.
+ *
+ * A job stamped at creation carries its own flag. A job predating per-job mode carries
+ * none and keeps inheriting the household default — which is what lets per-job mode ship
+ * with no migration. The default is passed in: this module must stay free of store imports.
  */
-export function jobTitle(job: ScheduledJob, tilde: boolean): string {
+export function jobIsDynamic(job: ScheduledJob, defaultDynamic: boolean): boolean {
+	return job.params?.dynamic ?? defaultDynamic;
+}
+
+/**
+ * "Heat to 102.25°F", or "Heat based on ambient temp" for a job that follows the curve.
+ *
+ * The mode goes in the title in plain words rather than a badge (badges mark exceptions
+ * only — review F4), and an ambient-matched card shows NO number: the stored temp is
+ * only a sensor-offline fallback, and printing it implies a target the tub won't use.
+ */
+export function jobTitle(job: ScheduledJob, dynamic = false): string {
 	if (job.action === 'heat-to-target' && job.params?.target_temp_f != null) {
-		return `Heat to ${tilde ? '~' : ''}${formatTemp(job.params.target_temp_f)}°F`;
+		return dynamic ? 'Heat based on ambient temp' : `Heat to ${formatTemp(job.params.target_temp_f)}°F`;
 	}
 	return ACTION_LABELS[job.action] ?? job.action;
+}
+
+/**
+ * The live projection line for an expanded ambient-matched card: what the curve would
+ * pick right now, framed as "now" because a 6:30 AM job will use 6:30 AM's air.
+ *
+ * @param preview The current projection, or null when there is none
+ * @param staticFallbackF The job's saved temp — what actually gets used if the sensor is down
+ */
+export function dynamicProjectionLabel(
+	preview: DynamicTargetPreview | null | undefined,
+	staticFallbackF: number | null | undefined
+): string {
+	if (!preview) return 'Projection unavailable';
+
+	if (preview.fallback) {
+		const saved = staticFallbackF != null ? `saved ${formatTemp(staticFallbackF)}°F` : 'saved temperature';
+		return `Air sensor unavailable — this event’s ${saved} will be used`;
+	}
+
+	const air = preview.ambient_temp_f != null ? Math.round(preview.ambient_temp_f) : '—';
+	const line = `air ${air}° → ≈${formatTemp(preview.computed_target_f)}°F now`;
+
+	// A clamp means the air is off the ends of the curve, so the target has stopped
+	// tracking it — say that, or the number looks stuck.
+	if (preview.segment === 'clamp_low') return `${line} (below the curve — held at the cold setting)`;
+	if (preview.segment === 'clamp_high') return `${line} (above the curve — held at the hot setting)`;
+	return line;
 }
 
 /**

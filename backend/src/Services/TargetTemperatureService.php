@@ -102,10 +102,14 @@ class TargetTemperatureService
      * Acquires lock, checks for active session, saves state, releases lock,
      * then calls checkAndAdjust() (which acquires its own lock).
      *
+     * @param float $targetTempF The fixed target, and the fallback if the ambient sensor is down
+     * @param bool|null $dynamic Per-heat mode override: true → follow the ambient curve,
+     *                           false → use $targetTempF as-is, null → inherit the global
+     *                           default (jobs created before per-job mode existed)
      * @return array Result of initial checkAndAdjust (includes heater state, cron scheduled, etc.)
      * @throws \RuntimeException If a heating session is already active
      */
-    public function start(float $targetTempF): array
+    public function start(float $targetTempF, ?bool $dynamic = null): array
     {
         if ($targetTempF < self::MIN_TARGET_TEMP_F || $targetTempF > self::MAX_TARGET_TEMP_F) {
             throw new \InvalidArgumentException(
@@ -124,8 +128,8 @@ class TargetTemperatureService
                 throw new \RuntimeException('Heat-to-target is already active');
             }
 
-            // Resolve dynamic target if enabled
-            $dynamicResult = $this->resolveDynamicTarget($targetTempF);
+            // Resolve dynamic target if enabled (per-job override, else the global default)
+            $dynamicResult = $this->resolveDynamicTarget($targetTempF, $dynamic);
             $effectiveTargetF = $dynamicResult['target_f'];
 
             $state = [
@@ -933,22 +937,89 @@ class TargetTemperatureService
     }
 
     /**
+     * What the ambient curve would pick right now — for showing a projection on a
+     * schedule card.
+     *
+     * Deliberately NOT gated on the global `dynamic_mode`, nor on `enabled`. Both are
+     * household-level switches, and neither tells you what an individual job does: a
+     * single job can follow the curve while the default is off (the common setup), and
+     * scheduled heat-to-target jobs outlive the Heat-now toggle. Gating on either would
+     * blank the projection on exactly the cards that need it. The cost is one ESP32
+     * reading — the same file /api/temperature already polls.
+     *
+     * @return array{ambient_temp_f: ?float, computed_target_f: float, segment?: string,
+     *               clamped: bool, fallback: bool, fallback_reason?: string}|null
+     */
+    public function previewDynamicTarget(): ?array
+    {
+        if ($this->heatTargetSettings === null) {
+            return null;
+        }
+
+        return $this->computeCurveTarget($this->heatTargetSettings->getTargetTempF());
+    }
+
+    /**
+     * The one ambient read + one DynamicTargetCalculator call site in the codebase.
+     *
+     * Shared by previewDynamicTarget() (what a card shows) and resolveDynamicTarget()
+     * (what a heat actually starts with), so the two can never drift apart.
+     *
+     * @param float $fallbackTargetF Target used when the ambient sensor is unreadable
+     * @return array{ambient_temp_f: ?float, computed_target_f: float, segment?: string,
+     *               clamped: bool, fallback: bool, fallback_reason?: string}
+     */
+    private function computeCurveTarget(float $fallbackTargetF): array
+    {
+        $ambientTempF = $this->getCalibratedAmbientTempF();
+
+        if ($ambientTempF === null) {
+            return [
+                'ambient_temp_f' => null,
+                'computed_target_f' => $fallbackTargetF,
+                'clamped' => false,
+                'fallback' => true,
+                'fallback_reason' => 'ambient_sensor_unavailable',
+            ];
+        }
+
+        $result = DynamicTargetCalculator::calculate(
+            $ambientTempF,
+            $this->heatTargetSettings?->getCalibrationPoints() ?? []
+        );
+
+        return [
+            // Full precision — round for display only.
+            'ambient_temp_f' => $ambientTempF,
+            'computed_target_f' => $result['target_f'],
+            'segment' => $result['segment'],
+            'clamped' => $result['clamped'],
+            'fallback' => false,
+        ];
+    }
+
+    /**
      * Resolve the effective target temperature, applying dynamic calculation if enabled.
      *
      * @param float $staticTargetF The static target temperature passed by the caller
+     * @param bool|null $dynamicOverride Per-job mode; null inherits the global default
      * @return array{target_f: float, dynamic_target_info: ?array}
      */
-    private function resolveDynamicTarget(float $staticTargetF): array
+    private function resolveDynamicTarget(float $staticTargetF, ?bool $dynamicOverride = null): array
     {
-        if ($this->heatTargetSettings === null || !$this->heatTargetSettings->isDynamicMode()) {
+        $useDynamic = $dynamicOverride ?? ($this->heatTargetSettings?->isDynamicMode() ?? false);
+
+        if (!$useDynamic || $this->heatTargetSettings === null) {
             return ['target_f' => $staticTargetF, 'dynamic_target_info' => null];
         }
 
-        $ambientTempF = $this->getCalibratedAmbientTempF();
-        $calibrationPoints = $this->heatTargetSettings->getCalibrationPoints();
+        $preview = $this->computeCurveTarget($staticTargetF);
 
-        if ($ambientTempF === null) {
-            // Fallback to static target
+        // Records *why* this target was chosen, so the equipment event log can tell a
+        // per-job decision apart from one the global default made.
+        $source = $dynamicOverride === null ? 'global_default' : 'per_job';
+
+        if ($preview['fallback']) {
             return [
                 'target_f' => $staticTargetF,
                 'dynamic_target_info' => [
@@ -958,23 +1029,23 @@ class TargetTemperatureService
                     'static_target_f' => $staticTargetF,
                     'clamped' => false,
                     'fallback' => true,
-                    'fallback_reason' => 'ambient_sensor_unavailable',
+                    'fallback_reason' => $preview['fallback_reason'],
+                    'source' => $source,
                 ],
             ];
         }
 
-        $result = DynamicTargetCalculator::calculate($ambientTempF, $calibrationPoints);
-
         return [
-            'target_f' => $result['target_f'],
+            'target_f' => $preview['computed_target_f'],
             'dynamic_target_info' => [
                 'dynamic_mode' => true,
-                'ambient_temp_f' => $ambientTempF,
-                'computed_target_f' => $result['target_f'],
+                'ambient_temp_f' => $preview['ambient_temp_f'],
+                'computed_target_f' => $preview['computed_target_f'],
                 'static_target_f' => $staticTargetF,
-                'segment' => $result['segment'],
-                'clamped' => $result['clamped'],
+                'segment' => $preview['segment'],
+                'clamped' => $preview['clamped'],
                 'fallback' => false,
+                'source' => $source,
             ],
         ];
     }

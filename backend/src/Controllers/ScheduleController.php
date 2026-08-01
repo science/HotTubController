@@ -54,6 +54,13 @@ class ScheduleController
                 ];
             }
             $params['target_temp_f'] = (float) $data['target_temp_f'];
+            // Stamp the heat mode at creation. The global dynamic_mode is only the
+            // DEFAULT for new jobs — a job keeps the configuration it was built with,
+            // so flipping the household default later leaves this job alone.
+            // Kept flat: cron-runner.sh's params regex can't survive a nested object.
+            $params['dynamic'] = array_key_exists('dynamic', $data)
+                ? (bool) $data['dynamic']
+                : ($this->settings?->isDynamicMode() ?? false);
         }
 
         try {
@@ -208,6 +215,39 @@ class ScheduleController
     }
 
     /**
+     * PUT /api/schedule/{id}/heat-mode - Switch a heat-to-target job between a fixed
+     * temperature and the ambient-matched curve.
+     *
+     * @param string $jobId The job ID to update
+     * @param array{dynamic?: bool} $data Request body
+     * @return array{status: int, body: array}
+     */
+    public function updateHeatMode(string $jobId, array $data): array
+    {
+        if (!array_key_exists('dynamic', $data) || !is_bool($data['dynamic'])) {
+            return [
+                'status' => 400,
+                'body' => ['error' => 'Missing or invalid required field: dynamic (boolean)'],
+            ];
+        }
+
+        try {
+            $updated = $this->scheduler->updateJobDynamic($jobId, $data['dynamic']);
+
+            return [
+                'status' => 200,
+                'body' => $updated,
+            ];
+        } catch (InvalidArgumentException $e) {
+            $status = str_contains(strtolower($e->getMessage()), 'not found') ? 404 : 400;
+            return [
+                'status' => $status,
+                'body' => ['error' => $e->getMessage()],
+            ];
+        }
+    }
+
+    /**
      * PUT /api/schedule/{id}/reschedule — move a job to a new time (and optional temp),
      * atomically and in place (the job id is preserved), so a heat is never dropped by
      * a failed recreate.
@@ -342,6 +382,12 @@ class ScheduleController
 
             $timezone = $parent['params']['timezone'] ?? $parent['timezone'] ?? $this->settings?->getTimezone();
             $overrideParams = ['target_temp_f' => $newTempF, 'override_of' => $jobId];
+            // These params are rebuilt from scratch, so the parent's heat mode has to be
+            // carried across explicitly — otherwise an override of an ambient-matched
+            // daily job silently comes out fixed.
+            if (array_key_exists('dynamic', $parent['params'] ?? [])) {
+                $overrideParams['dynamic'] = (bool) $parent['params']['dynamic'];
+            }
 
             if (isset($parent['params']['ready_by_time']) && $this->dtdtService !== null) {
                 $job = $this->dtdtService->createReadyByOverride($overrideDate, $newTime, $overrideParams, $timezone);

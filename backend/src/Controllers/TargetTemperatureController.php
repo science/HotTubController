@@ -30,8 +30,15 @@ class TargetTemperatureController
 
         $targetTempF = (float) $input['target_temp_f'];
 
+        // Tri-state: present → this heat's own mode, absent → inherit the global default.
+        // array_key_exists, not isset — isset() is false for a null value and would
+        // collapse an explicit null into "fixed".
+        $dynamic = array_key_exists('dynamic', $input) && $input['dynamic'] !== null
+            ? (bool) $input['dynamic']
+            : null;
+
         try {
-            $result = $this->service->start($targetTempF);
+            $result = $this->service->start($targetTempF, $dynamic);
         } catch (\InvalidArgumentException $e) {
             return [
                 'status' => 400,

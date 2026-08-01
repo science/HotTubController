@@ -353,9 +353,12 @@
 					<span class="text-slate-200 text-sm">Enable heat to target</span>
 				</label>
 
-				<!-- Target mode: Static vs Dynamic -->
+				<!-- Target mode. This is the DEFAULT for newly created schedules and for a
+				     manual "Heat now" — it does NOT reach back into existing scheduled jobs,
+				     each of which carries the mode it was created with. Without saying so the
+				     setting reads as broken ("I turned it on but my 6:30 heat didn't change"). -->
 				<fieldset class="ml-6 mt-1">
-					<legend class="text-slate-400 text-sm mb-2">Target mode</legend>
+					<legend class="text-slate-400 text-sm mb-2">Default target mode</legend>
 					<label class="flex items-center gap-2 cursor-pointer">
 						<input
 							type="radio"
@@ -378,8 +381,12 @@
 							disabled={savingTargetTemp}
 							class="w-4 h-4 border-slate-500 bg-slate-700 text-orange-500 focus:ring-orange-500"
 						/>
-						<span class="text-slate-300 text-sm">Dynamic (ambient-adjusted)</span>
+						<span class="text-slate-300 text-sm">Based on ambient temp</span>
 					</label>
+					<p class="text-slate-500 text-xs mt-2" data-testid="target-mode-default-note">
+						Applies to new schedules and to “Heat now”. Existing scheduled events keep the
+						mode they were created with — change one on its own card.
+					</p>
 				</fieldset>
 
 				{#if !localDynamicMode}

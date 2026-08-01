@@ -9,12 +9,14 @@ import {
 	shiftHHMM,
 	formatClockHHMM,
 	jobTitle,
+	jobIsDynamic,
+	dynamicProjectionLabel,
 	resumeLabel,
 	jobClock,
 	baseSummary,
 	oneOffIso
 } from './scheduleUtils';
-import type { ScheduledJob } from './api';
+import type { DynamicTargetPreview, ScheduledJob } from './api';
 
 describe('scheduleUtils', () => {
 	describe('getTimezoneOffset', () => {
@@ -384,8 +386,19 @@ describe('scheduleUtils', () => {
 			expect(jobTitle(heatJob, false)).toBe('Heat to 102.25°F');
 		});
 
-		it('marks the target approximate in dynamic mode', () => {
-			expect(jobTitle(heatJob, true)).toBe('Heat to ~102.25°F');
+		it('names the mode, not a number, for an ambient-matched job', () => {
+			expect(jobTitle(heatJob, true)).toBe('Heat based on ambient temp');
+		});
+
+		// The old title decorated the STORED number with a tilde, but the tub will heat
+		// to whatever the curve picks — which could be a degree and a half away. Showing
+		// the stored number at all is the bug.
+		it('never shows the stored temperature for an ambient-matched job', () => {
+			expect(jobTitle(heatJob, true)).not.toContain('102.25');
+		});
+
+		it('defaults to the fixed title when no mode is passed', () => {
+			expect(jobTitle(heatJob)).toBe('Heat to 102.25°F');
 		});
 
 		it('uses the action label for non-target jobs', () => {
@@ -398,6 +411,78 @@ describe('scheduleUtils', () => {
 			expect(jobTitle({ ...heatJob, action: 'mystery-op', params: undefined }, false)).toBe(
 				'mystery-op'
 			);
+		});
+	});
+
+	describe('jobIsDynamic', () => {
+		const job = (dynamic?: boolean) =>
+			({
+				jobId: 'j1',
+				action: 'heat-to-target',
+				scheduledTime: '06:55',
+				createdAt: '2026-06-20T00:00:00Z',
+				recurring: true,
+				params: { target_temp_f: 102.25, ...(dynamic === undefined ? {} : { dynamic }) }
+			}) as ScheduledJob;
+
+		it('uses the job’s own flag when it has one', () => {
+			expect(jobIsDynamic(job(true), false)).toBe(true);
+			expect(jobIsDynamic(job(false), true)).toBe(false);
+		});
+
+		// Jobs created before per-job mode carry no flag; they keep inheriting the
+		// household default, which is what makes a migration script unnecessary.
+		it('falls back to the household default when the flag is absent', () => {
+			expect(jobIsDynamic(job(undefined), true)).toBe(true);
+			expect(jobIsDynamic(job(undefined), false)).toBe(false);
+		});
+
+		it('tolerates a job with no params at all', () => {
+			expect(jobIsDynamic({ ...job(undefined), params: undefined }, true)).toBe(true);
+		});
+	});
+
+	describe('dynamicProjectionLabel', () => {
+		const preview = (over: Partial<DynamicTargetPreview> = {}): DynamicTargetPreview =>
+			({
+				ambient_temp_f: 55.004,
+				computed_target_f: 102.67,
+				segment: 'cold',
+				clamped: false,
+				fallback: false,
+				...over
+			}) as DynamicTargetPreview;
+
+		it('reads out the air temperature and the target it implies', () => {
+			expect(dynamicProjectionLabel(preview(), 102.25)).toBe('air 55° → ≈102.67°F now');
+		});
+
+		it('explains a clamped projection in plain words', () => {
+			const label = dynamicProjectionLabel(
+				preview({ ambient_temp_f: 38, computed_target_f: 104, segment: 'clamp_low', clamped: true }),
+				102.25
+			);
+			expect(label).toBe('air 38° → ≈104°F now (below the curve — held at the cold setting)');
+		});
+
+		it('explains a high clamp too', () => {
+			const label = dynamicProjectionLabel(
+				preview({ ambient_temp_f: 90, computed_target_f: 100.5, segment: 'clamp_high', clamped: true }),
+				102.25
+			);
+			expect(label).toContain('above the curve — held at the hot setting');
+		});
+
+		it('names the saved temperature as the sensor-offline fallback', () => {
+			const label = dynamicProjectionLabel(
+				preview({ ambient_temp_f: null, fallback: true, fallback_reason: 'ambient_sensor_unavailable' }),
+				102.25
+			);
+			expect(label).toBe('Air sensor unavailable — this event’s saved 102.25°F will be used');
+		});
+
+		it('says so plainly when there is no projection', () => {
+			expect(dynamicProjectionLabel(null, 102.25)).toBe('Projection unavailable');
 		});
 	});
 

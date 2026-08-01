@@ -110,6 +110,66 @@ class TargetTemperatureControllerTest extends TestCase
         $this->assertStringContainsString('already active', $response2['body']['error']);
     }
 
+    // ── Per-job heat mode pass-through ────────────────────────────────────────
+    //
+    // The job's stored params land here verbatim as the request body (cron-runner.sh
+    // POSTs the params object), so `dynamic` must survive as a TRI-state: present →
+    // decide for this heat, absent → inherit the global default.
+
+    public function testStartPassesDynamicTrueToTheService(): void
+    {
+        $service = $this->createMock(TargetTemperatureService::class);
+        $service->expects($this->once())
+            ->method('start')
+            ->with(103.5, true)
+            ->willReturn(['active' => true]);
+
+        (new TargetTemperatureController($service))->start([
+            'target_temp_f' => 103.5,
+            'dynamic' => true,
+        ]);
+    }
+
+    public function testStartPassesDynamicFalseToTheService(): void
+    {
+        $service = $this->createMock(TargetTemperatureService::class);
+        $service->expects($this->once())
+            ->method('start')
+            ->with(103.5, false)
+            ->willReturn(['active' => true]);
+
+        (new TargetTemperatureController($service))->start([
+            'target_temp_f' => 103.5,
+            'dynamic' => false,
+        ]);
+    }
+
+    public function testStartPassesNullWhenDynamicIsAbsent(): void
+    {
+        $service = $this->createMock(TargetTemperatureService::class);
+        $service->expects($this->once())
+            ->method('start')
+            ->with(103.5, null)
+            ->willReturn(['active' => true]);
+
+        (new TargetTemperatureController($service))->start(['target_temp_f' => 103.5]);
+    }
+
+    /** A null value must collapse to "inherit", not to false (isset() would get this wrong). */
+    public function testStartPassesNullWhenDynamicIsExplicitlyNull(): void
+    {
+        $service = $this->createMock(TargetTemperatureService::class);
+        $service->expects($this->once())
+            ->method('start')
+            ->with(103.5, null)
+            ->willReturn(['active' => true]);
+
+        (new TargetTemperatureController($service))->start([
+            'target_temp_f' => 103.5,
+            'dynamic' => null,
+        ]);
+    }
+
     protected function tearDown(): void
     {
         // Clean up lock file too

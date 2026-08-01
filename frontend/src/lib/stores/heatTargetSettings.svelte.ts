@@ -1,4 +1,11 @@
-import { api, type CalibrationPoints, type HeatTargetSettings, type HealthResponse, type LastStallEvent } from '$lib/api';
+import {
+	api,
+	type CalibrationPoints,
+	type DynamicTargetPreview,
+	type HeatTargetSettings,
+	type HealthResponse,
+	type LastStallEvent
+} from '$lib/api';
 
 /**
  * Store for shared heat-target settings from the backend.
@@ -36,6 +43,7 @@ let stallGracePeriodMinutes = $state(DEFAULT_STALL_GRACE_PERIOD_MINUTES);
 let stallTimeoutMinutes = $state(DEFAULT_STALL_TIMEOUT_MINUTES);
 let dynamicMode = $state(DEFAULT_DYNAMIC_MODE);
 let calibrationPoints = $state<CalibrationPoints>(DEFAULT_CALIBRATION_POINTS);
+let dynamicPreview = $state<DynamicTargetPreview | null>(null);
 let lastStallEvent = $state<LastStallEvent | null>(null);
 let isLoading = $state(false);
 let error = $state<string | null>(null);
@@ -57,6 +65,9 @@ export function initFromHealthResponse(response: HealthResponse): void {
 			response.heatTargetSettings.stall_timeout_minutes ?? DEFAULT_STALL_TIMEOUT_MINUTES;
 		dynamicMode = response.heatTargetSettings.dynamic_mode ?? DEFAULT_DYNAMIC_MODE;
 		calibrationPoints = response.heatTargetSettings.calibration_points ?? DEFAULT_CALIBRATION_POINTS;
+		// Absent for an anonymous caller and null when heat-to-target is off — either
+		// way there's no projection to show, so don't keep a stale one on screen.
+		dynamicPreview = response.heatTargetSettings.dynamic_preview ?? null;
 	} else {
 		// Reset to defaults when backend doesn't provide settings
 		enabled = DEFAULT_ENABLED;
@@ -67,6 +78,7 @@ export function initFromHealthResponse(response: HealthResponse): void {
 		stallTimeoutMinutes = DEFAULT_STALL_TIMEOUT_MINUTES;
 		dynamicMode = DEFAULT_DYNAMIC_MODE;
 		calibrationPoints = DEFAULT_CALIBRATION_POINTS;
+		dynamicPreview = null;
 	}
 	lastStallEvent = response.lastStallEvent ?? null;
 	initialized = true;
@@ -279,10 +291,30 @@ export function getLastStallEvent(): LastStallEvent | null {
 }
 
 /**
- * Check if dynamic target mode is enabled.
+ * The household DEFAULT heat mode: stamped onto newly created jobs, and the mode a
+ * manual "Heat now" uses. It is NOT retroactive — an existing job carries its own
+ * `params.dynamic` (see jobIsDynamic in scheduleUtils).
  */
 export function getDynamicMode(): boolean {
 	return dynamicMode;
+}
+
+/**
+ * What the ambient curve would pick right now, or null when there's no projection
+ * (heat-to-target off, or the caller wasn't authenticated for the health response).
+ */
+export function getDynamicPreview(): DynamicTargetPreview | null {
+	return dynamicPreview;
+}
+
+/**
+ * The projected target in °F, or null when there isn't a real one — no projection at
+ * all, or the ambient sensor is down (in which case a job's own saved temp is what
+ * will actually be used, so callers must not show the fallback number as a projection).
+ */
+export function getProjectedTargetF(): number | null {
+	if (dynamicPreview === null || dynamicPreview.fallback) return null;
+	return dynamicPreview.computed_target_f;
 }
 
 /**

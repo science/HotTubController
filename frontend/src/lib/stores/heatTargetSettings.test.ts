@@ -25,7 +25,9 @@ import {
 	getStallTimeoutMinutes,
 	getLastStallEvent,
 	getDynamicMode,
-	getCalibrationPoints
+	getCalibrationPoints,
+	getDynamicPreview,
+	getProjectedTargetF
 } from './heatTargetSettings.svelte';
 import { api } from '$lib/api';
 
@@ -395,6 +397,112 @@ describe('heatTargetSettings store', () => {
 			});
 
 			expect(getHeatButtonTooltip()).toBe('Heat to dynamic target based on ambient temperature');
+		});
+
+		it('hydrates the live curve projection from the health response', () => {
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				heatTargetSettings: {
+					enabled: true,
+					target_temp_f: 102,
+					timezone: 'America/Los_Angeles',
+					dynamic_preview: {
+						ambient_temp_f: 55.004,
+						computed_target_f: 102.67,
+						segment: 'cold',
+						clamped: false,
+						fallback: false
+					}
+				}
+			});
+
+			expect(getDynamicPreview()?.segment).toBe('cold');
+			expect(getProjectedTargetF()).toBe(102.67);
+		});
+
+		it('reports no projection when the response omits one', () => {
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				heatTargetSettings: {
+					enabled: true,
+					target_temp_f: 102,
+					timezone: 'America/Los_Angeles'
+				}
+			});
+
+			expect(getDynamicPreview()).toBeNull();
+			expect(getProjectedTargetF()).toBeNull();
+		});
+
+		it('clears a stale projection when settings disappear from the response', () => {
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				heatTargetSettings: {
+					enabled: true,
+					target_temp_f: 102,
+					timezone: 'America/Los_Angeles',
+					dynamic_preview: {
+						ambient_temp_f: 55,
+						computed_target_f: 102.67,
+						segment: 'cold',
+						clamped: false,
+						fallback: false
+					}
+				}
+			});
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				}
+			});
+
+			expect(getDynamicPreview()).toBeNull();
+		});
+
+		// A sensor-offline projection has no real number to show; the card falls back to
+		// the job's saved temp, so callers must not read computed_target_f as a target.
+		it('reports no projected target when the ambient sensor is down', () => {
+			initFromHealthResponse({
+				status: 'ok',
+				ifttt_mode: 'stub',
+				equipmentStatus: {
+					heater: { on: false, lastChangedAt: null },
+					pump: { on: false, lastChangedAt: null }
+				},
+				heatTargetSettings: {
+					enabled: true,
+					target_temp_f: 102,
+					timezone: 'America/Los_Angeles',
+					dynamic_preview: {
+						ambient_temp_f: null,
+						computed_target_f: 102,
+						clamped: false,
+						fallback: true,
+						fallback_reason: 'ambient_sensor_unavailable'
+					}
+				}
+			});
+
+			expect(getDynamicPreview()?.fallback).toBe(true);
+			expect(getProjectedTargetF()).toBeNull();
 		});
 
 		it('updates dynamic mode via updateSettings', async () => {

@@ -832,6 +832,157 @@ class ScheduleControllerTest extends TestCase
         $saved = json_decode(file_get_contents($this->jobsDir . '/' . $parentId . '.json'), true);
         $this->assertNotEquals('08:30', $saved['scheduledTime']); // untouched
     }
+
+    // ========== Per-job heat mode (params.dynamic) ==========
+    //
+    // The mode is STAMPED at creation, which is what makes a job keep the
+    // configuration it was built with: later flipping the global default must not
+    // retroactively change what an already-scheduled job does.
+
+    public function testCreateStampsGlobalDynamicDefaultOntoNewJob(): void
+    {
+        [$controller, $settings] = $this->dtdtController();
+        $settings->updateDynamicSettings(true, $settings->getCalibrationPoints());
+
+        $jobId = $controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => (new \DateTime('+2 hours'))->format(\DateTime::ATOM),
+            'target_temp_f' => 102,
+        ])['body']['jobId'];
+
+        $this->assertTrue($this->scheduler->getJob($jobId)['params']['dynamic']);
+    }
+
+    public function testCreateStampsFalseWhenGlobalDefaultIsOff(): void
+    {
+        [$controller, $settings] = $this->dtdtController();
+        $settings->updateDynamicSettings(false, $settings->getCalibrationPoints());
+
+        $jobId = $controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => (new \DateTime('+2 hours'))->format(\DateTime::ATOM),
+            'target_temp_f' => 102,
+        ])['body']['jobId'];
+
+        $this->assertFalse($this->scheduler->getJob($jobId)['params']['dynamic']);
+    }
+
+    public function testCreateHonorsExplicitDynamicOverGlobalDefault(): void
+    {
+        [$controller, $settings] = $this->dtdtController();
+        $settings->updateDynamicSettings(false, $settings->getCalibrationPoints());
+
+        $jobId = $controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => (new \DateTime('+2 hours'))->format(\DateTime::ATOM),
+            'target_temp_f' => 102,
+            'dynamic' => true,
+        ])['body']['jobId'];
+
+        $this->assertTrue($this->scheduler->getJob($jobId)['params']['dynamic']);
+    }
+
+    public function testCreateDoesNotStampDynamicOnNonHeatJobs(): void
+    {
+        [$controller, $settings] = $this->dtdtController();
+        $settings->updateDynamicSettings(true, $settings->getCalibrationPoints());
+
+        $jobId = $controller->create([
+            'action' => 'pump-run',
+            'scheduledTime' => (new \DateTime('+2 hours'))->format(\DateTime::ATOM),
+        ])['body']['jobId'];
+
+        $this->assertArrayNotHasKey('dynamic', $this->scheduler->getJob($jobId)['params'] ?? []);
+    }
+
+    /**
+     * overrideNext() rebuilds params from scratch, so without explicit propagation an
+     * override of an ambient-matched daily job would silently come out fixed.
+     */
+    public function testOverrideNextInheritsParentDynamicMode(): void
+    {
+        [$controller, $settings] = $this->dtdtController();
+        $settings->updateDynamicSettings(true, $settings->getCalibrationPoints());
+        $parentId = $this->createRecurringParent($controller);
+
+        $controller->overrideNext($parentId, ['scheduledTime' => '08:00', 'target_temp_f' => 104]);
+
+        $overrides = $this->findOverrides($parentId);
+        $this->assertCount(1, $overrides);
+        $this->assertTrue($overrides[0]['params']['dynamic']);
+    }
+
+    public function testOverrideNextInheritsFixedModeFromParent(): void
+    {
+        [$controller, $settings] = $this->dtdtController();
+        $settings->updateDynamicSettings(false, $settings->getCalibrationPoints());
+        $parentId = $this->createRecurringParent($controller);
+
+        // Global default flips AFTER the parent was created — the override must follow
+        // the parent, not the new default.
+        $settings->updateDynamicSettings(true, $settings->getCalibrationPoints());
+        $controller->overrideNext($parentId, ['scheduledTime' => '08:00', 'target_temp_f' => 104]);
+
+        $overrides = $this->findOverrides($parentId);
+        $this->assertFalse($overrides[0]['params']['dynamic']);
+    }
+
+    // ========== PUT /api/schedule/{id}/heat-mode ==========
+
+    public function testUpdateHeatModeFlipsTheFlagAndPreservesTemp(): void
+    {
+        [$controller, $settings] = $this->dtdtController();
+        $settings->updateDynamicSettings(false, $settings->getCalibrationPoints());
+        $jobId = $controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => (new \DateTime('+2 hours'))->format(\DateTime::ATOM),
+            'target_temp_f' => 102.25,
+        ])['body']['jobId'];
+
+        $resp = $controller->updateHeatMode($jobId, ['dynamic' => true]);
+
+        $this->assertEquals(200, $resp['status']);
+        $params = $this->scheduler->getJob($jobId)['params'];
+        $this->assertTrue($params['dynamic']);
+        $this->assertEquals(102.25, $params['target_temp_f']);
+    }
+
+    public function testUpdateHeatModeReturns400ForMissingField(): void
+    {
+        [$controller] = $this->dtdtController();
+        $jobId = $controller->create([
+            'action' => 'heat-to-target',
+            'scheduledTime' => (new \DateTime('+2 hours'))->format(\DateTime::ATOM),
+            'target_temp_f' => 102,
+        ])['body']['jobId'];
+
+        $resp = $controller->updateHeatMode($jobId, []);
+
+        $this->assertEquals(400, $resp['status']);
+        $this->assertStringContainsString('dynamic', $resp['body']['error']);
+    }
+
+    public function testUpdateHeatModeReturns404ForMissingJob(): void
+    {
+        [$controller] = $this->dtdtController();
+
+        $resp = $controller->updateHeatMode('job-doesnotexist', ['dynamic' => true]);
+
+        $this->assertEquals(404, $resp['status']);
+    }
+
+    public function testUpdateHeatModeReturns400ForNonHeatJob(): void
+    {
+        [$controller] = $this->dtdtController();
+        $jobId = $controller->create([
+            'action' => 'pump-run',
+            'scheduledTime' => (new \DateTime('+2 hours'))->format(\DateTime::ATOM),
+        ])['body']['jobId'];
+
+        $resp = $controller->updateHeatMode($jobId, ['dynamic' => true]);
+
+        $this->assertEquals(400, $resp['status']);
+    }
 }
 
 /**
