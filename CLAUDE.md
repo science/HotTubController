@@ -4,7 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hot tub controller system with a PHP backend API, SvelteKit frontend, and ESP32 temperature sensor. Controls real hardware via IFTTT webhooks (heater, pump, ionizer) and monitors temperature via ESP32 with DS18B20 probes.
+Hot tub controller system with a PHP backend API, SvelteKit frontend, and ESP32 temperature sensor. Controls real hardware (heater, pump, ionizer) through the `iot-api` relay into Home Assistant, and monitors temperature via ESP32 with DS18B20 probes.
+
+## Hardware Control Path
+
+Actuation does **not** go through IFTTT any more (retired 2026-07):
+
+```
+this backend (HeaterControlService -> IotApiClient)
+  -> POST https://misuse.org/iot/api/v1/device/{slug}     (~/dev/iot-api, same cPanel host)
+  -> POST https://t480-server.<tailnet>.ts.net/...         (Tailscale Funnel)
+  -> Home Assistant on t480-server (~/dev/home-assistant)
+  -> config/packages/hottub_controls.yaml scripts
+  -> Tuya switch.hot_tub_controller_switch_1..4
+```
+
+Slugs are mapped from the legacy event names in `IotApiClient::EVENT_MAP`
+(`hot-tub-heat-on` -> device `hot-tub-heater`, body `{"power":"on"}`).
+
+**A 200 from this backend means "HA accepted the request", not "the hardware moved."**
+HA dispatches these via `script.turn_on`, which is fire-and-forget. On 2026-08-10 a
+re-pairing of the Tuya controller in Smart Life silently emptied the Tuya scenes that HA
+used to call, and every layer here returned 200 for a full day while the tub did nothing.
+HA now sequences the switches itself and verifies each one, raising a
+`persistent_notification` on mismatch — so when hardware misbehaves, **look in Home
+Assistant, not just in these logs**. The heat-to-target stall detection in
+`TargetTemperatureService` is this side's independent check and is what actually caught it.
 
 ## Project Structure
 
@@ -153,7 +178,7 @@ ESP32_API_KEY=your-api-key
 - **Entry point**: `public/index.php` - Router setup and dependency wiring
 - **Routing**: `src/Routing/Router.php` - Simple router with `{param}` pattern support
 - **Controllers**:
-  - `EquipmentController` - Heater/pump control via IFTTT, tracks equipment state
+  - `EquipmentController` - Heater/pump control via the device-control client, tracks equipment state
   - `ScheduleController` - Scheduled job management via crontab
   - `AuthController` - JWT-based authentication
   - `UserController` - User management (admin only)
@@ -183,11 +208,17 @@ ESP32_API_KEY=your-api-key
   - `Esp32CalibratedTemperatureService` - Applies calibration to raw ESP32 readings
   - `Esp32FirmwareService` - Manages firmware versions for HTTP OTA updates
   - `Esp32ThinHandler` - Lightweight handler for ESP32 API (bypasses full framework)
-- **IFTTT Client Pattern**: Uses interface (`IftttClientInterface`) with unified client:
-  - `IftttClient` - Unified client with injectable HTTP layer
-  - `StubHttpClient` - Simulates API calls (safe for testing)
-  - `CurlHttpClient` - Makes real IFTTT webhook calls
-- **Factory**: `IftttClientFactory` - Creates client based on EXTERNAL_API_MODE
+- **Device Control Client**: `IftttClientInterface` is the (now historically-named)
+  seam for all hardware actuation. **IFTTT was retired in the 2026-07 cutover** —
+  `public/index.php` wires `IotApiClientFactory`, not `IftttClientFactory`:
+  - `IotApiClient` - **the live implementation.** Translates the legacy IFTTT event
+    names in its `EVENT_MAP` to iot-api's REST surface and POSTs to
+    `{API_BASE_URL}/api/v1/device/{slug}`. See "Hardware Control Path" below.
+  - `IftttClient` - the superseded IFTTT webhook client, kept only as a rollback
+    target (swap the factory back in `index.php`). Not used in production.
+  - `StubHttpClient` / `StubJsonHttpClient` - Simulate calls (safe for testing)
+  - `CurlHttpClient` / `CurlJsonHttpClient` - Make real network calls
+- **Factory**: `IotApiClientFactory` - Creates client based on EXTERNAL_API_MODE
 - **Healthchecks.io Client**: Optional monitoring integration:
   - `HealthchecksClient` - Real API calls to Healthchecks.io
   - `NullHealthchecksClient` - No-op client (stub mode or no API key)
@@ -251,9 +282,9 @@ Auth levels (see Authentication & Roles): **public** (none) · **auth** (any val
 - `POST /api/auth/login` - Login (sets httpOnly cookie)
 - `POST /api/auth/logout` - Logout (clears cookie)
 - `GET /api/auth/me` - Get current user info
-- `POST /api/equipment/heater/on` - Trigger IFTTT `hot-tub-heat-on` (write)
-- `POST /api/equipment/heater/off` - Trigger IFTTT `hot-tub-heat-off` (write)
-- `POST /api/equipment/pump/run` - Trigger IFTTT `cycle_hot_tub_ionizer` (write)
+- `POST /api/equipment/heater/on` - Fires event `hot-tub-heat-on` → HA `script.hot_tub_heater_on` (write)
+- `POST /api/equipment/heater/off` - Fires event `hot-tub-heat-off` → HA `script.hot_tub_heater_off` (write)
+- `POST /api/equipment/pump/run` - Fires event `cycle_hot_tub_ionizer` → HA `script.hot_tub_cycle_filter_ionize_2h` (write)
 - `GET /api/temperature` - Get current temperatures from ESP32 (auth)
 - `POST /api/esp32/temperature` - Receive temperature data from ESP32 (API key auth)
 - `GET /api/esp32/sensors` - List ESP32 sensors with config (auth)
@@ -277,7 +308,8 @@ When implementing features that involve system-level operations (cron, timezones
 **Before writing new code, check for existing services:**
 - Timezone conversion → `TimeConverter`
 - Cron scheduling → `CronSchedulingService`
-- External API calls → Use existing client interfaces (`IftttClientInterface`, `HealthchecksClientInterface`)
+- External API calls → Use existing client interfaces (`IftttClientInterface` — the
+  hardware-actuation seam, implemented by `IotApiClient`; `HealthchecksClientInterface`)
 - Crontab operations → `CrontabAdapterInterface`
 
 ### Cron Scheduling (CRITICAL)
@@ -337,7 +369,15 @@ $this->crontabAdapter->addEntry("$cronExpr $command");
 **CRITICAL: FTP access is READ-ONLY for debugging. NEVER upload files via FTP.**
 
 FTP credentials in `backend/config/env.production` provide access to the production server for **diagnostic purposes only**:
-- Reading log files (`storage/logs/api.log`, `storage/logs/cron.log`)
+- Reading log files:
+  - `storage/logs/api.log` — HTTP request log (one JSON line per request)
+  - `storage/logs/cron.log` — scheduled job execution
+  - `storage/logs/equipment-events.log` — heater/pump state transitions, stall detection
+  - **`logs/events.log`** — device-call outcomes (`iot_api_live` entries with the HTTP
+    code returned by iot-api). Note this is `backend/logs/`, **not**
+    `backend/storage/logs/` — it is wired separately in `public/index.php`
+    (`$logFile = __DIR__ . '/../logs/events.log'`). This is the log that answers "did we
+    actually try to actuate, and what came back?"
 - Checking state files (`storage/state/*.json`)
 - Investigating production issues
 
@@ -364,7 +404,7 @@ FTP credentials in `backend/config/env.production` provide access to the product
 
 ## Critical Safety - Hardware Control
 
-**This system controls real hardware!** The IFTTT webhooks trigger SmartLife automation for heater, pump, and ionizer.
+**This system controls real hardware!** In `live` mode these endpoints reach the physical heater, pump and ionizer through iot-api → Home Assistant → Tuya (see "Hardware Control Path" above).
 
 ### Environment Configuration
 
@@ -390,11 +430,13 @@ cp backend/config/env.development backend/.env
 **For production:**
 ```bash
 cp backend/config/env.production.example backend/.env
-# Edit .env to add your real IFTTT_WEBHOOK_KEY
+# Edit .env to add the real secrets: IOT_API_JWT (hardware actuation via iot-api),
+# JWT_SECRET, ESP32_API_KEY, HEALTHCHECKS_IO_KEY. IFTTT_WEBHOOK_KEY is only needed
+# if you roll back to IftttClientFactory in public/index.php.
 ```
 
 ### External API Mode Configuration
-A unified `EXTERNAL_API_MODE` controls ALL external service calls (IFTTT, Healthchecks.io):
+A unified `EXTERNAL_API_MODE` controls ALL external service calls (iot-api, Healthchecks.io):
 
 ```bash
 # In .env file:
