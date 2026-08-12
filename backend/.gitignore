@@ -16,6 +16,9 @@
 config/env.dev
 config/env.staging
 config/env.production
+# Local operator credentials (router/AP/FTP/tub wifi). Never deployed, never
+# read by the backend — see the header in that file.
+config/env.network.conveniences
 
 # User database - contains hashed passwords, should never be committed
 /storage/users/

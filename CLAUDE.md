@@ -68,9 +68,9 @@ scripts/           # Test and build automation scripts
 - `EXTERNAL_API_MODE=live` → Tests hit real external APIs
 - Port 8080/5173 in use → Playwright can't start servers
 
-### Pre-PR Testing Checklist
+### Pre-Deploy Testing Checklist
 
-**Before creating a PR to production:**
+**Before pushing to production (see Git Workflow — a green suite is the only gate):**
 
 ```bash
 ./scripts/test.sh              # Runs all test suites
@@ -350,25 +350,47 @@ $this->crontabAdapter->addEntry("$cronExpr $command");
 
 ## Git Workflow
 
-**IMPORTANT: Never work directly on the `production` branch without explicit user approval.**
+**The path to production is three pushes — no pull request.**
 
-- Local development should always be on `main` branch
-- Create PRs from `main` to `production` for deployment
-- If you find yourself on `production`, switch to `main` before making changes
-- The `production` branch represents what's deployed to the live server
+```bash
+git commit ...                  # 1. commit locally, on main
+git push origin main            # 2. publish to main on origin
+git push origin main:production # 3. fast-forward production on origin -> deploys
+```
+
+Step 3 moves `origin/production` and triggers the auto-deploy to the live server.
+
+**PRs to production were retired 2026-08-11.** They were a review gate with no reviewer —
+cargo cult. Validation is the full local suite (`./scripts/test.sh`: backend, frontend
+unit, esp32, e2e). Green suite is the gate; there is nothing else to wait for.
+
+**IMPORTANT: Never push to `production` without an explicit user ask.** Removing the PR
+removed the ceremony, not the decision. Finishing an implementation, a green suite, or a
+plan whose last step says "deploy" do NOT authorize step 3 on their own — `production`
+ships to real hardware immediately. Do steps 1 and 2, report that it is ready, and wait to
+be asked. Once asked, run step 3 yourself; don't ask again.
+
+**IMPORTANT: Never work directly on the `production` branch.**
+
+- Local development is always on `main`. Commits are authored on `main`, never on
+  `production` — step 3 only fast-forwards the branch pointer.
+- If you find yourself on `production`, switch to `main` before making changes.
+- The `production` branch represents what's deployed to the live server.
 
 **IMPORTANT: Code flows one direction only: main → production. Never merge production back into main.**
 
 - Do NOT run `git merge origin/production` or similar commands
-- After a PR is merged to production, the merge commits belong to production's history, not main's
-- If you need to sync local main, use `git pull origin main` (not production)
-- The only exception: hotfixes made directly on production (which should be rare and require user approval)
+- To sync local main, use `git pull origin main` (not production)
+- Because deploys are now fast-forwards, `production` should stay an ancestor of `main`
+  with no divergent history. If `git push origin main:production` is ever rejected as
+  non-fast-forward, something was committed directly to `production` — stop and ask
+  rather than forcing it.
 
 ## Production Server Access
 
 **CRITICAL: FTP access is READ-ONLY for debugging. NEVER upload files via FTP.**
 
-FTP credentials in `backend/config/env.production` provide access to the production server for **diagnostic purposes only**:
+FTP credentials in `backend/config/env.network.conveniences` provide access to the production server for **diagnostic purposes only**:
 - Reading log files:
   - `storage/logs/api.log` — HTTP request log (one JSON line per request)
   - `storage/logs/cron.log` — scheduled job execution
@@ -382,9 +404,9 @@ FTP credentials in `backend/config/env.production` provide access to the product
 - Investigating production issues
 
 **Deployment rules:**
-- ALL code changes MUST go through the git workflow: commit → push to main → PR to production → merge
+- ALL code changes MUST go through the git workflow: commit → `push origin main` → `push origin main:production`
 - NEVER use FTP, curl, or any other method to upload/modify files on production
-- Even for urgent hotfixes, use the PR workflow (it only takes a minute)
+- Even for urgent hotfixes, use the git workflow (it only takes a minute)
 
 **LiteSpeed/ModSecurity quirk:** The shared hosting blocks empty POST requests with 403 Forbidden. Any curl POST must include a body (use `-d '{}'` for endpoints that don't require parameters).
 
@@ -417,8 +439,25 @@ backend/
 │   ├── env.development           # Local dev (stub mode)
 │   ├── env.testing               # For tests (stub mode, has JWT_SECRET)
 │   ├── env.staging               # Staging server (live mode)
-│   └── env.production.example    # Production template (live mode)
+│   ├── env.production.example    # Production template (live mode)
+│   ├── env.production            # gitignored — mirror of the DEPLOYED .env
+│   └── env.network.conveniences  # gitignored — LOCAL-ONLY operator credentials
 ```
+
+**Two gitignored local files, and the split between them is load-bearing** (2026-08-11):
+
+- `config/env.production` holds **exactly** the key set present in the deployed
+  `backend/.env` — nothing more. It is a readable mirror/backup, not the deploy source:
+  `.github/workflows/deploy.yml` builds the server's `.env` from GitHub Actions secrets
+  and excludes `**/config/env.*` from the FTP upload.
+- `config/env.network.conveniences` holds credentials that must **never** reach the
+  cPanel server: `FTP_*`, `MIKROTIK_*`, `UNIFI_*`, `UBNT_*`, `ESP32_WIFI_*`. No backend
+  code reads any of them; only `scripts/fetch-prod-logs.py` (FTP, read-only) does.
+
+These used to be one file. That made the obvious operator move — "copy `env.production`
+up to the server as `.env`" — silently over-share 13 unrelated secrets, including router
+and access-point admin passwords. **Do not park convenience credentials back in
+`env.production`.** If you add a key there, it should be because the deployed app reads it.
 
 **For testing:** The `./scripts/test.sh` script automatically configures `.env` correctly.
 

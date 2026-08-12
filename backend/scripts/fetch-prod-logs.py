@@ -34,9 +34,12 @@ REMOTE_PATHS = {
 
 
 def parse_env_file(env_path: str) -> dict:
-    """Parse the env.production file to extract FTP credentials."""
+    """Parse a KEY=VALUE env file. Missing files yield an empty dict."""
     creds = {}
-    with open(env_path, 'r') as f:
+    path = Path(env_path)
+    if not path.exists():
+        return creds
+    with path.open('r') as f:
         for line in f:
             line = line.strip().replace('\r', '')
             if '=' in line and not line.startswith('#'):
@@ -166,7 +169,7 @@ def fetch_logs(env_path: str, output_dir: Path, since: datetime | None = None,
     Fetch all production logs and state files.
 
     Args:
-        env_path: Path to env.production file
+        env_path: Path to the local credential file holding FTP_*
         output_dir: Local directory to save files
         since: Only download files modified after this time (None = all files)
         list_only: If True, just list files without downloading
@@ -181,7 +184,7 @@ def fetch_logs(env_path: str, output_dir: Path, since: datetime | None = None,
     password = creds.get('FTP_PASSWORD', '')
 
     if not all([host, user, password]):
-        print("Error: Missing FTP credentials in env.production")
+        print(f"Error: Missing FTP credentials in {env_path}")
         print(f"  FTP_HOST: {'set' if host else 'MISSING'}")
         print(f"  FTP_USERNAME: {'set' if user else 'MISSING'}")
         print(f"  FTP_PASSWORD: {'set' if password else 'MISSING'}")
@@ -278,13 +281,21 @@ Examples:
             print("Examples: '2 hours ago', 'yesterday', '3 days ago', 'Jan 25 2pm'")
             sys.exit(1)
 
-    # Determine paths
+    # Determine paths. FTP credentials moved out of env.production on 2026-08-11
+    # (config/env.network.conveniences) so that env.production holds only keys the
+    # deployed backend actually reads. Fall back to env.production for checkouts
+    # that predate the split.
     script_dir = Path(__file__).parent
     backend_dir = script_dir.parent
-    env_path = backend_dir / 'config' / 'env.production'
+    config_dir = backend_dir / 'config'
+
+    env_path = config_dir / 'env.network.conveniences'
+    if not env_path.exists():
+        env_path = config_dir / 'env.production'
 
     if not env_path.exists():
-        print(f"Error: {env_path} not found")
+        print(f"Error: no credential file found in {config_dir}")
+        print("  Expected env.network.conveniences (holds FTP_HOST/USERNAME/PASSWORD)")
         sys.exit(1)
 
     # Create output directory
