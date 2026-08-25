@@ -8,6 +8,11 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+
+	interface Window {
+		/** Defined by the boot watchdog in app.html; see the comment there. */
+		__tubBooted?: () => void;
+	}
 }
 
 export {};

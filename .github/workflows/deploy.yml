@@ -138,6 +138,60 @@ jobs:
             **/.git*
             **/.git*/**
 
+      # Verify the deployed frontend can actually cold-start.
+      #
+      # On 2026-08-25 a deploy left every browser holding a cached index.html
+      # pointing at bundles the deploy had removed. The SPA rewrite answered
+      # those requests with index.html at HTTP 200, the browser refused to
+      # execute HTML as a module, and the app showed a black screen with no
+      # error. Nothing in CI noticed; it surfaced as "the hot tub is down".
+      # These assertions are what make that a failed build instead.
+      - name: Smoke test deployed frontend
+        run: |
+          set -uo pipefail
+          SITE="$(printf '%s' "${{ vars.API_BASE_URL }}" | sed 's#/backend/public/*$##')"
+          echo "Site root: $SITE"
+          fail=0
+          check() {  # check <label> <condition-result>
+            if [ "$2" = "0" ]; then echo "  ok    $1"; else echo "  FAIL  $1"; fail=1; fi
+          }
+
+          # 1. The shell loads.
+          hdr=$(curl -sS --max-time 30 -D- -o /tmp/index.html -w '%{http_code}' "$SITE/")
+          code=$(printf '%s' "$hdr" | tail -n1)
+          [ "$code" = "200" ]; check "index.html returns 200 (got $code)" $?
+
+          # 2. It must not be served from cache without revalidating, or the
+          #    next deploy strands every client that already has a copy.
+          printf '%s' "$hdr" | grep -iq 'cache-control:.*no-cache'
+          check "index.html sends Cache-Control: no-cache" $?
+
+          # 3. Every bundle the shell names must exist AND be served as
+          #    JavaScript. A 200 of type text/html here is the exact failure.
+          refs=$(grep -o '/_app/immutable/[A-Za-z0-9._/-]*\.js' /tmp/index.html | sort -u)
+          [ -n "$refs" ]; check "index.html references at least one bundle" $?
+          for ref in $refs; do
+            url="$SITE$ref"
+            ct=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}:%{content_type}' "$url")
+            case "$ct" in
+              200:*javascript*) echo "  ok    $ref" ;;
+              *) echo "  FAIL  $ref -> $ct"; fail=1 ;;
+            esac
+          done
+
+          # 4. A bundle that is genuinely gone must 404 rather than be masked
+          #    by the SPA fallback, so a stale client fails loudly and its
+          #    boot watchdog can recover it.
+          gone=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
+            "$SITE/_app/immutable/entry/start.THIS-DOES-NOT-EXIST.js")
+          [ "$gone" = "404" ]; check "missing bundle returns 404 (got $gone)" $?
+
+          if [ "$fail" != "0" ]; then
+            echo "::error::Deployed frontend failed its cold-start smoke test"
+            exit 1
+          fi
+          echo "Frontend smoke test passed"
+
       # Set up maintenance infrastructure (cron + healthcheck monitoring)
       # This calls the deployed API to create cron jobs and healthchecks.io monitoring
       - name: Setup maintenance cron and monitoring

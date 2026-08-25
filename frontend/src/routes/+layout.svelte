@@ -15,6 +15,10 @@
 	onMount(() => {
 		mounted = true;
 
+		// Tell the boot watchdog in app.html that the cold start succeeded,
+		// so it stands down instead of reloading the page.
+		window.__tubBooted?.();
+
 		// Handle redirect if needed (only once per session)
 		if (data.redirectTo && !redirectHandled) {
 			// Use sessionStorage to track redirects across component remounts

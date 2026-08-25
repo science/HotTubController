@@ -3,9 +3,42 @@
 
 RewriteEngine On
 
+# Build assets must 404 honestly when they are missing.
+#
+# Every deploy stamps VITE_BUILD_NUMBER/VITE_GIT_SHA into the bundle, so the
+# entry hashes change and the previous start.*.js / app.*.js are removed from
+# the server. Without this rule the SPA fallback below answered those requests
+# with index.html at HTTP 200 -- so an installed PWA holding a cached copy of
+# the old HTML fed index.html to `import()`, Firefox refused it for the wrong
+# MIME type, kit.start() never ran, and the app showed a blank screen with no
+# way to recover. Let the request fail as a 404 instead. (2026-08-25)
+# Only when the file really is gone -- existing bundles must still serve.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^_app/ - [L,R=404]
+
 # If the request is for a real file or directory, serve it directly
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 
 # Route all other requests to index.html (SPA routing)
 RewriteRule ^ index.html [L]
+
+<IfModule mod_headers.c>
+    # index.html names the hashed bundles, so it must never be served from
+    # cache without revalidating -- that stale copy is what strands the PWA.
+    # No Cache-Control was sent at all before, which left browsers free to
+    # cache it heuristically off Last-Modified and never ask again.
+    <FilesMatch "\.html$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+
+    # Hashed bundles are content-addressed: safe to keep forever.
+    <FilesMatch "\.(js|css|woff2)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+
+    # The manifest points at start_url; let it revalidate too.
+    <FilesMatch "\.webmanifest$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>

@@ -10,6 +10,52 @@
 		<meta name="apple-mobile-web-app-title" content="Hot Tub" />
 		<link rel="apple-touch-icon" href="/tub/icons/apple-touch-icon.png" />
 		<link rel="manifest" href="/tub/manifest.webmanifest" />
+		<script>
+			// Boot watchdog -- last-resort recovery from a failed cold start.
+			//
+			// This file names hashed bundles, and a deploy removes the previous
+			// ones. A client holding a stale copy of it therefore asks for bundles
+			// that no longer exist, never boots, and shows a black screen with no
+			// error and no way out -- which is exactly what happened on 2026-08-25.
+			// Cache-Control and honest 404s (see static/.htaccess) are what make
+			// that unlikely; this is the backstop that makes it *recoverable* when
+			// a cold start fails anyway, for any reason.
+			//
+			// Reloading with a fresh query string sidesteps the cached response for
+			// this URL. It retries at most once per tab, so a genuinely broken
+			// build can never put the browser in a reload loop.
+			(function () {
+				var RETRY_KEY = 'tub:boot-retry';
+				var booted = false;
+
+				window.__tubBooted = function () {
+					booted = true;
+					// Observable so tests -- and anyone debugging a white screen in
+					// devtools -- can tell a booted app from a stalled one.
+					document.documentElement.setAttribute('data-booted', '1');
+					try { sessionStorage.removeItem(RETRY_KEY); } catch (e) {}
+				};
+
+				setTimeout(function () {
+					if (booted) return;
+
+					// Treat unreadable storage as "already retried": better to leave a
+					// black screen than to reload forever.
+					var retried = '1';
+					try { retried = sessionStorage.getItem(RETRY_KEY); } catch (e) {}
+					if (retried) return;
+					try { sessionStorage.setItem(RETRY_KEY, '1'); } catch (e) { return; }
+
+					try {
+						var url = new URL(window.location.href);
+						url.searchParams.set('tub_reload', String(Date.now()));
+						window.location.replace(url.toString());
+					} catch (e) {
+						window.location.reload();
+					}
+				}, 12000);
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
