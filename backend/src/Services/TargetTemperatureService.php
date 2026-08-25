@@ -13,6 +13,24 @@ class TargetTemperatureService
     public const CRON_JOB_PREFIX = 'heat-target';
     public const WATCHDOG_JOB_PREFIX = 'watchdog';
     public const WATCHDOG_MARGIN_MINUTES = 10;
+
+    /**
+     * How long a session's claim outlives the check it scheduled.
+     *
+     * A session is only genuinely active while something is still tending it.
+     * The monitoring chain is a series of one-off crons, each scheduling the
+     * next; if a link fails the chain ends silently and nothing is left to clear
+     * the state file. The lease bounds that: once it lapses the session is
+     * treated as abandoned rather than active.
+     */
+    public const SESSION_LEASE_GRACE_SECONDS = 900;
+
+    /**
+     * Sessions written before leases existed carry no lease field at all. They
+     * are reaped once older than this, which is what clears anything already
+     * stuck on disk when this ships.
+     */
+    public const SESSION_LEASE_FALLBACK_SECONDS = 3600;
     // Temperature tolerance for floating-point comparison (0.1°F)
     // This accounts for C→F conversion precision and sensor accuracy
     private const TEMP_TOLERANCE_F = 0.1;
@@ -117,6 +135,12 @@ class TargetTemperatureService
             );
         }
 
+        // An abandoned session must not block a new heat. Reap before taking the
+        // lock: reapIfExpired() calls stop(), and flock() is per-open-file-
+        // description while acquireLock() reopens the file each call, so reaping
+        // inside the locked region would deadlock against ourselves.
+        $this->reapIfExpired();
+
         $lock = $this->acquireLock();
         if ($lock === false) {
             throw new \RuntimeException('Heat-to-target is already active (could not acquire lock)');
@@ -161,12 +185,19 @@ class TargetTemperatureService
         return $this->checkAndAdjust();
     }
 
-    public function stop(): void
+    /**
+     * @param bool $commandHeaterOff Pass false when the caller has just attempted a
+     *                               heater-off itself. Two device calls would risk
+     *                               cron-runner.sh's 30s budget at 15s apiece.
+     */
+    public function stop(bool $commandHeaterOff = true): void
     {
         // Turn off heater if it's currently on
-        $equipmentState = $this->equipmentStatus?->getStatus() ?? ['heater' => ['on' => false]];
-        if ($equipmentState['heater']['on'] === true) {
-            $this->heaterControl?->heaterOff();
+        if ($commandHeaterOff) {
+            $equipmentState = $this->equipmentStatus?->getStatus() ?? ['heater' => ['on' => false]];
+            if ($equipmentState['heater']['on'] === true) {
+                $this->heaterControl?->heaterOff();
+            }
         }
 
         // Delete the state file FIRST - this prevents any concurrent cron job
@@ -243,6 +274,127 @@ class TargetTemperatureService
     }
 
     /**
+     * Has this session's claim lapsed?
+     *
+     * A session with a lease is expired once that lease is in the past. A session
+     * without one predates this mechanism, so fall back to its age.
+     */
+    public function isLeaseExpired(array $state, ?int $now = null): bool
+    {
+        if (!($state['active'] ?? false)) {
+            return false;
+        }
+
+        $now ??= time();
+
+        // Unreadable timestamps fail toward "expired". The opposite would wedge the
+        // session permanently, which is exactly the failure this guards against.
+        if (isset($state['lease_expires_at'])) {
+            $expiresAt = $this->toTimestamp($state['lease_expires_at']);
+
+            return $expiresAt === null || $now > $expiresAt;
+        }
+
+        $startedAt = isset($state['started_at']) ? $this->toTimestamp($state['started_at']) : null;
+        if ($startedAt === null) {
+            // No usable start time: nothing can vouch for this session.
+            return true;
+        }
+
+        return ($now - $startedAt) > self::SESSION_LEASE_FALLBACK_SECONDS;
+    }
+
+    /**
+     * Clear an abandoned session so it stops blocking new heats.
+     *
+     * Called at the top of start(), which is the point every blocked path runs
+     * through — the Heat button, the scheduled job and the API all land here — so
+     * a wedged session self-heals on the next attempt to use the system.
+     *
+     * @return array|null A record of what was reaped, or null if nothing was.
+     */
+    public function reapIfExpired(?int $now = null): ?array
+    {
+        $state = $this->getState();
+
+        if (!($state['active'] ?? false) || !$this->isLeaseExpired($state, $now)) {
+            return null;
+        }
+
+        $record = [
+            'reason' => isset($state['lease_expires_at']) ? 'lease_expired' : 'no_lease_fallback',
+            'target_temp_f' => $state['target_temp_f'] ?? null,
+            'started_at' => $state['started_at'] ?? null,
+            'lease_expires_at' => $state['lease_expires_at'] ?? null,
+            'reaped_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c'),
+        ];
+
+        $this->logSessionExpiredEvent($record);
+
+        // An abandoned session may have left the heater energised; stop() only
+        // commands it off when the equipment file says it is on.
+        $this->stop();
+
+        return $record;
+    }
+
+    /**
+     * Push the session's claim out past the check that was just scheduled.
+     */
+    private function renewLease(array &$state, int $nextCheckTimestamp): void
+    {
+        $state['last_check_at'] = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('c');
+        $state['next_check_at'] = $this->toIso($nextCheckTimestamp);
+        $state['lease_expires_at'] = $this->toIso($nextCheckTimestamp + self::SESSION_LEASE_GRACE_SECONDS);
+
+        $this->saveState($state);
+    }
+
+    /**
+     * @return int|null Null when the value cannot be parsed.
+     */
+    private function toTimestamp(string $iso): ?int
+    {
+        try {
+            return (new \DateTimeImmutable($iso))->getTimestamp();
+        } catch (\Exception) {
+            return null;
+        }
+    }
+
+    private function toIso(int $timestamp): string
+    {
+        return (new \DateTimeImmutable('@' . $timestamp))
+            ->setTimezone(new \DateTimeZone('UTC'))
+            ->format('c');
+    }
+
+    /**
+     * Log an expired session to the equipment event log (JSONL).
+     */
+    private function logSessionExpiredEvent(array $record): void
+    {
+        if ($this->equipmentEventLogFile === null) {
+            return;
+        }
+
+        $logEntry = json_encode([
+            'timestamp' => date('c'),
+            'equipment' => 'heater',
+            'action' => 'session_expired',
+            'reason' => $record['reason'],
+            'target_temp_f' => $record['target_temp_f'],
+            'started_at' => $record['started_at'],
+        ]) . "\n";
+
+        $dir = dirname($this->equipmentEventLogFile);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        file_put_contents($this->equipmentEventLogFile, $logEntry, FILE_APPEND | LOCK_EX);
+    }
+
+    /**
      * Check current temperature and adjust heater state.
      *
      * Acquires lock to serialize concurrent cron checks. If lock can't be
@@ -314,9 +466,18 @@ class TargetTemperatureService
                 $heaterTurnedOn = true;
             }
 
-            // Schedule next check — use smart approach scheduling on first check
-            $cronScheduled = $this->scheduleApproachCheckIfEligible($state, $currentTempF, $targetTempF)
-                ?: $this->scheduleNextCheck();
+            // Schedule next check — use smart approach scheduling on first check.
+            // Whichever branch schedules, the lease is renewed from the time it
+            // actually booked, so it stays correct for both the 1-minute chain and
+            // the multi-hour approach check.
+            $cronScheduled = $this->scheduleApproachCheckIfEligible($state, $currentTempF, $targetTempF);
+            if (!$cronScheduled) {
+                $nextCheckAt = $this->scheduleNextCheck();
+                $cronScheduled = $nextCheckAt !== null;
+                if ($nextCheckAt !== null) {
+                    $this->renewLease($state, $nextCheckAt);
+                }
+            }
 
             return [
                 'active' => true,
@@ -592,7 +753,7 @@ class TargetTemperatureService
         $state['approach_check_at'] = (new \DateTimeImmutable(
             '@' . $approachTimestamp
         ))->format('c');
-        $this->saveState($state);
+        $this->renewLease($state, $approachTimestamp);
 
         return true;
     }
@@ -613,10 +774,14 @@ class TargetTemperatureService
 
     /**
      * Schedule the next temperature check at the next available minute.
+     *
+     * @return int|null The timestamp booked, or null if scheduling was unavailable.
      */
-    private function scheduleNextCheck(): bool
+    private function scheduleNextCheck(): ?int
     {
-        return $this->scheduleCheckAt($this->calculateNextCheckTime());
+        $timestamp = $this->calculateNextCheckTime();
+
+        return $this->scheduleCheckAt($timestamp) ? $timestamp : null;
     }
 
     /**

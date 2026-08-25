@@ -276,6 +276,92 @@ class EquipmentControllerTest extends TestCase
     }
 
     /**
+     * The 2026-08-22 incident. During the outage the device call kept failing, and
+     * because the cancel was guarded on that call succeeding, pressing "Heat/Pump
+     * Off" left the session active — disabling the one recovery the UI offered at
+     * exactly the moment it was needed.
+     */
+    public function testHeaterOffCancelsHeatToTargetEvenWhenDeviceCallFails(): void
+    {
+        $this->mockIftttClient->method('trigger')->willReturn(false);
+        $this->mockIftttClient->method('getMode')->willReturn('live');
+
+        $tempDir = sys_get_temp_dir() . '/heat-target-failed-off-' . uniqid();
+        $stateDir = $tempDir . '/state';
+        mkdir($stateDir, 0755, true);
+        $targetTempStateFile = $stateDir . '/target-temperature.json';
+
+        $targetTempService = new TargetTemperatureService($targetTempStateFile);
+        $targetTempService->start(102.0);
+        $this->assertTrue($targetTempService->getState()['active']);
+
+        $controller = new EquipmentController(
+            $this->logFile,
+            $this->heaterControl,
+            $this->statusService,
+            $targetTempService
+        );
+
+        $response = $controller->heaterOff();
+
+        $this->assertFalse(
+            $targetTempService->getState()['active'],
+            'Off must cancel heat-to-target even when the hardware call fails'
+        );
+        $this->assertTrue($response['body']['heat_to_target_canceled']);
+        $this->assertEquals(500, $response['status'], 'The device failure itself must still be reported');
+
+        if (file_exists($targetTempStateFile)) {
+            unlink($targetTempStateFile);
+        }
+        rmdir($stateDir);
+        rmdir($tempDir);
+    }
+
+    /**
+     * The controller has just attempted a heater-off; stop() must not fire a second
+     * one. Two 15s calls would risk cron-runner.sh's 30s budget.
+     */
+    public function testHeaterOffDoesNotReissueTheDeviceCallWhenCancelling(): void
+    {
+        $this->mockIftttClient->method('getMode')->willReturn('live');
+        $this->mockIftttClient->expects($this->once())
+            ->method('trigger')
+            ->with('hot-tub-heat-off')
+            ->willReturn(true);
+
+        $tempDir = sys_get_temp_dir() . '/heat-target-single-off-' . uniqid();
+        $stateDir = $tempDir . '/state';
+        mkdir($stateDir, 0755, true);
+        $targetTempStateFile = $stateDir . '/target-temperature.json';
+
+        $statusService = $this->statusService;
+        $statusService->setHeaterOn();
+
+        $targetTempService = new TargetTemperatureService(
+            $targetTempStateFile,
+            $this->heaterControl,
+            $statusService
+        );
+        $targetTempService->start(102.0);
+
+        $controller = new EquipmentController(
+            $this->logFile,
+            $this->heaterControl,
+            $statusService,
+            $targetTempService
+        );
+
+        $controller->heaterOff();
+
+        if (file_exists($targetTempStateFile)) {
+            unlink($targetTempStateFile);
+        }
+        rmdir($stateDir);
+        rmdir($tempDir);
+    }
+
+    /**
      * Verify heaterOff cleans up heat-to-target cron entries.
      */
     public function testHeaterOffRemovesHeatToTargetCronEntries(): void

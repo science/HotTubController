@@ -110,12 +110,18 @@ class EquipmentController
 
         $success = $this->heaterControl->heaterOff();
 
-        // Cancel heat-to-target if active (manual action overrides automation)
+        // Cancel heat-to-target if active (manual action overrides automation).
+        // Deliberately NOT conditional on $success: during the 2026-08-22 outage
+        // the device call kept failing, so a $success guard here disabled the one
+        // recovery the UI offered at exactly the moment it was needed. Cancelling
+        // is local bookkeeping and always safe; the device failure is still
+        // reported in the response status.
         $heatToTargetCanceled = false;
-        if ($success && $this->targetTempService !== null) {
+        if ($this->targetTempService !== null) {
             $state = $this->targetTempService->getState();
             if ($state['active']) {
-                $this->targetTempService->stop();
+                // We just attempted a heater-off; don't let stop() fire a second one.
+                $this->targetTempService->stop(commandHeaterOff: false);
                 $heatToTargetCanceled = true;
             }
         }
