@@ -179,7 +179,17 @@ jobs:
             esac
           done
 
-          # 4. A bundle that is genuinely gone must 404 rather than be masked
+          # 4. The manifest is the whole of this app's PWA behaviour -- install,
+          #    standalone launch, icons. The E2E suite asserts its content type
+          #    but only ever runs against the dev server, so check the real one.
+          mf=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}:%{content_type}' \
+            "$SITE/manifest.webmanifest")
+          case "$mf" in
+            200:application/manifest+json*) echo "  ok    manifest content type" ;;
+            *) echo "  FAIL  manifest content type -> $mf"; fail=1 ;;
+          esac
+
+          # 5. A bundle that is genuinely gone must 404 rather than be masked
           #    by the SPA fallback, so a stale client fails loudly and its
           #    boot watchdog can recover it.
           gone=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \

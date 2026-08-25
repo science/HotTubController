@@ -23,6 +23,14 @@ RewriteCond %{REQUEST_FILENAME} !-d
 # Route all other requests to index.html (SPA routing)
 RewriteRule ^ index.html [L]
 
+<IfModule mod_mime.c>
+    # The host serves .webmanifest as application/octet-stream by default.
+    # Browsers have tolerated that here, but the spec type is the one the
+    # E2E suite asserts -- and that suite only ever sees the Vite dev server,
+    # which gets it right, so production drifted without anything noticing.
+    AddType application/manifest+json .webmanifest
+</IfModule>
+
 <IfModule mod_headers.c>
     # index.html names the hashed bundles, so it must never be served from
     # cache without revalidating -- that stale copy is what strands the PWA.
