@@ -55,4 +55,10 @@ class IotApiClientFactoryTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->makeFactory([])->create('production');
     }
+
+    public function testLiveTimeoutOutlastsTheRelayDeadline(): void
+    {
+        // iot-api's HA_DEADLINE_MS is 26 s; give it room plus network overhead.
+        $this->assertGreaterThan(26, IotApiClientFactory::LIVE_TIMEOUT_SECONDS);
+    }
 }

@@ -16,6 +16,15 @@ use RuntimeException;
  */
 class IotApiClientFactory
 {
+    /**
+     * Whole-request ceiling for calls to iot-api. Must exceed iot-api's own
+     * supervising deadline (HA_DEADLINE_MS, 26 s since 2026-11-05) so the
+     * webapp never reports a failure for a command the relay is still
+     * landing. iot-api's retries ride out a slow Tailscale Funnel leg that
+     * can stall for several seconds; the old 15 s default cut them short.
+     */
+    public const LIVE_TIMEOUT_SECONDS = 35;
+
     /** @var array<string, string|null> */
     private array $config;
     private string $logFile;
@@ -49,7 +58,7 @@ class IotApiClientFactory
             if ($url === '' || $jwt === '') {
                 throw new RuntimeException('IOT_API_URL and IOT_API_JWT required for live mode');
             }
-            $httpClient = new CurlJsonHttpClient();
+            $httpClient = new CurlJsonHttpClient(self::LIVE_TIMEOUT_SECONDS);
         } else {
             $url = trim((string) ($this->config['IOT_API_URL'] ?? '')) ?: 'https://stub.invalid';
             $jwt = 'stub-mode-no-jwt';
