@@ -7,6 +7,7 @@ namespace HotTub\Tests\Services;
 use HotTub\Contracts\CrontabAdapterInterface;
 use HotTub\Contracts\IftttClientInterface;
 use HotTub\Services\EquipmentStatusService;
+use HotTub\Services\Esp32SensorConfigService;
 use HotTub\Services\Esp32TemperatureService;
 use HotTub\Services\HeaterControlService;
 use HotTub\Services\HeatTargetSettingsService;
@@ -77,7 +78,7 @@ class TargetTemperatureStallDetectionTest extends TestCase
         @rmdir($tmpDir);
     }
 
-    private function createService(): TargetTemperatureService
+    private function createService(?Esp32SensorConfigService $esp32Config = null): TargetTemperatureService
     {
         return new TargetTemperatureService(
             $this->stateFile,
@@ -87,7 +88,7 @@ class TargetTemperatureStallDetectionTest extends TestCase
             $this->mockCrontab,
             '/path/to/cron-runner.sh',
             'https://example.com/api',
-            null, // esp32Config
+            $esp32Config,
             null, // cronSchedulingService
             $this->heatTargetSettings,
             $this->stallEventFile,
@@ -343,6 +344,45 @@ class TargetTemperatureStallDetectionTest extends TestCase
         $this->assertEquals('heater', $lastLine['equipment']);
         $this->assertEquals('stall_detected', $lastLine['action']);
         $this->assertArrayHasKey('water_temp_f', $lastLine);
+    }
+
+    /**
+     * @test
+     * The stall entry logs the RAW water reading plus the offset in force — the
+     * same convention as every other log — even though the stall decision itself
+     * was made on the calibrated value.
+     */
+    public function stallLogsRawWaterTempAndCalibrationOffset(): void
+    {
+        $configFile = dirname($this->stateFile) . '/esp32-sensor-config.json';
+        $config = new Esp32SensorConfigService($configFile);
+        $config->setSensorRole('28:AA:BB:CC:DD:EE:FF:00', 'water');
+        $config->setCalibrationOffset('28:AA:BB:CC:DD:EE:FF:00', 0.4);
+        $service = $this->createService($config);
+
+        $this->writeState([
+            'active' => true,
+            'target_temp_f' => 103.0,
+            'started_at' => (new \DateTimeImmutable('-20 minutes', new \DateTimeZone('UTC')))->format('c'),
+            'stall_reference_temp_f' => 95.0,
+            'stall_reference_at' => (new \DateTimeImmutable('-10 minutes', new \DateTimeZone('UTC')))->format('c'),
+        ]);
+        $this->storeEsp32Reading(90.0);
+        $this->equipmentStatus->setHeaterOn();
+
+        $service->checkAndAdjust();
+
+        $lines = array_filter(explode("\n", trim(file_get_contents($this->equipmentEventLogFile))));
+        $stall = null;
+        foreach ($lines as $line) {
+            $entry = json_decode($line, true);
+            if (($entry['action'] ?? '') === 'stall_detected') {
+                $stall = $entry;
+            }
+        }
+        $this->assertNotNull($stall);
+        $this->assertEqualsWithDelta(90.0, $stall['water_temp_f'], 0.0001, 'must be raw, not raw + 0.72°F');
+        $this->assertEqualsWithDelta(0.4, $stall['water_calibration_offset_c'], 0.0001);
     }
 
     /**

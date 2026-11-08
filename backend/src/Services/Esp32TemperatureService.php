@@ -121,41 +121,21 @@ class Esp32TemperatureService
 
     /**
      * Append a temperature reading to the daily JSONL history log.
-     * Resolves sensor roles from config to record water/ambient temps.
+     * Field layout lives in TemperatureLogFields (shared with the ESP32 thin endpoint).
      */
     private function appendTemperatureLog(array $sensors): void
     {
-        $waterTempC = null;
-        $waterTempF = null;
-        $ambientTempC = null;
-        $ambientTempF = null;
-
-        foreach ($sensors as $sensor) {
-            $config = $this->sensorConfigService->getSensorConfig($sensor['address']);
-            $role = $config['role'] ?? 'unassigned';
-            if ($role === 'water') {
-                $waterTempC = $sensor['temp_c'];
-                $waterTempF = $sensor['temp_f'];
-            } elseif ($role === 'ambient') {
-                $ambientTempC = $sensor['temp_c'];
-                $ambientTempF = $sensor['temp_f'];
-            }
-        }
-
         $heaterOn = false;
         if ($this->equipmentStatus !== null) {
             $status = $this->equipmentStatus->getStatus();
             $heaterOn = $status['heater']['on'] ?? false;
         }
 
-        $logEntry = json_encode([
-            'timestamp' => date('c'),
-            'water_temp_f' => $waterTempF,
-            'water_temp_c' => $waterTempC,
-            'ambient_temp_f' => $ambientTempF,
-            'ambient_temp_c' => $ambientTempC,
-            'heater_on' => $heaterOn,
-        ]) . "\n";
+        $logEntry = json_encode(TemperatureLogFields::temperatureLogEntry(
+            $sensors,
+            $this->sensorConfigService->getAllSensors(),
+            $heaterOn
+        )) . "\n";
 
         $logFile = $this->temperatureLogDir . '/temperature-' . date('Y-m-d') . '.log';
         if (!is_dir($this->temperatureLogDir)) {

@@ -36,6 +36,15 @@ JOBS_DIR="$STORAGE_DIR/scheduled-jobs"
 JOB_FILE="$JOBS_DIR/$JOB_ID.json"
 LOG_FILE="$STORAGE_DIR/logs/cron.log"
 
+# Ceiling for the main API call. It must outlast the slowest request the backend
+# can be carrying out, or this script logs "FAILED ... 000" for work that is still
+# in progress and later succeeds. Worst case is a chain of device calls
+# (TargetTemperatureService::MAX_DEVICE_CALLS_PER_REQUEST = 3) at the iot-api
+# client's full timeout each (IotApiClientFactory::LIVE_TIMEOUT_SECONDS = 35),
+# plus ~15 s of non-device overhead: 3 x 35 + 15 = 120.
+# tests/Unit/CronRunnerTimeoutTest.php fails if those constants outgrow this.
+API_MAX_TIME_SECONDS=120
+
 # Logging function
 log() {
     local timestamp
@@ -206,7 +215,7 @@ HTTP_CODE=$(curl -s -w "%{http_code}" -o "$HTTP_RESPONSE" \
     -H "Authorization: Bearer $CRON_JWT" \
     -H "Content-Type: application/json" \
     -d "$REQUEST_BODY" \
-    --max-time 30 \
+    --max-time "$API_MAX_TIME_SECONDS" \
     2>&1) || HTTP_CODE="000"
 
 RESPONSE_BODY=$(cat "$HTTP_RESPONSE" 2>/dev/null || echo "")

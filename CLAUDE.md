@@ -390,6 +390,14 @@ be asked. Once asked, run step 3 yourself; don't ask again.
 
 **CRITICAL: FTP access is READ-ONLY for debugging. NEVER upload files via FTP.**
 
+**To fetch production logs, use `backend/scripts/fetch-prod-logs.py`** — there is no log
+HTTP API. `python3 backend/scripts/fetch-prod-logs.py --since "2 days ago" -o <dir>` mirrors
+every log and state file listed below (plain python3, no packages). **Read
+[`docs/production-logs.md`](docs/production-logs.md) before analysing them** — it documents
+each file's fields, the time zone each log uses (cron.log is server-local Eastern; the JSON
+logs are UTC), and the raw-vs-calibrated temperature convention (offsets are °C: the water
+probe's 0.4 is +0.72°F).
+
 FTP credentials in `backend/config/env.network.conveniences` provide access to the production server for **diagnostic purposes only**:
 - Reading log files:
   - `storage/logs/api.log` — HTTP request log (one JSON line per request)

@@ -7,6 +7,7 @@ namespace HotTub\Tests\Controllers;
 use HotTub\Controllers\MaintenanceController;
 use HotTub\Contracts\HealthchecksClientInterface;
 use HotTub\Contracts\CrontabAdapterInterface;
+use HotTub\Services\CrontabBackupService;
 use HotTub\Services\LogRotationService;
 use HotTub\Services\ScheduledJobsCleanupService;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -122,11 +123,11 @@ class MaintenanceControllerTest extends TestCase
         $this->assertCount(1, $response['body']['compressed']);
     }
 
-    public function testRotateLogsDeletesVeryOldCompressedFiles(): void
+    public function testRotateLogsDeletesCompressedFilesOlderThanTwoYears(): void
     {
-        // Create a compressed file 200 days old (should be deleted at 180 day threshold)
+        // 740 days is past the 730-day (two-year) retention
         $gzFile = $this->tempDir . '/logs/old.log.gz';
-        $this->createOldFile($gzFile, 200);
+        $this->createOldFile($gzFile, 740);
 
         $response = $this->controller->rotateLogs();
 
@@ -149,16 +150,23 @@ class MaintenanceControllerTest extends TestCase
         $this->assertEmpty($response['body']['compressed']);
     }
 
-    public function testRotateLogsDoesNotDeleteFilesUnder6Months(): void
+    /**
+     * Old temperature logs are kept (compressed) for two years so heating
+     * behaviour can be compared across seasons, e.g. to spot a heater element
+     * slowing down as it scales. They cost about 3 KB per day gzipped.
+     */
+    public function testRotateLogsKeepsCompressedLogsForTwoYears(): void
     {
-        // Create a compressed file 100 days old (should NOT be deleted at 180 day threshold)
-        $gzFile = $this->tempDir . '/logs/moderate.log.gz';
-        $this->createOldFile($gzFile, 100);
+        $sixMonths = $this->tempDir . '/logs/temperature-six-months.log.gz';
+        $almostTwoYears = $this->tempDir . '/logs/temperature-almost-two-years.log.gz';
+        $this->createOldFile($sixMonths, 200);
+        $this->createOldFile($almostTwoYears, 720);
 
         $response = $this->controller->rotateLogs();
 
         $this->assertEquals(200, $response['status']);
-        $this->assertFileExists($gzFile);
+        $this->assertFileExists($sixMonths);
+        $this->assertFileExists($almostTwoYears);
         $this->assertEmpty($response['body']['deleted']);
     }
 
@@ -195,6 +203,71 @@ class MaintenanceControllerTest extends TestCase
         $this->assertArrayHasKey('timestamp', $response['body']);
         // Timestamp should be a valid ISO 8601 date
         $this->assertNotFalse(strtotime($response['body']['timestamp']));
+    }
+
+    // ========== Crontab backup pruning ==========
+
+    private function controllerWithCrontabBackups(string $backupDir): MaintenanceController
+    {
+        return new MaintenanceController(
+            $this->logRotationService,
+            $this->tempDir . '/logs',
+            crontabBackupService: new CrontabBackupService($backupDir)
+        );
+    }
+
+    private function makeBackupDir(): string
+    {
+        $dir = $this->tempDir . '/crontab-backups';
+        mkdir($dir, 0755, true);
+        return $dir;
+    }
+
+    public function testRotateLogsPrunesCrontabBackupsOlderThan30Days(): void
+    {
+        $dir = $this->makeBackupDir();
+        $this->createOldFile($dir . '/crontab-old.txt', 31);
+        $this->createOldFile($dir . '/crontab-older.txt.gz', 300);
+
+        $response = $this->controllerWithCrontabBackups($dir)->rotateLogs();
+
+        $this->assertEquals(200, $response['status']);
+        $this->assertFileDoesNotExist($dir . '/crontab-old.txt');
+        $this->assertFileDoesNotExist($dir . '/crontab-older.txt.gz');
+        // A count, not a path list: the first run deletes thousands of files and
+        // log-rotation-cron.sh writes the whole response body into cron.log.
+        $this->assertSame(2, $response['body']['crontab_backups_deleted']);
+    }
+
+    public function testRotateLogsKeepsRecentCrontabBackupsAsPlainText(): void
+    {
+        $dir = $this->makeBackupDir();
+        $this->createOldFile($dir . '/crontab-recent.txt', 20);
+
+        $response = $this->controllerWithCrontabBackups($dir)->rotateLogs();
+
+        // Kept, and left uncompressed so they stay greppable; they're ~500 bytes each.
+        $this->assertFileExists($dir . '/crontab-recent.txt');
+        $this->assertFileDoesNotExist($dir . '/crontab-recent.txt.gz');
+        $this->assertSame(0, $response['body']['crontab_backups_deleted']);
+    }
+
+    public function testRotateLogsReportsZeroCrontabBackupsWhenServiceNotConfigured(): void
+    {
+        $response = $this->controller->rotateLogs();
+
+        $this->assertSame(0, $response['body']['crontab_backups_deleted']);
+    }
+
+    public function testRunAllAlsoPrunesCrontabBackups(): void
+    {
+        $dir = $this->makeBackupDir();
+        $this->createOldFile($dir . '/crontab-old.txt', 31);
+
+        $response = $this->controllerWithCrontabBackups($dir)->runAll();
+
+        $this->assertFileDoesNotExist($dir . '/crontab-old.txt');
+        $this->assertSame(1, $response['body']['crontab_backups_deleted']);
     }
 
     // ========== Healthchecks Integration Tests ==========

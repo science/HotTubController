@@ -1,36 +1,51 @@
 #!/usr/bin/env python3
 """
-Fetch production logs and state files for debugging.
+Fetch production logs and state files for debugging (READ-ONLY).
 
-Downloads all relevant files from the production server via FTP+SSL
-and stores them locally for analysis.
+There is no HTTP endpoint for logs. This script downloads them from the
+production cPanel host over FTP+TLS and never writes to the server. Full
+documentation, including what every log contains: docs/production-logs.md.
 
-Usage:
-    python scripts/fetch-prod-logs.py                        # Full download
-    python scripts/fetch-prod-logs.py --since "2 hours ago"  # Recent files only
-    python scripts/fetch-prod-logs.py --since yesterday      # Since yesterday
-    python scripts/fetch-prod-logs.py --since "Jan 25 2pm"   # Since specific time
-    python scripts/fetch-prod-logs.py --list                 # List without downloading
+Credentials come from backend/config/env.network.conveniences
+(FTP_HOST, FTP_USERNAME, FTP_PASSWORD). That file is gitignored and local-only.
+
+Usage (from the repo root; plain python3, no packages required):
+    python3 backend/scripts/fetch-prod-logs.py --since "2 days ago"
+    python3 backend/scripts/fetch-prod-logs.py --since 2026-11-01 -o ~/dev/tmp/prod
+    python3 backend/scripts/fetch-prod-logs.py --list --since "6 hours ago"
+    python3 backend/scripts/fetch-prod-logs.py            # everything (~5,700 files)
 """
 
 import argparse
 import ftplib
 import gzip
+import re
 import ssl
 import sys
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import dateparser
+UTC = timezone.utc
 
-
-# Remote paths to download (relative to public_html/tub/backend/)
+# Remote paths to download, relative to public_html/tub/backend/.
+# Key = local subdirectory name under the output directory.
 REMOTE_PATHS = {
-    'logs': 'storage/logs',
+    'logs': 'storage/logs',               # api, cron, equipment-events, esp32, temperature-*
+    'device-calls': 'logs',               # events.log: every iot-api call and its HTTP result
     'state': 'storage/state',
     'crontab-backups': 'storage/crontab-backups',
     'scheduled-jobs': 'storage/scheduled-jobs',
 }
+
+BASE_PATH = '/public_html/tub/backend'
+
+
+@dataclass(frozen=True)
+class RemoteFile:
+    name: str
+    modified: datetime  # timezone-aware, UTC
+    size: int | None
 
 
 def parse_env_file(env_path: str) -> dict:
@@ -61,63 +76,78 @@ def connect_ftp(host: str, user: str, password: str) -> ftplib.FTP_TLS:
     return ftp
 
 
-def parse_ftp_list(line: str) -> tuple[str, datetime | None]:
+def parse_mlsd_modify(value: str) -> datetime:
     """
-    Parse a line from FTP LIST command to extract filename and modification time.
-
-    Example line: "-rw-r--r--    1 misuse     misuse         327697 Jan 25 11:42 api.log"
+    Parse an MLSD/MDTM 'modify' fact (YYYYMMDDHHMMSS[.fff]). RFC 3659 defines it
+    as UTC, unlike plain LIST output, which is in the server's local time zone.
     """
-    parts = line.split()
-    if len(parts) < 9:
-        return None, None
-
-    filename = ' '.join(parts[8:])  # Handle filenames with spaces
-
-    # Parse date - format is "Mon DD HH:MM" or "Mon DD  YYYY"
-    month_str = parts[5]
-    day = int(parts[6])
-    time_or_year = parts[7]
-
-    months = {'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-              'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12}
-    month = months.get(month_str, 1)
-
-    now = datetime.now()
-
-    if ':' in time_or_year:
-        # Recent file: "HH:MM" format, assume current year
-        hour, minute = map(int, time_or_year.split(':'))
-        year = now.year
-        # If the date is in the future, it's probably last year
-        mod_time = datetime(year, month, day, hour, minute)
-        if mod_time > now:
-            mod_time = datetime(year - 1, month, day, hour, minute)
-    else:
-        # Older file: year format
-        year = int(time_or_year)
-        mod_time = datetime(year, month, day)
-
-    return filename, mod_time
+    return datetime.strptime(value.split('.', 1)[0], '%Y%m%d%H%M%S').replace(tzinfo=UTC)
 
 
-def list_remote_files_with_times(ftp: ftplib.FTP_TLS, remote_dir: str) -> list[tuple[str, datetime | None]]:
-    """List files in a remote directory with modification times."""
+_RELATIVE = re.compile(r'^\s*(\d+)\s*(second|minute|hour|day|week)s?\s+ago\s*$', re.IGNORECASE)
+
+
+def parse_since(text: str, now: datetime | None = None, allow_dateparser: bool = True) -> datetime | None:
+    """
+    Turn a --since expression into a timezone-aware UTC datetime.
+
+    Built in (no packages needed):
+      "N seconds|minutes|hours|days|weeks ago", "yesterday" (24 h back),
+      ISO 8601 such as "2026-11-01", "2026-11-01 06:30", "2026-11-07T10:00-05:00".
+      An ISO value without a zone is read as this machine's local time.
+    Anything else ("Jan 25 2pm") is handed to the optional `dateparser` package
+    if it is installed. Returns None if nothing understood it.
+    """
+    now = now or datetime.now(UTC)
+    stripped = text.strip()
+
+    match = _RELATIVE.match(stripped)
+    if match:
+        amount, unit = int(match.group(1)), match.group(2).lower()
+        return now - timedelta(**{unit + 's': amount})
+
+    if stripped.lower() == 'yesterday':
+        return now - timedelta(days=1)
+
     try:
-        ftp.cwd(remote_dir)
-        lines = []
-        ftp.retrlines('LIST', lines.append)
+        parsed = datetime.fromisoformat(stripped)
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        if parsed.tzinfo is None:
+            parsed = parsed.astimezone()  # naive -> local time
+        return parsed.astimezone(UTC)
 
-        files = []
-        for line in lines:
-            if line.startswith('d'):  # Skip directories
-                continue
-            filename, mod_time = parse_ftp_list(line)
-            if filename and not filename.startswith('.'):
-                files.append((filename, mod_time))
-        return files
-    except ftplib.error_perm as e:
-        print(f"  Warning: Cannot access {remote_dir}: {e}")
-        return []
+    if allow_dateparser:
+        try:
+            import dateparser  # optional
+        except ImportError:
+            return None
+        parsed = dateparser.parse(stripped, settings={
+            'PREFER_DATES_FROM': 'past',
+            'RETURN_AS_TIMEZONE_AWARE': True,
+        })
+        if parsed is not None:
+            return parsed.astimezone(UTC)
+
+    return None
+
+
+def list_remote_files(ftp, remote_dir: str) -> list[RemoteFile]:
+    """
+    List regular files in a remote directory with UTC modification times.
+
+    Uses MLSD rather than LIST: LIST prints times in the server's local zone with
+    no zone marker and no year for recent files, which is what made --since skip
+    the live logs (see the regression test in test_fetch_prod_logs.py).
+    """
+    files = []
+    for name, facts in ftp.mlsd(remote_dir, facts=['type', 'size', 'modify']):
+        if facts.get('type') != 'file' or name.startswith('.'):
+            continue
+        size = int(facts['size']) if 'size' in facts else None
+        files.append(RemoteFile(name, parse_mlsd_modify(facts['modify']), size))
+    return sorted(files, key=lambda f: f.name)
 
 
 def download_file(ftp: ftplib.FTP_TLS, remote_path: str, local_path: Path) -> bool:
@@ -148,10 +178,9 @@ def decompress_gzip(gz_path: Path) -> Path:
         return gz_path
 
 
-def format_time_ago(dt: datetime) -> str:
-    """Format a datetime as a human-readable 'time ago' string."""
-    now = datetime.now()
-    diff = now - dt
+def format_time_ago(dt: datetime, now: datetime | None = None) -> str:
+    """Format an aware datetime as a human-readable 'time ago' string."""
+    diff = (now or datetime.now(UTC)) - dt
 
     if diff.days > 0:
         return f"{diff.days}d ago"
@@ -171,13 +200,12 @@ def fetch_logs(env_path: str, output_dir: Path, since: datetime | None = None,
     Args:
         env_path: Path to the local credential file holding FTP_*
         output_dir: Local directory to save files
-        since: Only download files modified after this time (None = all files)
+        since: Only download files modified after this aware UTC time (None = all)
         list_only: If True, just list files without downloading
         decompress: If True, decompress .gz files after download
 
     Returns dict with download statistics.
     """
-    # Parse credentials
     creds = parse_env_file(env_path)
     host = creds.get('FTP_HOST', '')
     user = creds.get('FTP_USERNAME', '')
@@ -192,48 +220,46 @@ def fetch_logs(env_path: str, output_dir: Path, since: datetime | None = None,
 
     print(f"Connecting to {host} as {user}...")
     if since:
-        print(f"Filtering: files modified since {since.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Filtering: files modified since {since.astimezone():%Y-%m-%d %H:%M:%S %Z} "
+              f"({since:%Y-%m-%d %H:%M:%S} UTC)")
     ftp = connect_ftp(host, user, password)
 
-    base_path = '/public_html/tub/backend'
     stats = {'downloaded': 0, 'skipped': 0, 'failed': 0, 'bytes': 0}
 
     for category, remote_subdir in REMOTE_PATHS.items():
-        print(f"\n{'Listing' if list_only else 'Downloading'} {category}/")
+        print(f"\n{'Listing' if list_only else 'Downloading'} {category}/  ({remote_subdir}/)")
 
-        remote_dir = f'{base_path}/{remote_subdir}'
-        files = list_remote_files_with_times(ftp, remote_dir)
+        remote_dir = f'{BASE_PATH}/{remote_subdir}'
+        try:
+            files = list_remote_files(ftp, remote_dir)
+        except ftplib.error_perm as e:
+            print(f"  Warning: Cannot list {remote_dir}: {e}")
+            continue
 
         if not files:
             print("  (no files)")
             continue
 
-        for filename, mod_time in sorted(files, key=lambda x: x[0]):
-            # Filter by modification time if --since was specified
-            if since and mod_time and mod_time < since:
+        for remote in files:
+            if since and remote.modified < since:
                 stats['skipped'] += 1
                 continue
 
-            local_file = output_dir / category / filename
-            time_str = format_time_ago(mod_time) if mod_time else "?"
+            time_str = format_time_ago(remote.modified)
 
             if list_only:
-                try:
-                    size = ftp.size(filename)
-                    print(f"  {filename} ({size:,} bytes, {time_str})")
-                except:
-                    print(f"  {filename} ({time_str})")
+                size_str = f"{remote.size:,} bytes, " if remote.size is not None else ""
+                print(f"  {remote.name} ({size_str}{time_str})")
                 continue
 
-            # Download the file
-            if download_file(ftp, filename, local_file):
+            local_file = output_dir / category / remote.name
+            if download_file(ftp, f'{remote_dir}/{remote.name}', local_file):
                 size = local_file.stat().st_size
                 stats['downloaded'] += 1
                 stats['bytes'] += size
-                print(f"  {filename} ({size:,} bytes, {time_str})")
+                print(f"  {remote.name} ({size:,} bytes, {time_str})")
 
-                # Decompress .gz files
-                if decompress and filename.endswith('.gz'):
+                if decompress and remote.name.endswith('.gz'):
                     decompressed = decompress_gzip(local_file)
                     if decompressed != local_file:
                         print(f"    -> decompressed to {decompressed.name}")
@@ -246,20 +272,24 @@ def fetch_logs(env_path: str, output_dir: Path, since: datetime | None = None,
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Fetch production logs for debugging',
+        description='Fetch production logs and state for debugging (read-only FTP). '
+                    'See docs/production-logs.md.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python scripts/fetch-prod-logs.py                        # Full download
-  python scripts/fetch-prod-logs.py --since "2 hours ago"  # Last 2 hours
-  python scripts/fetch-prod-logs.py --since yesterday      # Since yesterday
-  python scripts/fetch-prod-logs.py --since "Jan 25 2pm"   # Since specific time
-  python scripts/fetch-prod-logs.py --list                 # List files only
-  python scripts/fetch-prod-logs.py --list --since "1 day ago"  # List recent
+  python3 backend/scripts/fetch-prod-logs.py --since "2 hours ago"
+  python3 backend/scripts/fetch-prod-logs.py --since "21 days ago" -o ~/dev/tmp/prod
+  python3 backend/scripts/fetch-prod-logs.py --since 2026-11-01        # local midnight
+  python3 backend/scripts/fetch-prod-logs.py --list --since yesterday
+  python3 backend/scripts/fetch-prod-logs.py                           # everything
+
+--since filters on each file's modification time, so a daily log that was
+appended to recently is fetched whole. Free-form dates ("Jan 25 2pm") need
+the optional `dateparser` package; the forms above do not.
         """
     )
     parser.add_argument('--since', type=str,
-                        help='Only files modified after this time (e.g., "2 hours ago", "yesterday")')
+                        help='Only files modified after this time ("2 hours ago", "yesterday", "2026-11-01 06:30")')
     parser.add_argument('--list', action='store_true',
                         help='List remote files without downloading')
     parser.add_argument('--no-decompress', action='store_true',
@@ -269,19 +299,16 @@ Examples:
 
     args = parser.parse_args()
 
-    # Parse --since argument using dateparser
     since = None
     if args.since:
-        since = dateparser.parse(args.since, settings={
-            'PREFER_DATES_FROM': 'past',
-            'RETURN_AS_TIMEZONE_AWARE': False,
-        })
+        since = parse_since(args.since)
         if since is None:
             print(f"Error: Could not parse time expression: '{args.since}'")
-            print("Examples: '2 hours ago', 'yesterday', '3 days ago', 'Jan 25 2pm'")
+            print("Examples: '2 hours ago', '3 days ago', 'yesterday', '2026-11-01', '2026-11-01 06:30'")
+            print("(Free-form dates like 'Jan 25 2pm' need: pip install dateparser)")
             sys.exit(1)
 
-    # Determine paths. FTP credentials moved out of env.production on 2026-08-11
+    # FTP credentials moved out of env.production on 2026-08-11
     # (config/env.network.conveniences) so that env.production holds only keys the
     # deployed backend actually reads. Fall back to env.production for checkouts
     # that predate the split.
@@ -298,9 +325,8 @@ Examples:
         print("  Expected env.network.conveniences (holds FTP_HOST/USERNAME/PASSWORD)")
         sys.exit(1)
 
-    # Create output directory
     if args.output:
-        output_dir = Path(args.output)
+        output_dir = Path(args.output).expanduser()
     else:
         timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
         output_dir = Path(f'/tmp/prod-debug-{timestamp}')
@@ -309,7 +335,6 @@ Examples:
         output_dir.mkdir(parents=True, exist_ok=True)
         print(f"Output directory: {output_dir}")
 
-    # Fetch logs
     stats = fetch_logs(
         env_path=str(env_path),
         output_dir=output_dir,
@@ -318,10 +343,9 @@ Examples:
         decompress=not args.no_decompress
     )
 
-    # Print summary
     if not args.list:
         print(f"\n{'='*50}")
-        print(f"Download complete!")
+        print("Download complete!")
         print(f"  Files downloaded: {stats['downloaded']}")
         if stats['skipped']:
             print(f"  Files skipped (older than --since): {stats['skipped']}")
@@ -329,10 +353,11 @@ Examples:
         if stats['failed']:
             print(f"  Failed: {stats['failed']}")
         print(f"\nFiles saved to: {output_dir}")
-        print(f"\nQuick commands:")
-        print(f"  grep -r 'heat-target' {output_dir}/logs/")
-        print(f"  cat {output_dir}/state/target-temperature.json")
-        print(f"  ls -la {output_dir}/crontab-backups/")
+        print("\nWhat each file means: docs/production-logs.md")
+        print("Quick looks:")
+        print(f"  tail {output_dir}/logs/equipment-events.log        # heater on/off, stalls, dynamic targets")
+        print(f"  tail {output_dir}/device-calls/events.log          # each iot-api call + HTTP result")
+        print(f"  grep heat-target {output_dir}/logs/cron.log | tail  # the check chain")
 
 
 if __name__ == '__main__':

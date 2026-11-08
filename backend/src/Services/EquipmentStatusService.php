@@ -12,6 +12,7 @@ class EquipmentStatusService
 
     private ?string $eventLogFile;
     private ?Esp32TemperatureService $temperatureService;
+    private ?Esp32SensorConfigService $sensorConfig = null;
 
     public function __construct(
         private string $statusFile,
@@ -25,11 +26,18 @@ class EquipmentStatusService
     /**
      * Enable equipment event logging (for heater on/off events).
      * Called after construction to break circular dependency with Esp32TemperatureService.
+     *
+     * Pass the sensor config so entries record the water-role sensor and its offset;
+     * without it the legacy top-level temp_f (= first sensor) is logged with a null offset.
      */
-    public function enableEventLogging(string $eventLogFile, Esp32TemperatureService $temperatureService): void
-    {
+    public function enableEventLogging(
+        string $eventLogFile,
+        Esp32TemperatureService $temperatureService,
+        ?Esp32SensorConfigService $sensorConfig = null
+    ): void {
         $this->eventLogFile = $eventLogFile;
         $this->temperatureService = $temperatureService;
+        $this->sensorConfig = $sensorConfig;
     }
 
     public function getStatus(): array
@@ -87,6 +95,34 @@ class EquipmentStatusService
     }
 
     /**
+     * Raw water reading + offset in force, per the TemperatureLogFields convention.
+     *
+     * @return array{temp_f: ?float, calibration_offset_c: ?float}
+     */
+    private function currentWaterReading(): array
+    {
+        $latest = $this->temperatureService?->getLatest();
+        if ($latest === null) {
+            return ['temp_f' => null, 'calibration_offset_c' => null];
+        }
+
+        if ($this->sensorConfig !== null) {
+            $water = TemperatureLogFields::forRole(
+                $latest['sensors'] ?? [],
+                $this->sensorConfig->getAllSensors(),
+                'water'
+            );
+            if ($water['temp_f'] !== null) {
+                return $water;
+            }
+        }
+
+        // No config, or no water sensor in this reading: legacy first-sensor value,
+        // offset unknown.
+        return ['temp_f' => $latest['temp_f'] ?? null, 'calibration_offset_c' => null];
+    }
+
+    /**
      * Append an equipment event to the JSONL event log.
      */
     private function logEquipmentEvent(string $equipment, string $action): void
@@ -95,19 +131,14 @@ class EquipmentStatusService
             return;
         }
 
-        $waterTempF = null;
-        if ($this->temperatureService !== null) {
-            $latest = $this->temperatureService->getLatest();
-            if ($latest !== null) {
-                $waterTempF = $latest['temp_f'] ?? null;
-            }
-        }
+        $water = $this->currentWaterReading();
 
         $logEntry = json_encode([
             'timestamp' => date('c'),
             'equipment' => $equipment,
             'action' => $action,
-            'water_temp_f' => $waterTempF,
+            'water_temp_f' => $water['temp_f'],
+            'water_calibration_offset_c' => $water['calibration_offset_c'],
         ]) . "\n";
 
         $dir = dirname($this->eventLogFile);

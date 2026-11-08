@@ -1029,6 +1029,40 @@ class TargetTemperatureServiceTest extends TestCase
         $this->assertFalse($dynamicLogEntry['fallback']);
     }
 
+    /**
+     * The dynamic-start entry logs the RAW ambient reading plus the offset in force.
+     * The curve itself is fed the calibrated value, so computed_target_f must reflect
+     * raw + offset, not the logged raw number.
+     */
+    public function testDynamicStartLogsRawAmbientAndCalibrationOffset(): void
+    {
+        $logFile = sys_get_temp_dir() . '/test_equip_events_' . uniqid() . '.log';
+        $this->dynamicSettingsFiles[] = $logFile;
+
+        $heatSettings = $this->createDynamicHeatTargetSettings(true);
+        $service = $this->createServiceWithDynamic($heatSettings, $logFile);
+
+        // Raw ambient 52.5°F with a -1°C (-1.8°F) offset -> curve sees 50.7°F.
+        $this->storeEsp32ReadingWithAmbient(90.0, 52.5);
+        $this->esp32Config->setCalibrationOffset('28:BB:CC:DD:EE:FF:00:11', -1.0);
+        $this->mockIfttt->expects($this->atLeastOnce())->method('trigger');
+
+        $service->start(102.0);
+
+        $entry = null;
+        foreach (array_filter(explode("\n", trim(file_get_contents($logFile)))) as $line) {
+            $decoded = json_decode($line, true);
+            if (($decoded['action'] ?? '') === 'dynamic_heat_target_start') {
+                $entry = $decoded;
+            }
+        }
+        $this->assertNotNull($entry);
+        $this->assertEqualsWithDelta(52.5, $entry['ambient_temp_f'], 0.0001);
+        $this->assertEqualsWithDelta(-1.0, $entry['ambient_calibration_offset_c'], 0.0001);
+        // Curve: 45°F->104, 60°F->102. At 50.7°F: 104 - (5.7/15)*2 = 103.24
+        $this->assertEqualsWithDelta(103.24, $entry['computed_target_f'], 0.01);
+    }
+
     public function testDynamicFallbackLogsCorrectAction(): void
     {
         $logFile = sys_get_temp_dir() . '/test_equip_events_' . uniqid() . '.log';

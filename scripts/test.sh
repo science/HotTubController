@@ -253,6 +253,11 @@ do_backend() {
         php vendor/bin/phpunit
     fi
 
+    # Operator tooling (backend/scripts/*.py, e.g. fetch-prod-logs.py): stdlib
+    # unittest, no network. -I isolates from the cwd; -B writes no __pycache__.
+    info "Running backend script tests (Python)..."
+    python3 -I -B -m unittest discover -s scripts -p 'test_*.py'
+
     success "Backend tests complete"
 }
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTub\Tests\Services;
 
 use HotTub\Services\EquipmentStatusService;
+use HotTub\Services\Esp32SensorConfigService;
 use HotTub\Services\Esp32TemperatureService;
 use PHPUnit\Framework\TestCase;
 
@@ -30,10 +31,8 @@ class EquipmentStatusServiceTest extends TestCase
     protected function tearDown(): void
     {
         // Clean up test files
-        if (file_exists($this->testStatusFile)) {
-            unlink($this->testStatusFile);
-        }
         if (is_dir($this->testStorageDir)) {
+            array_map('unlink', glob($this->testStorageDir . '/*') ?: []);
             rmdir($this->testStorageDir);
         }
     }
@@ -331,6 +330,71 @@ class EquipmentStatusServiceTest extends TestCase
         $this->assertEquals('heater', $entry['equipment']);
         $this->assertEquals('off', $entry['action']);
         $this->assertEqualsWithDelta(104.0, $entry['water_temp_f'], 0.1);
+    }
+
+    /**
+     * @test
+     * With sensor config, heater events log the WATER-role sensor's raw reading
+     * plus its calibration offset — not whichever sensor happens to be first.
+     */
+    public function heaterEventLogsWaterSensorRawTempAndCalibrationOffset(): void
+    {
+        $eventLogFile = $this->testStorageDir . '/equipment-events.log';
+        $tempFile = $this->testStorageDir . '/esp32-temperature.json';
+        $configFile = $this->testStorageDir . '/esp32-sensor-config.json';
+
+        file_put_contents($configFile, json_encode(['sensors' => [
+            '28:AMB' => ['role' => 'ambient', 'calibration_offset' => -1.0],
+            '28:WAT' => ['role' => 'water', 'calibration_offset' => 0.4],
+        ]]));
+        file_put_contents($tempFile, json_encode([
+            'device_id' => 'TEST',
+            'sensors' => [
+                ['address' => '28:AMB', 'temp_c' => 17.0, 'temp_f' => 62.6],
+                ['address' => '28:WAT', 'temp_c' => 39.0, 'temp_f' => 102.2],
+            ],
+            'timestamp' => date('c'),
+            'received_at' => time(),
+            'temp_f' => 62.6, // legacy field = sensors[0] = the AMBIENT probe
+        ]));
+
+        $service = new EquipmentStatusService($this->testStatusFile);
+        $service->enableEventLogging(
+            $eventLogFile,
+            new Esp32TemperatureService($tempFile),
+            new Esp32SensorConfigService($configFile)
+        );
+        $service->setHeaterOff();
+
+        $entry = json_decode(trim(file_get_contents($eventLogFile)), true);
+        $this->assertEqualsWithDelta(102.2, $entry['water_temp_f'], 0.0001);
+        $this->assertEqualsWithDelta(0.4, $entry['water_calibration_offset_c'], 0.0001);
+    }
+
+    /**
+     * @test
+     * Without sensor config the offset in force is unknown, so it is logged as null
+     * rather than a misleading 0.
+     */
+    public function heaterEventLogsNullOffsetWhenSensorConfigUnavailable(): void
+    {
+        $eventLogFile = $this->testStorageDir . '/equipment-events.log';
+        $tempFile = $this->testStorageDir . '/esp32-temperature.json';
+        file_put_contents($tempFile, json_encode([
+            'device_id' => 'TEST',
+            'sensors' => [['address' => '28:AA', 'temp_c' => 38.5, 'temp_f' => 101.3]],
+            'timestamp' => date('c'),
+            'received_at' => time(),
+            'temp_f' => 101.3,
+        ]));
+
+        $service = new EquipmentStatusService($this->testStatusFile, $eventLogFile, new Esp32TemperatureService($tempFile));
+        $service->setHeaterOn();
+
+        $entry = json_decode(trim(file_get_contents($eventLogFile)), true);
+        $this->assertEqualsWithDelta(101.3, $entry['water_temp_f'], 0.0001);
+        $this->assertArrayHasKey('water_calibration_offset_c', $entry);
+        $this->assertNull($entry['water_calibration_offset_c']);
     }
 
     /**

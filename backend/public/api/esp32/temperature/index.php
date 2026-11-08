@@ -26,8 +26,10 @@ declare(strict_types=1);
 
 // Include the handler directly - no autoloader needed
 require_once __DIR__ . '/../../../../src/Services/Esp32ThinHandler.php';
+require_once __DIR__ . '/../../../../src/Services/TemperatureLogFields.php';
 
 use HotTub\Services\Esp32ThinHandler;
+use HotTub\Services\TemperatureLogFields;
 
 // Configuration paths (relative to backend root)
 $backendRoot = __DIR__ . '/../../../..';
@@ -74,7 +76,8 @@ $postData = json_decode(file_get_contents('php://input'), true) ?? [];
 // Handle request
 $result = $handler->handle($postData, $apiKey, $method);
 
-// Append to daily temperature history log (for heating analysis)
+// Append to daily temperature history log (for heating analysis).
+// Raw readings + the calibration offset in force; layout owned by TemperatureLogFields.
 if ($result['status'] === 200 && !empty($postData['sensors'])) {
     $sensorConfigFile = $backendRoot . '/storage/state/esp32-sensor-config.json';
     $sensorConfig = [];
@@ -83,41 +86,15 @@ if ($result['status'] === 200 && !empty($postData['sensors'])) {
         $sensorConfig = $sensorConfigData['sensors'] ?? [];
     }
 
-    $waterTempF = null;
-    $waterTempC = null;
-    $ambientTempF = null;
-    $ambientTempC = null;
-
-    foreach ($postData['sensors'] as $sensor) {
-        $address = $sensor['address'] ?? '';
-        $role = $sensorConfig[$address]['role'] ?? 'unassigned';
-        $tempC = (float)($sensor['temp_c'] ?? 0);
-        $tempF = isset($sensor['temp_f']) ? (float)$sensor['temp_f'] : $tempC * 9.0 / 5.0 + 32.0;
-
-        if ($role === 'water') {
-            $waterTempC = $tempC;
-            $waterTempF = $tempF;
-        } elseif ($role === 'ambient') {
-            $ambientTempC = $tempC;
-            $ambientTempF = $tempF;
-        }
-    }
-
-    // Check heater state
     $heaterOn = false;
     if (file_exists($equipmentStatusFile)) {
         $eqStatus = json_decode(file_get_contents($equipmentStatusFile), true);
         $heaterOn = $eqStatus['heater']['on'] ?? false;
     }
 
-    $tempLogEntry = json_encode([
-        'timestamp' => date('c'),
-        'water_temp_f' => $waterTempF,
-        'water_temp_c' => $waterTempC,
-        'ambient_temp_f' => $ambientTempF,
-        'ambient_temp_c' => $ambientTempC,
-        'heater_on' => $heaterOn,
-    ]) . "\n";
+    $tempLogEntry = json_encode(
+        TemperatureLogFields::temperatureLogEntry($postData['sensors'], $sensorConfig, (bool) $heaterOn)
+    ) . "\n";
 
     $tempLogFile = $backendRoot . '/storage/logs/temperature-' . date('Y-m-d') . '.log';
     @file_put_contents($tempLogFile, $tempLogEntry, FILE_APPEND | LOCK_EX);

@@ -154,6 +154,31 @@ class Esp32TemperatureServiceTest extends TestCase
 
     /**
      * @test
+     * The log keeps the RAW reading and records the offset in force alongside it,
+     * so calibrated = raw + offset can be reconstructed later.
+     */
+    public function storeLogsCalibrationOffsetsAlongsideRawTemps(): void
+    {
+        $this->createSensorConfig([
+            '28:AA:BB:CC:DD:EE:FF:00' => ['role' => 'water', 'calibration_offset' => 0.4, 'name' => 'Water'],
+            '28:11:22:33:44:55:66:77' => ['role' => 'ambient', 'calibration_offset' => -1.0, 'name' => 'Ambient'],
+        ]);
+
+        $service = $this->createServiceWithLogging();
+        $service->store($this->getSampleSensorData());
+
+        $logFile = $this->temperatureLogDir . '/temperature-' . date('Y-m-d') . '.log';
+        $lines = array_filter(explode("\n", file_get_contents($logFile)));
+        $entry = json_decode($lines[0], true);
+
+        $this->assertEqualsWithDelta(38.5, $entry['water_temp_c'], 0.0001, 'water temp must stay raw');
+        $this->assertEqualsWithDelta(0.4, $entry['water_calibration_offset_c'], 0.0001);
+        $this->assertEqualsWithDelta(21.0, $entry['ambient_temp_c'], 0.0001, 'ambient temp must stay raw');
+        $this->assertEqualsWithDelta(-1.0, $entry['ambient_calibration_offset_c'], 0.0001);
+    }
+
+    /**
+     * @test
      * Temperature log should record heater state as true when heater is on.
      */
     public function storeLogsHeaterOnState(): void

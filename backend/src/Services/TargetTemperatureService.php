@@ -35,6 +35,19 @@ class TargetTemperatureService
     // This accounts for C→F conversion precision and sensor accuracy
     private const TEMP_TOLERANCE_F = 0.1;
 
+    /**
+     * Most device calls (iot-api requests) a single cron-driven request can chain
+     * when every one of them fails slowly. The worst path is a scheduled
+     * heat-to-target start: reapIfExpired() commands heater-off (1); its failure
+     * leaves the heater marked on, so the first check — finding the water already
+     * at target — commands heater-off again (2), and stop() retries it once more
+     * because the status still says on (3).
+     *
+     * cron-runner.sh sizes its curl ceiling from this; CronRunnerTimeoutTest
+     * keeps the two in step.
+     */
+    public const MAX_DEVICE_CALLS_PER_REQUEST = 3;
+
     private string $stateFile;
     private ?HeaterControlService $heaterControl;
     private ?EquipmentStatusService $equipmentStatus;
@@ -187,8 +200,9 @@ class TargetTemperatureService
 
     /**
      * @param bool $commandHeaterOff Pass false when the caller has just attempted a
-     *                               heater-off itself. Two device calls would risk
-     *                               cron-runner.sh's 30s budget at 15s apiece.
+     *                               heater-off itself and a second device call would
+     *                               only repeat it. Every extra call in one request
+     *                               counts against MAX_DEVICE_CALLS_PER_REQUEST.
      */
     public function stop(bool $commandHeaterOff = true): void
     {
@@ -582,7 +596,7 @@ class TargetTemperatureService
         );
 
         // Log to equipment event log
-        $this->logStallEvent($currentTempF);
+        $this->logStallEvent();
 
         // Write stall event file
         $this->writeStallEventFile($currentTempF, $targetTempF, $reason);
@@ -605,17 +619,21 @@ class TargetTemperatureService
     /**
      * Log a stall event to the equipment event log (JSONL).
      */
-    private function logStallEvent(float $currentTempF): void
+    private function logStallEvent(): void
     {
         if ($this->equipmentEventLogFile === null) {
             return;
         }
 
+        // The stall decision used the calibrated temp; the log records raw +
+        // offset like every other entry (see TemperatureLogFields).
+        $water = $this->rawReadingForLog('water');
         $logEntry = json_encode([
             'timestamp' => date('c'),
             'equipment' => 'heater',
             'action' => 'stall_detected',
-            'water_temp_f' => $currentTempF,
+            'water_temp_f' => $water['temp_f'],
+            'water_calibration_offset_c' => $water['calibration_offset_c'],
         ]) . "\n";
 
         $dir = dirname($this->equipmentEventLogFile);
@@ -1068,6 +1086,36 @@ class TargetTemperatureService
         return $latest['temp_f'] ?? null;
     }
 
+    /**
+     * Raw reading + calibration offset of a role sensor, for log entries
+     * (see TemperatureLogFields for the convention). Decisions use the
+     * getCalibrated*TempF() helpers; this is only what gets written down.
+     *
+     * Water falls back to the legacy first-sensor temp_f with a null (unknown)
+     * offset, mirroring getCalibratedWaterTempF()'s own fallback.
+     *
+     * @return array{temp_f: ?float, temp_c: ?float, calibration_offset_c: ?float}
+     */
+    private function rawReadingForLog(string $role): array
+    {
+        $latest = $this->esp32Temp?->getLatest();
+        $reading = ['temp_f' => null, 'temp_c' => null, 'calibration_offset_c' => null];
+
+        if ($latest !== null && $this->esp32Config !== null) {
+            $reading = TemperatureLogFields::forRole(
+                $latest['sensors'] ?? [],
+                $this->esp32Config->getAllSensors(),
+                $role
+            );
+        }
+
+        if ($reading['temp_f'] === null && $role === 'water' && $latest !== null) {
+            $reading['temp_f'] = isset($latest['temp_f']) ? (float) $latest['temp_f'] : null;
+        }
+
+        return $reading;
+    }
+
     private function celsiusToFahrenheit(float $celsius): float
     {
         return $celsius * 9.0 / 5.0 + 32.0;
@@ -1228,11 +1276,18 @@ class TargetTemperatureService
             ? 'dynamic_heat_target_fallback'
             : 'dynamic_heat_target_start';
 
+        $ambient = $dynamicTargetInfo['fallback']
+            ? ['temp_f' => null, 'calibration_offset_c' => null]
+            : $this->rawReadingForLog('ambient');
+
         $logEntry = [
             'timestamp' => date('c'),
             'equipment' => 'heater',
             'action' => $action,
-            'ambient_temp_f' => $dynamicTargetInfo['ambient_temp_f'],
+            // Raw reading + offset in force. computed_target_f was derived from the
+            // calibrated value: raw °F + offset × 1.8.
+            'ambient_temp_f' => $ambient['temp_f'],
+            'ambient_calibration_offset_c' => $ambient['calibration_offset_c'],
             'computed_target_f' => $dynamicTargetInfo['computed_target_f'],
             'static_target_f' => $dynamicTargetInfo['static_target_f'],
             'calibration_points' => $calibrationPoints,

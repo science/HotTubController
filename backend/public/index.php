@@ -123,8 +123,9 @@ $temperatureLogDir = __DIR__ . '/../storage/logs';
 $esp32TemperatureService = new Esp32TemperatureService($esp32TemperatureFile, $equipmentStatusService);
 $esp32SensorConfigService = new Esp32SensorConfigService($esp32ConfigFile);
 
-// Enable equipment event logging now that temperature service exists
-$equipmentStatusService->enableEventLogging($equipmentEventLogFile, $esp32TemperatureService);
+// Enable equipment event logging now that temperature service exists.
+// Sensor config lets entries record the water-role sensor's raw reading + offset.
+$equipmentStatusService->enableEventLogging($equipmentEventLogFile, $esp32TemperatureService, $esp32SensorConfigService);
 $esp32CalibratedService = new Esp32CalibratedTemperatureService($esp32TemperatureService, $esp32SensorConfigService);
 $esp32SensorConfigController = new Esp32SensorConfigController($esp32SensorConfigService, $esp32TemperatureService);
 
@@ -224,7 +225,8 @@ $maintenanceController = new MaintenanceController(
     $logsDir,
     $healthchecksClient,
     $logRotationPingUrl,
-    $jobsCleanupService
+    $jobsCleanupService,
+    $crontabBackupService
 );
 
 // Parse request URI

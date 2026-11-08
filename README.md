@@ -2,6 +2,8 @@
 
 A web-based automation system for intelligent hot tub temperature management and equipment control. Control your hot tub heater, pump, and ionizer remotely via a mobile-friendly web interface with scheduling, temperature monitoring, predictive heating, and safety features.
 
+**Docs:** [Production logs — fetching and reading them](docs/production-logs.md) (there is no log HTTP API; logs are read over read-only FTP with `backend/scripts/fetch-prod-logs.py`)
+
 ## Why Use This?
 
 If you have a hot tub without built-in smart controls, this project lets you:
@@ -493,9 +495,14 @@ Due to the low cost host, "real" deployment techniques may not be available. Cur
 
 ## Logging & Monitoring
 
+**Reading production logs:** see [docs/production-logs.md](docs/production-logs.md). It
+covers how to fetch them (`python3 backend/scripts/fetch-prod-logs.py --since "2 days ago"`,
+read-only FTP, no packages needed), what every log and state file contains, time zones,
+and how calibrated temperatures relate to the raw values in the logs.
+
 ### Request Logging
 
-All API requests are logged in JSON Lines format to `backend/storage/logs/api-requests-*.jsonl`:
+All API requests are logged in JSON Lines format to `backend/storage/logs/api.log`:
 - Timestamp, IP address, HTTP method, URI
 - Response status and duration
 - Authenticated username (if applicable)
@@ -503,16 +510,19 @@ All API requests are logged in JSON Lines format to `backend/storage/logs/api-re
 ### Equipment Event Logging
 
 All heater/pump actions are recorded to `backend/storage/logs/equipment-events.log`:
-- Heater on/off events with water temperature at time of action
-- Stall detection events
+- Heater on/off events with the raw water temperature and the calibration offset in force
+- Stall detection, session expiry, and dynamic (ambient-curve) target decisions
 - Used by the heating characteristics analysis
+
+Every hardware command and its HTTP result is recorded separately in
+`backend/logs/events.log` (note: not under `storage/`).
 
 ### Log Rotation
 
-Automated log rotation runs monthly via cron:
-- Compress logs older than 30 days
-- Delete compressed logs older than 6 months
-- Crontab backups follow the same retention policy
+Automated log rotation runs monthly via cron (`log-rotation-cron.sh` → `POST /api/maintenance/logs/rotate`):
+- Compress logs untouched for 30 days
+- Delete them after 2 years (kept for long-term heating trends; about 3 KB per day gzipped)
+- Delete crontab backups older than 30 days
 
 ### Healthchecks.io Integration (Optional)
 

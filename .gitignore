@@ -3,3 +3,6 @@ docs/reference/Tasker-backup*.xml*
 
 # Temporary files and plans
 tmp/
+
+# Python bytecode (backend/scripts tooling)
+__pycache__/

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HotTub\Controllers;
 
 use HotTub\Contracts\HealthchecksClientInterface;
+use HotTub\Services\CrontabBackupService;
 use HotTub\Services\LogRotationService;
 use HotTub\Services\ScheduledJobsCleanupService;
 
@@ -17,14 +18,29 @@ use HotTub\Services\ScheduledJobsCleanupService;
 class MaintenanceController
 {
     private const DAYS_TO_COMPRESS = 30;
-    private const DAYS_TO_DELETE = 180; // 6 months
+
+    /**
+     * Two years. Old temperature logs are the only record of how fast the tub
+     * heated in past seasons, which is how a slowly scaling heater element
+     * would show up. Gzipped they cost about 3 KB per day (~2.2 MB for two years).
+     */
+    private const DAYS_TO_DELETE = 730;
+
+    /**
+     * Crontab backups (one per crontab edit, ~17 a day) only help debug recent
+     * scheduling problems. This runs monthly, so 30–60 days are on hand at any time.
+     * Compression is skipped (compress threshold = delete threshold): each file
+     * is ~500 bytes, and plain text stays greppable.
+     */
+    private const CRONTAB_BACKUP_DAYS_TO_KEEP = 30;
 
     public function __construct(
         private LogRotationService $logRotationService,
         private string $logsDirectory,
         private ?HealthchecksClientInterface $healthchecksClient = null,
         private ?string $healthcheckPingUrl = null,
-        private ?ScheduledJobsCleanupService $jobsCleanupService = null
+        private ?ScheduledJobsCleanupService $jobsCleanupService = null,
+        private ?CrontabBackupService $crontabBackupService = null
     ) {}
 
     /**
@@ -32,7 +48,8 @@ class MaintenanceController
      *
      * Policy:
      * - Compress .log files older than 30 days
-     * - Delete .log/.log.gz files older than 6 months (180 days)
+     * - Delete .log/.log.gz files older than 2 years (730 days)
+     * - Delete crontab backups older than 30 days (when the backup service is wired)
      *
      * On success, pings Healthchecks.io to signal the job completed.
      *
@@ -46,6 +63,7 @@ class MaintenanceController
             self::DAYS_TO_COMPRESS,
             self::DAYS_TO_DELETE
         );
+        $crontabBackupsDeleted = $this->pruneCrontabBackups();
 
         // Ping Healthchecks.io on successful completion
         $healthcheckPinged = $this->pingHealthcheck();
@@ -56,6 +74,7 @@ class MaintenanceController
                 'timestamp' => date('c'),
                 'compressed' => $result['compressed'],
                 'deleted' => $result['deleted'],
+                'crontab_backups_deleted' => $crontabBackupsDeleted,
                 'healthcheck_pinged' => $healthcheckPinged,
             ],
         ];
@@ -128,6 +147,8 @@ class MaintenanceController
             'skipped_invalid' => [],
         ];
 
+        $crontabBackupsDeleted = $this->pruneCrontabBackups();
+
         // Ping Healthchecks.io on successful completion
         $healthcheckPinged = $this->pingHealthcheck();
 
@@ -145,9 +166,28 @@ class MaintenanceController
                     'skipped_recent' => $jobsResult['skipped_recent'],
                     'skipped_invalid' => $jobsResult['skipped_invalid'],
                 ],
+                'crontab_backups_deleted' => $crontabBackupsDeleted,
                 'healthcheck_pinged' => $healthcheckPinged,
             ],
         ];
+    }
+
+    /**
+     * Delete crontab backups past retention.
+     *
+     * @return int How many were deleted. A count rather than paths, because
+     *             log-rotation-cron.sh copies the response body into cron.log.
+     */
+    private function pruneCrontabBackups(): int
+    {
+        if ($this->crontabBackupService === null) {
+            return 0;
+        }
+
+        return count($this->crontabBackupService->cleanup(
+            self::CRONTAB_BACKUP_DAYS_TO_KEEP,
+            self::CRONTAB_BACKUP_DAYS_TO_KEEP
+        ));
     }
 
     /**
